@@ -25,8 +25,34 @@ You need a Firebase project to store the shared blocks. It is free for this use 
    rules_version = '2';
    service cloud.firestore {
      match /databases/{database}/documents {
+
+       // User profiles, one doc per S#.
+       match /users/{sNumber} {
+         // Anyone can read a profile (so contact info can show on blocks).
+         allow read: if true;
+
+         // Create: only when the doc id matches a valid S# and the body is well-formed.
+         allow create: if sNumber.matches('^S[0-9]{5}$')
+           && request.resource.data.sNumber == sNumber
+           && request.resource.data.name is string
+           && request.resource.data.name.size() > 0
+           && request.resource.data.phone is string
+           && request.resource.data.phone.size() >= 10;
+
+         // Update: allow name/phone edits; keep sNumber stable.
+         allow update: if sNumber.matches('^S[0-9]{5}$')
+           && request.resource.data.sNumber == sNumber
+           && request.resource.data.name is string
+           && request.resource.data.name.size() > 0
+           && request.resource.data.phone is string
+           && request.resource.data.phone.size() >= 10;
+
+         allow delete: if false;
+       }
+
+       // Posted blocks.
        match /blocks/{blockId} {
-         // Anyone can read the blocks (it's a public exchange).
+         // Anyone can read the blocks (it's a shared exchange).
          allow read: if true;
 
          // Anyone can create a block as long as required fields are present
@@ -39,13 +65,19 @@ You need a Firebase project to store the shared blocks. It is free for this use 
            && request.resource.data.sNumber.matches('^S[0-9]{5}$')
            && (request.resource.data.time == 'morning' || request.resource.data.time == 'afternoon');
 
+         // Allow updating only the contact fields (name/phone) so profile
+         // edits propagate to already-posted blocks. Everything else is
+         // locked to its original value.
+         allow update: if request.resource.data.sNumber == resource.data.sNumber
+           && request.resource.data.date == resource.data.date
+           && request.resource.data.time == resource.data.time
+           && request.resource.data.type == resource.data.type
+           && request.resource.data.createdAt == resource.data.createdAt;
+
          // Allow anyone to delete — the UI only exposes delete on your own
          // blocks, but we can't verify that without auth. If abuse becomes a
          // problem, add Firebase Auth and tighten this rule.
          allow delete: if true;
-
-         // No arbitrary updates.
-         allow update: if false;
        }
      }
    }
@@ -94,8 +126,16 @@ Open `index.html` and search for `apps.apple.com/app/periomaxer`. Replace that U
 | `CNAME` | Custom domain for GitHub Pages (`maxmendelson.com`) |
 | `.nojekyll` | Tells GitHub Pages not to run Jekyll |
 
+## Sign-in flow
+
+- The user enters their 5-digit S# only.
+- If a profile already exists in Firestore for that S#, they go straight into the app.
+- If not, they’re prompted once for name + phone + privacy-policy agreement, and a profile is created under `users/S#####`.
+- The S# + profile are cached in `localStorage` so they stay signed in on that device.
+- The **Account** tab in the top bar lets them edit their name or phone (changes propagate to their existing posted blocks) and sign out.
+
 ## Notes and trade-offs
 
 - **No real auth.** The site trusts users to enter their own S#. This keeps the site free and one-click. Because the Firestore rules allow any delete, a bad actor could in theory delete others’ blocks — if that ever comes up, adding Firebase Auth (Google sign-in with `@umaryland.edu`) is the right next step.
-- **Phone numbers are public** to anyone with the site URL. The privacy policy makes this explicit and the registration form requires the user to agree.
-- **Local profile only.** Your name / S# / phone is saved in your browser (`localStorage`). If you clear site data or switch browsers, you’ll re-enter it.
+- **Phone numbers are public** to anyone with the site URL. The privacy policy makes this explicit and the sign-up form requires the user to agree.
+- **Local cache only for convenience.** The source of truth for profiles and blocks is Firestore. Your browser just caches your current profile so you don’t re-enter your S# every visit.

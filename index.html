@@ -18,39 +18,51 @@
         <button class="nav-btn" data-view="calendar">Calendar</button>
         <button class="nav-btn" data-view="my-blocks">My Blocks</button>
         <button class="nav-btn" data-view="post">Post a Block</button>
-        <button class="nav-btn" data-view="profile">Profile</button>
+        <button class="nav-btn" data-view="profile">Account</button>
       </nav>
     </div>
   </header>
 
   <main class="container">
-    <!-- Registration / Profile gate -->
-    <section id="profile-gate" class="panel hidden">
-      <h2>Welcome</h2>
-      <p>Enter your info to use the exchange. This is stored locally on your device. Your phone number is shared with other users so they can contact you about blocks you post.</p>
-      <form id="profile-form" class="stacked-form">
-        <label>
-          Full name
-          <input type="text" id="profile-name" required autocomplete="name" placeholder="Max Mendelson" />
-        </label>
+    <!-- Sign-in gate: just S# -->
+    <section id="signin-gate" class="panel hidden">
+      <h2>Sign in</h2>
+      <p>Enter your student ID to continue. First time? You’ll set up your name and phone number next.</p>
+      <form id="signin-form" class="stacked-form">
         <label>
           Student ID
           <div class="s-input">
             <span class="s-prefix">S</span>
-            <input type="text" id="profile-snum" required inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="42585" />
+            <input type="text" id="signin-snum" required inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="42585" autocomplete="username" />
           </div>
           <small>5 digits — the S is added automatically.</small>
         </label>
+        <button type="submit" id="signin-submit" class="primary">Continue</button>
+      </form>
+    </section>
+
+    <!-- First-time profile setup -->
+    <section id="setup-gate" class="panel hidden">
+      <h2>Welcome — let’s set up your profile</h2>
+      <p>We don’t have an account for <strong id="setup-snum-label"></strong> yet. Fill this out once and you’ll just enter your S# next time.</p>
+      <form id="setup-form" class="stacked-form">
+        <label>
+          Full name
+          <input type="text" id="setup-name" required autocomplete="name" placeholder="Max Mendelson" />
+        </label>
         <label>
           Phone number
-          <input type="tel" id="profile-phone" required autocomplete="tel" placeholder="(555) 123-4567" />
-          <small>Shared with other students so they can reach out to you.</small>
+          <input type="tel" id="setup-phone" required autocomplete="tel" placeholder="(555) 123-4567" />
+          <small>Shared with other students so they can reach out to you about your blocks.</small>
         </label>
         <label class="checkbox">
-          <input type="checkbox" id="profile-agree" required />
+          <input type="checkbox" id="setup-agree" required />
           I have read and agree to the <a href="privacy.html" target="_blank" rel="noopener">privacy policy</a>.
         </label>
-        <button type="submit" class="primary">Save &amp; Continue</button>
+        <div class="row-buttons">
+          <button type="submit" class="primary">Create account</button>
+          <button type="button" id="setup-back" class="text-btn">Use a different S#</button>
+        </div>
       </form>
     </section>
 
@@ -150,31 +162,24 @@
       </form>
     </section>
 
-    <!-- Profile view -->
+    <!-- Account view -->
     <section id="view-profile" class="view hidden">
       <div class="view-head">
-        <h2>Your Info</h2>
-        <p class="muted">Update your name, S#, or phone number. Info is stored locally on this device.</p>
+        <h2>Account</h2>
+        <p class="muted">Signed in as <strong id="account-snum-label"></strong>. Update your name or phone number below — changes apply to your future posts, and existing posted blocks get your new phone too.</p>
       </div>
       <form id="profile-edit-form" class="stacked-form">
         <label>
           Full name
-          <input type="text" id="edit-name" required />
-        </label>
-        <label>
-          Student ID
-          <div class="s-input">
-            <span class="s-prefix">S</span>
-            <input type="text" id="edit-snum" required inputmode="numeric" pattern="[0-9]{5}" maxlength="5" />
-          </div>
+          <input type="text" id="edit-name" required autocomplete="name" />
         </label>
         <label>
           Phone number
-          <input type="tel" id="edit-phone" required />
+          <input type="tel" id="edit-phone" required autocomplete="tel" />
         </label>
         <div class="row-buttons">
-          <button type="submit" class="primary">Save</button>
-          <button type="button" id="profile-signout" class="text-btn danger">Sign out of this device</button>
+          <button type="submit" class="primary">Save changes</button>
+          <button type="button" id="profile-signout" class="text-btn danger">Sign out</button>
         </div>
       </form>
     </section>
