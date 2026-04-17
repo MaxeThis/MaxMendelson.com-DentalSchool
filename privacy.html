@@ -32,14 +32,16 @@
         <li><strong>Your full name</strong></li>
         <li><strong>Your student ID (S#)</strong></li>
         <li><strong>Your phone number</strong></li>
+        <li><strong>A 4–6 digit PIN</strong> you choose. The PIN itself never leaves your device. Your browser runs it through a one-way hash (PBKDF2 / SHA-256, salted with your S#, 200,000 iterations) and only that hash is stored. We cannot recover or reset your PIN — if you lose it, contact Max to have the account reset.</li>
       </ul>
       <p>When you post a block you additionally provide: the date of the block, whether it is a morning or afternoon block, the type of block, and any optional notes you add.</p>
 
       <h2>How we use and share your info</h2>
       <ul>
-        <li>Your name, S#, phone number, and block details are <strong>stored in a cloud database (Google Firestore)</strong> that powers the site.</li>
+        <li>Your name, S#, phone number, PIN hash, and block details are <strong>stored in a cloud database (Google Firestore)</strong> that powers the site.</li>
         <li>When you post a block, your <strong>name, S#, and phone number are visible to anyone using the site</strong> so that other students can contact you about that block. This is the whole point of the exchange.</li>
-        <li>Your profile info is also kept in your browser’s local storage so you don’t have to type it in every time.</li>
+        <li>To block spam/bots, the site uses <strong>Google reCAPTCHA v3</strong> (via Firebase App Check). reCAPTCHA collects limited hardware and software information (e.g., device events and browser details) to tell humans from bots. See <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google's privacy policy</a> and <a href="https://policies.google.com/terms" target="_blank" rel="noopener">terms of service</a>.</li>
+        <li>Your name, S#, and phone number are cached in your browser's local storage so you don't have to sign in every time. Your PIN and its hash are <strong>not</strong> cached locally.</li>
       </ul>
 
       <h2>Who can see your data</h2>

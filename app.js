@@ -30,6 +30,22 @@ const state = {
 let db = null;
 let blocksUnsub = null;
 
+/* Simple per-session rate limiter. Prevents accidental rapid-fire and
+ * makes casual abuse annoying. Server-side protection is Firestore rules
+ * + App Check (see README). */
+const rateLimits = {
+  signIn: { max: 8, windowMs: 60 * 1000, times: [] },
+  post:   { max: 6, windowMs: 60 * 1000, times: [] },
+};
+function rateLimitOk(key) {
+  const cfg = rateLimits[key];
+  const now = Date.now();
+  cfg.times = cfg.times.filter((t) => now - t < cfg.windowMs);
+  if (cfg.times.length >= cfg.max) return false;
+  cfg.times.push(now);
+  return true;
+}
+
 /* ----------------------------- utilities ----------------------------- */
 
 function $(id) { return document.getElementById(id); }
@@ -80,8 +96,33 @@ function isWeekday(dateStr) {
 function validSNumber(s) { return /^S\d{5}$/.test(s); }
 function validPhone(p) { return (p || '').replace(/\D/g, '').length >= 10; }
 function validName(n) { return typeof n === 'string' && n.trim().length > 0; }
+function validPin(p) { return /^\d{4,6}$/.test(p || ''); }
 function profileValid(p) {
   return p && validName(p.name) && validSNumber(p.sNumber) && validPhone(p.phone);
+}
+
+/* ----------------------------- PIN hashing ----------------------------- */
+
+/* PBKDF2 via Web Crypto. Salted with the S# so identical PINs for different
+ * users produce different hashes. 200k iterations ≈ 150-400ms on modern
+ * devices — fast enough for login, slow enough to make casual brute force
+ * of a 4-6 digit PIN annoying if the users collection is ever scraped. */
+async function hashPin(sNumber, pin) {
+  if (!window.crypto || !window.crypto.subtle) {
+    throw new Error('Web Crypto not available in this browser.');
+  }
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(pin), 'PBKDF2', false, ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: enc.encode('umsod-be:' + sNumber), iterations: 200000, hash: 'SHA-256' },
+    keyMaterial,
+    256
+  );
+  return Array.from(new Uint8Array(bits))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 /* ----------------------------- local cache ----------------------------- */
@@ -118,6 +159,21 @@ function initFirestore() {
   }
   try {
     if (!firebase.apps.length) firebase.initializeApp(cfg);
+
+    // Optional: Firebase App Check with reCAPTCHA v3. When enabled it
+    // blocks writes that don't come from the real site (the #1 spam
+    // defense). Activated only if the site key is set in
+    // firebase-config.js and the App Check compat SDK loaded.
+    if (window.RECAPTCHA_V3_SITE_KEY && firebase.appCheck) {
+      try {
+        self.FIREBASE_APPCHECK_DEBUG_TOKEN =
+          self.FIREBASE_APPCHECK_DEBUG_TOKEN || false;
+        firebase.appCheck().activate(window.RECAPTCHA_V3_SITE_KEY, true);
+      } catch (e) {
+        console.warn('App Check activation failed:', e);
+      }
+    }
+
     db = firebase.firestore();
     state.firestoreReady = true;
     return true;
@@ -130,23 +186,34 @@ function initFirestore() {
 function subscribeBlocks() {
   if (!state.firestoreReady) return;
   if (blocksUnsub) blocksUnsub();
-  blocksUnsub = db.collection('blocks').onSnapshot(
-    (snap) => {
-      state.blocks = [];
-      snap.forEach((doc) => {
-        state.blocks.push({ id: doc.id, ...doc.data() });
-      });
-      state.blocks.sort((a, b) => {
-        if (a.date !== b.date) return a.date.localeCompare(b.date);
-        return (a.time || '').localeCompare(b.time || '');
-      });
-      renderCurrentView();
-    },
-    (err) => {
-      console.error('Firestore subscription error:', err);
-      toast('Could not load blocks. Check Firestore rules.');
-    }
-  );
+
+  // Only listen to blocks whose date is today or later (minus a 1-day grace
+  // window so "today morning" shows after midnight passes). This caps the
+  // number of reads each client makes and keeps the Firestore free tier safe
+  // as old blocks accumulate.
+  const windowStart = new Date();
+  windowStart.setDate(windowStart.getDate() - 1);
+  const startStr = ymd(windowStart);
+
+  blocksUnsub = db.collection('blocks')
+    .where('date', '>=', startStr)
+    .onSnapshot(
+      (snap) => {
+        state.blocks = [];
+        snap.forEach((doc) => {
+          state.blocks.push({ id: doc.id, ...doc.data() });
+        });
+        state.blocks.sort((a, b) => {
+          if (a.date !== b.date) return a.date.localeCompare(b.date);
+          return (a.time || '').localeCompare(b.time || '');
+        });
+        renderCurrentView();
+      },
+      (err) => {
+        console.error('Firestore subscription error:', err);
+        toast('Could not load blocks. Check Firestore rules.');
+      }
+    );
 }
 
 async function fetchUserDoc(sNumber) {
@@ -155,12 +222,13 @@ async function fetchUserDoc(sNumber) {
   return snap.exists ? snap.data() : null;
 }
 
-async function createUserDoc(profile) {
+async function createUserDoc(user) {
   const now = Date.now();
-  await db.collection('users').doc(profile.sNumber).set({
-    sNumber: profile.sNumber,
-    name: profile.name,
-    phone: profile.phone,
+  await db.collection('users').doc(user.sNumber).set({
+    sNumber: user.sNumber,
+    name: user.name,
+    phone: user.phone,
+    pinHash: user.pinHash,
     createdAt: now,
     updatedAt: now,
   });
@@ -217,8 +285,9 @@ function showSetupWarning() {
 /* ----------------------------- gate + views ----------------------------- */
 
 function setGate(which) {
-  // which: 'signin' | 'setup' | null
+  // which: 'signin' | 'pin' | 'setup' | null
   $('signin-gate').classList.toggle('hidden', which !== 'signin');
+  $('pin-gate').classList.toggle('hidden', which !== 'pin');
   $('setup-gate').classList.toggle('hidden', which !== 'setup');
 }
 
@@ -266,10 +335,20 @@ function showSetup(sNumber) {
   setTimeout(() => $('setup-name').focus(), 50);
 }
 
+function showPinPrompt(sNumber) {
+  state.pendingSNumber = sNumber;
+  setGate('pin');
+  $('periomaxer-ad').classList.add('hidden');
+  $('pin-snum-label').textContent = sNumber;
+  $('pin-form').reset();
+  setTimeout(() => $('pin-input').focus(), 50);
+}
+
 /* ----------------------------- sign-in / setup ----------------------------- */
 
 async function handleSignInSubmit(e) {
   e.preventDefault();
+  if (!rateLimitOk('signIn')) { toast('Slow down — try again in a minute.'); return; }
   const snum = $('signin-snum').value.trim();
   if (!/^\d{5}$/.test(snum)) { toast('S# must be 5 digits.'); return; }
   const sNumber = 'S' + snum;
@@ -283,10 +362,8 @@ async function handleSignInSubmit(e) {
   btn.disabled = true;
   try {
     const user = await fetchUserDoc(sNumber);
-    if (user && validName(user.name) && validPhone(user.phone)) {
-      cacheProfile({ name: user.name, sNumber, phone: user.phone });
-      toast('Welcome back, ' + user.name.split(' ')[0] + '.');
-      showApp();
+    if (user && validName(user.name) && validPhone(user.phone) && user.pinHash) {
+      showPinPrompt(sNumber);
     } else {
       showSetup(sNumber);
     }
@@ -298,18 +375,62 @@ async function handleSignInSubmit(e) {
   }
 }
 
+async function handlePinSubmit(e) {
+  e.preventDefault();
+  if (!rateLimitOk('signIn')) { toast('Slow down — try again in a minute.'); return; }
+  const pin = $('pin-input').value;
+  if (!validPin(pin)) { toast('PIN must be 4–6 digits.'); return; }
+  const sNumber = state.pendingSNumber;
+  if (!sNumber) { showSignIn(); return; }
+
+  const btn = $('pin-submit');
+  btn.disabled = true;
+  try {
+    const [user, hash] = await Promise.all([
+      fetchUserDoc(sNumber),
+      hashPin(sNumber, pin),
+    ]);
+    if (!user || !user.pinHash || user.pinHash !== hash) {
+      toast('Incorrect PIN.');
+      $('pin-input').select();
+      return;
+    }
+    cacheProfile({ name: user.name, sNumber, phone: user.phone });
+    toast('Welcome back, ' + user.name.split(' ')[0] + '.');
+    state.pendingSNumber = null;
+    showApp();
+  } catch (err) {
+    console.error(err);
+    toast('Sign in failed. Check your connection.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function handlePinBack() {
+  state.pendingSNumber = null;
+  showSignIn();
+}
+
 async function handleSetupSubmit(e) {
   e.preventDefault();
   if (!$('setup-agree').checked) { toast('Please agree to the privacy policy.'); return; }
   const name = $('setup-name').value.trim();
   const phone = $('setup-phone').value.trim();
+  const pin = $('setup-pin').value;
+  const pin2 = $('setup-pin2').value;
   if (!validName(name)) { toast('Enter your full name.'); return; }
   if (!validPhone(phone)) { toast('Enter a valid 10-digit phone number.'); return; }
+  if (!validPin(pin)) { toast('PIN must be 4–6 digits.'); return; }
+  if (pin !== pin2) { toast('PINs don’t match.'); return; }
 
-  const profile = { name, sNumber: state.pendingSNumber, phone };
-
+  const sNumber = state.pendingSNumber;
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
   try {
-    await createUserDoc(profile);
+    const pinHash = await hashPin(sNumber, pin);
+    const profile = { name, sNumber, phone };
+    await createUserDoc({ ...profile, pinHash });
     cacheProfile(profile);
     toast('Account created — welcome, ' + name.split(' ')[0] + '.');
     state.pendingSNumber = null;
@@ -317,6 +438,8 @@ async function handleSetupSubmit(e) {
   } catch (err) {
     console.error(err);
     toast('Could not create account. Check Firestore rules.');
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -538,13 +661,22 @@ function populateBlockTypeSelects() {
 async function handlePostBlock(e) {
   e.preventDefault();
   if (!state.profile) { toast('Sign in first.'); return; }
+  if (!rateLimitOk('post')) { toast('Too many posts — try again in a minute.'); return; }
   const date = $('post-date').value;
   const time = $('post-time').value;
   const type = $('post-type').value;
-  const notes = $('post-notes').value.trim();
+  const notes = $('post-notes').value.trim().slice(0, 200);
 
   if (!date || !time || !type) { toast('Please fill in every field.'); return; }
   if (!isWeekday(date)) { toast('Blocks are Monday–Friday only.'); return; }
+  if (!BLOCK_TYPES.includes(type)) { toast('Unknown block type.'); return; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast('Invalid date.'); return; }
+
+  // Reject posts more than 1 year in the past or 1 year in the future.
+  const d = parseYmd(date);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const yearMs = 365 * 24 * 60 * 60 * 1000;
+  if (Math.abs(d - today) > yearMs) { toast('Pick a date within a year.'); return; }
 
   const dup = state.blocks.some((b) =>
     b.sNumber === state.profile.sNumber && b.date === date && b.time === time
@@ -621,6 +753,8 @@ function handleSignOut() {
 
 function wireEvents() {
   $('signin-form').addEventListener('submit', handleSignInSubmit);
+  $('pin-form').addEventListener('submit', handlePinSubmit);
+  $('pin-back').addEventListener('click', handlePinBack);
   $('setup-form').addEventListener('submit', handleSetupSubmit);
   $('setup-back').addEventListener('click', handleSetupBack);
 

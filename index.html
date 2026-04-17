@@ -27,7 +27,7 @@
     <!-- Sign-in gate: just S# -->
     <section id="signin-gate" class="panel hidden">
       <h2>Sign in</h2>
-      <p>Enter your student ID to continue. First time? You’ll set up your name and phone number next.</p>
+      <p>Enter your student ID to continue. First time? You’ll set up your name, phone number, and a PIN next.</p>
       <form id="signin-form" class="stacked-form">
         <label>
           Student ID
@@ -41,10 +41,27 @@
       </form>
     </section>
 
+    <!-- PIN entry for returning users -->
+    <section id="pin-gate" class="panel hidden">
+      <h2>Enter your PIN</h2>
+      <p>Welcome back, <strong id="pin-snum-label"></strong>.</p>
+      <form id="pin-form" class="stacked-form">
+        <label>
+          PIN
+          <input type="password" id="pin-input" required inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" autocomplete="current-password" />
+          <small>The 4–6 digit PIN you set up.</small>
+        </label>
+        <div class="row-buttons">
+          <button type="submit" id="pin-submit" class="primary">Sign in</button>
+          <button type="button" id="pin-back" class="text-btn">Use a different S#</button>
+        </div>
+      </form>
+    </section>
+
     <!-- First-time profile setup -->
     <section id="setup-gate" class="panel hidden">
       <h2>Welcome — let’s set up your profile</h2>
-      <p>We don’t have an account for <strong id="setup-snum-label"></strong> yet. Fill this out once and you’ll just enter your S# next time.</p>
+      <p>We don’t have an account for <strong id="setup-snum-label"></strong> yet. Fill this out once and you’ll just enter your S# and PIN next time.</p>
       <form id="setup-form" class="stacked-form">
         <label>
           Full name
@@ -54,6 +71,15 @@
           Phone number
           <input type="tel" id="setup-phone" required autocomplete="tel" placeholder="(555) 123-4567" />
           <small>Shared with other students so they can reach out to you about your blocks.</small>
+        </label>
+        <label>
+          Create a PIN
+          <input type="password" id="setup-pin" required inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" autocomplete="new-password" />
+          <small>4–6 digits. You’ll use this to sign in on other devices — don’t forget it.</small>
+        </label>
+        <label>
+          Confirm PIN
+          <input type="password" id="setup-pin2" required inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" autocomplete="new-password" />
         </label>
         <label class="checkbox">
           <input type="checkbox" id="setup-agree" required />
@@ -199,6 +225,7 @@
 
   <!-- Firebase (compat build so it works as plain scripts on GitHub Pages) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="app.js"></script>

@@ -26,57 +26,86 @@ You need a Firebase project to store the shared blocks. It is free for this use 
    service cloud.firestore {
      match /databases/{database}/documents {
 
+       // Helpers
+       function validPhone(p) {
+         return p is string && p.size() >= 10 && p.size() <= 25;
+       }
+       function validName(n) {
+         return n is string && n.size() > 0 && n.size() <= 80;
+       }
+       function validPinHash(h) {
+         // PBKDF2 SHA-256 hex = 64 chars; keep room for versioning.
+         return h is string && h.size() >= 32 && h.size() <= 128;
+       }
+       function validType(t) {
+         return t in ['Oral Surgery','Ortho','Special Care','Peds','Emergency','On-Call','Screening'];
+       }
+       function validTime(t) {
+         return t == 'morning' || t == 'afternoon';
+       }
+       function validDate(d) {
+         return d is string && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+       }
+
        // User profiles, one doc per S#.
        match /users/{sNumber} {
-         // Anyone can read a profile (so contact info can show on blocks).
+         // Anyone can read a profile. The PIN is stored only as a PBKDF2
+         // hash so it isn't recoverable from a read. Still, the hash is
+         // readable — rely on App Check + a PIN of reasonable length.
          allow read: if true;
 
-         // Create: only when the doc id matches a valid S# and the body is well-formed.
          allow create: if sNumber.matches('^S[0-9]{5}$')
+           && request.resource.data.keys().hasAll(['sNumber','name','phone','pinHash','createdAt','updatedAt'])
            && request.resource.data.sNumber == sNumber
-           && request.resource.data.name is string
-           && request.resource.data.name.size() > 0
-           && request.resource.data.phone is string
-           && request.resource.data.phone.size() >= 10;
+           && validName(request.resource.data.name)
+           && validPhone(request.resource.data.phone)
+           && validPinHash(request.resource.data.pinHash)
+           && request.resource.data.createdAt is number
+           && request.resource.data.updatedAt is number;
 
-         // Update: allow name/phone edits; keep sNumber stable.
+         // Updates may change name/phone/updatedAt only; pinHash + sNumber +
+         // createdAt are locked. This prevents account takeover via update.
          allow update: if sNumber.matches('^S[0-9]{5}$')
-           && request.resource.data.sNumber == sNumber
-           && request.resource.data.name is string
-           && request.resource.data.name.size() > 0
-           && request.resource.data.phone is string
-           && request.resource.data.phone.size() >= 10;
+           && request.resource.data.sNumber == resource.data.sNumber
+           && request.resource.data.pinHash == resource.data.pinHash
+           && request.resource.data.createdAt == resource.data.createdAt
+           && validName(request.resource.data.name)
+           && validPhone(request.resource.data.phone)
+           && request.resource.data.updatedAt is number;
 
          allow delete: if false;
        }
 
        // Posted blocks.
        match /blocks/{blockId} {
-         // Anyone can read the blocks (it's a shared exchange).
          allow read: if true;
 
-         // Anyone can create a block as long as required fields are present
-         // and well-formed. This is a low-stakes school tool, so we don't
-         // run full auth — we just require sane data.
          allow create: if request.resource.data.keys().hasAll(
-             ['date','time','type','name','sNumber','phone']
+             ['date','time','type','name','sNumber','phone','createdAt']
            )
            && request.resource.data.sNumber is string
            && request.resource.data.sNumber.matches('^S[0-9]{5}$')
-           && (request.resource.data.time == 'morning' || request.resource.data.time == 'afternoon');
+           && validDate(request.resource.data.date)
+           && validTime(request.resource.data.time)
+           && validType(request.resource.data.type)
+           && validName(request.resource.data.name)
+           && validPhone(request.resource.data.phone)
+           && request.resource.data.createdAt is number
+           && (request.resource.data.notes == null
+               || (request.resource.data.notes is string
+                   && request.resource.data.notes.size() <= 200));
 
-         // Allow updating only the contact fields (name/phone) so profile
-         // edits propagate to already-posted blocks. Everything else is
-         // locked to its original value.
+         // Updates limited to contact fields; identity + date/time/type/createdAt stay put.
          allow update: if request.resource.data.sNumber == resource.data.sNumber
            && request.resource.data.date == resource.data.date
            && request.resource.data.time == resource.data.time
            && request.resource.data.type == resource.data.type
-           && request.resource.data.createdAt == resource.data.createdAt;
+           && request.resource.data.createdAt == resource.data.createdAt
+           && validName(request.resource.data.name)
+           && validPhone(request.resource.data.phone);
 
-         // Allow anyone to delete — the UI only exposes delete on your own
-         // blocks, but we can't verify that without auth. If abuse becomes a
-         // problem, add Firebase Auth and tighten this rule.
+         // Delete is open (UI only exposes it on your own blocks). If abuse
+         // shows up, add Firebase Auth and tighten this.
          allow delete: if true;
        }
      }
@@ -128,11 +157,28 @@ Open `index.html` and search for `apps.apple.com/app/periomaxer`. Replace that U
 
 ## Sign-in flow
 
-- The user enters their 5-digit S# only.
-- If a profile already exists in Firestore for that S#, they go straight into the app.
-- If not, they’re prompted once for name + phone + privacy-policy agreement, and a profile is created under `users/S#####`.
-- The S# + profile are cached in `localStorage` so they stay signed in on that device.
-- The **Account** tab in the top bar lets them edit their name or phone (changes propagate to their existing posted blocks) and sign out.
+- The user enters their 5-digit S#.
+- If a profile already exists, they're prompted for their **PIN** (4–6 digits) to sign in.
+- If no profile exists, they're prompted once for name + phone + PIN + privacy-policy agreement, and a profile is created under `users/S#####`.
+- PINs are never stored in plaintext and never leave the browser — the browser hashes them with **PBKDF2 (SHA-256, 200,000 iterations, S#-salted)** via Web Crypto, and only the hash goes to Firestore.
+- Once signed in, the S# + name + phone are cached in `localStorage` (PIN and hash are **not** cached) so the user stays signed in on that device across browser restarts.
+- The **Account** tab in the top bar lets them edit their name or phone (changes propagate to their existing posted blocks) and **sign out** (clears the local cache; they'll be asked for PIN on next sign-in).
+
+## Preventing spam / quota abuse
+
+Firestore's free tier (Spark plan) has **hard caps** — 50K reads, 20K writes, and 1 GB storage per day. You cannot be charged on this plan; the worst case is the site stops working for the rest of the day. Defenses layered on top of that:
+
+1. **Firebase App Check with reCAPTCHA v3** — the single best defense. It blocks requests that don't come from your real site (curl, bots, automation). Free, no user friction.
+   - Firebase console → **Build → App Check**. Register your web app with reCAPTCHA v3, copy the site key.
+   - Paste the site key into `firebase-config.js` → `RECAPTCHA_V3_SITE_KEY`.
+   - Back in the App Check console, open **Firestore** under APIs and switch enforcement from "Unenforced" to **Enforced**.
+   - Add your domains (the GitHub Pages URL and `maxmendelson.com`) under the reCAPTCHA admin console's "Domains" list.
+2. **Tight Firestore rules** — every field is type-checked and size-bounded, so a single write can't store a MB of data. See the rules above.
+3. **Narrow read query** — the client only subscribes to blocks from today onward, so a huge historical dataset wouldn't amplify reads per user. Old blocks can also be auto-expired: in the Firestore console, open **TTL** and add a policy on `blocks.createdAt` with a long-ish TTL (e.g., 180 days of milliseconds = 180\*24\*60\*60\*1000) if you want automatic cleanup. Or delete old rows manually.
+4. **Client-side rate limits** — in `app.js`, each browser tab is capped at 8 sign-in attempts/min and 6 posts/min. Doesn't stop a determined attacker but stops accidental loops.
+5. **Budget alerts** — Firebase console → **Usage and billing** → **Details & settings** → **Modify budget**. Set an alert to email you if traffic spikes unusually.
+
+If someone does start abusing the site, deleting the Firestore database and re-creating it with App Check enforced is usually enough to shut it down.
 
 ## Notes and trade-offs
 

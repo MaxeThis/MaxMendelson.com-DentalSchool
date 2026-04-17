@@ -18,3 +18,16 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: "REPLACE_ME_SENDER_ID",
   appId: "REPLACE_ME_APP_ID",
 };
+
+// OPTIONAL but STRONGLY RECOMMENDED: Firebase App Check + reCAPTCHA v3.
+// This blocks bots/curl/scripts from writing to your Firestore and is the
+// best defense against spam burning through the free-tier quota.
+//
+// Set up once:
+//   1. In the Firebase console → Build → App Check → register your web app,
+//      pick "reCAPTCHA v3", and accept the default. Copy the site key it gives.
+//   2. Paste that key below in place of the empty string.
+//   3. Back in the App Check console, open each service (Firestore in our
+//      case) and switch enforcement to "Enforced".
+// Leaving this blank disables App Check (site still works).
+window.RECAPTCHA_V3_SITE_KEY = "";
