@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UMSOD Block Exchange</title>
+  <meta name="description" content="University of Maryland School of Dentistry block exchange — post blocks you want to swap and find blocks other students are giving up." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <div class="brand">
+        <h1>UMSOD Block Exchange</h1>
+        <p class="tagline">Post a block you want to give up. Find one you want to pick up.</p>
+      </div>
+      <nav class="site-nav">
+        <button class="nav-btn" data-view="calendar">Calendar</button>
+        <button class="nav-btn" data-view="my-blocks">My Blocks</button>
+        <button class="nav-btn" data-view="post">Post a Block</button>
+        <button class="nav-btn" data-view="profile">Profile</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Registration / Profile gate -->
+    <section id="profile-gate" class="panel hidden">
+      <h2>Welcome</h2>
+      <p>Enter your info to use the exchange. This is stored locally on your device. Your phone number is shared with other users so they can contact you about blocks you post.</p>
+      <form id="profile-form" class="stacked-form">
+        <label>
+          Full name
+          <input type="text" id="profile-name" required autocomplete="name" placeholder="Max Mendelson" />
+        </label>
+        <label>
+          Student ID
+          <div class="s-input">
+            <span class="s-prefix">S</span>
+            <input type="text" id="profile-snum" required inputmode="numeric" pattern="[0-9]{5}" maxlength="5" placeholder="42585" />
+          </div>
+          <small>5 digits — the S is added automatically.</small>
+        </label>
+        <label>
+          Phone number
+          <input type="tel" id="profile-phone" required autocomplete="tel" placeholder="(555) 123-4567" />
+          <small>Shared with other students so they can reach out to you.</small>
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" id="profile-agree" required />
+          I have read and agree to the <a href="privacy.html" target="_blank" rel="noopener">privacy policy</a>.
+        </label>
+        <button type="submit" class="primary">Save &amp; Continue</button>
+      </form>
+    </section>
+
+    <!-- PerioMaxer ad -->
+    <aside id="periomaxer-ad" class="ad-card hidden">
+      <a href="https://apps.apple.com/app/periomaxer" target="_blank" rel="noopener" class="ad-link">
+        <div class="ad-icon" aria-hidden="true">🦷</div>
+        <div class="ad-copy">
+          <div class="ad-kicker">Built by a UMSOD student</div>
+          <div class="ad-title">PerioMaxer</div>
+          <div class="ad-sub">Fast perio charting &amp; study tools. Get it on the App Store →</div>
+        </div>
+      </a>
+    </aside>
+
+    <!-- Calendar view -->
+    <section id="view-calendar" class="view hidden">
+      <div class="view-head">
+        <h2>Available Blocks</h2>
+        <div class="filter-row">
+          <label>
+            Filter by type
+            <select id="filter-type">
+              <option value="">All types</option>
+            </select>
+          </label>
+          <label>
+            Time
+            <select id="filter-time">
+              <option value="">Morning &amp; Afternoon</option>
+              <option value="morning">Morning only</option>
+              <option value="afternoon">Afternoon only</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="calendar-head">
+        <button id="cal-prev" class="icon-btn" aria-label="Previous month">‹</button>
+        <div id="cal-label" class="cal-label"></div>
+        <button id="cal-next" class="icon-btn" aria-label="Next month">›</button>
+      </div>
+      <div class="calendar-grid-head">
+        <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div>
+      </div>
+      <div id="calendar" class="calendar-grid"></div>
+
+      <div id="day-detail" class="day-detail hidden">
+        <div class="day-detail-head">
+          <h3 id="day-detail-title">Blocks</h3>
+          <button id="day-detail-close" class="text-btn">Close</button>
+        </div>
+        <div id="day-detail-list" class="block-list"></div>
+      </div>
+    </section>
+
+    <!-- My blocks view -->
+    <section id="view-my-blocks" class="view hidden">
+      <div class="view-head">
+        <h2>My Posted Blocks</h2>
+        <p class="muted">Remove a block once someone has agreed to take it.</p>
+      </div>
+      <div id="my-blocks-list" class="block-list"></div>
+    </section>
+
+    <!-- Post block view -->
+    <section id="view-post" class="view hidden">
+      <div class="view-head">
+        <h2>Post a Block</h2>
+        <p class="muted">Give up a morning or afternoon block. It appears on the calendar for other students.</p>
+      </div>
+      <form id="post-form" class="stacked-form">
+        <label>
+          Date
+          <input type="date" id="post-date" required />
+          <small>Weekdays only (Mon–Fri).</small>
+        </label>
+        <label>
+          Time
+          <select id="post-time" required>
+            <option value="">Select…</option>
+            <option value="morning">Morning</option>
+            <option value="afternoon">Afternoon</option>
+          </select>
+        </label>
+        <label>
+          Block type
+          <select id="post-type" required>
+            <option value="">Select…</option>
+          </select>
+        </label>
+        <label>
+          Notes (optional)
+          <textarea id="post-notes" rows="2" maxlength="200" placeholder="Anything someone should know…"></textarea>
+        </label>
+        <button type="submit" class="primary">Post Block</button>
+      </form>
+    </section>
+
+    <!-- Profile view -->
+    <section id="view-profile" class="view hidden">
+      <div class="view-head">
+        <h2>Your Info</h2>
+        <p class="muted">Update your name, S#, or phone number. Info is stored locally on this device.</p>
+      </div>
+      <form id="profile-edit-form" class="stacked-form">
+        <label>
+          Full name
+          <input type="text" id="edit-name" required />
+        </label>
+        <label>
+          Student ID
+          <div class="s-input">
+            <span class="s-prefix">S</span>
+            <input type="text" id="edit-snum" required inputmode="numeric" pattern="[0-9]{5}" maxlength="5" />
+          </div>
+        </label>
+        <label>
+          Phone number
+          <input type="tel" id="edit-phone" required />
+        </label>
+        <div class="row-buttons">
+          <button type="submit" class="primary">Save</button>
+          <button type="button" id="profile-signout" class="text-btn danger">Sign out of this device</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>© <span id="year"></span> Max Mendelson</div>
+      <div class="footer-links">
+        <a href="privacy.html">Privacy policy</a>
+        <a href="https://apps.apple.com/app/periomaxer" target="_blank" rel="noopener">PerioMaxer on the App Store</a>
+      </div>
+    </div>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- Firebase (compat build so it works as plain scripts on GitHub Pages) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

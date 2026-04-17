@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — UMSOD Block Exchange</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <div class="brand">
+        <h1>Privacy Policy</h1>
+        <p class="tagline">UMSOD Block Exchange</p>
+      </div>
+      <nav class="site-nav">
+        <a class="nav-btn" href="index.html">Back to site</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="panel">
+      <p><strong>Last updated:</strong> <span id="updated"></span></p>
+
+      <h2>Who runs this site</h2>
+      <p>This site (UMSOD Block Exchange) is run personally by Max Mendelson, a student at the University of Maryland School of Dentistry. It is not affiliated with, endorsed by, or operated by the University of Maryland, Baltimore or the University of Maryland School of Dentistry.</p>
+
+      <h2>What we collect</h2>
+      <p>When you create a profile on this site you provide:</p>
+      <ul>
+        <li><strong>Your full name</strong></li>
+        <li><strong>Your student ID (S#)</strong></li>
+        <li><strong>Your phone number</strong></li>
+      </ul>
+      <p>When you post a block you additionally provide: the date of the block, whether it is a morning or afternoon block, the type of block, and any optional notes you add.</p>
+
+      <h2>How we use and share your info</h2>
+      <ul>
+        <li>Your name, S#, phone number, and block details are <strong>stored in a cloud database (Google Firestore)</strong> that powers the site.</li>
+        <li>When you post a block, your <strong>name, S#, and phone number are visible to anyone using the site</strong> so that other students can contact you about that block. This is the whole point of the exchange.</li>
+        <li>Your profile info is also kept in your browser’s local storage so you don’t have to type it in every time.</li>
+      </ul>
+
+      <h2>Who can see your data</h2>
+      <p>Your phone number and the rest of your profile are visible to anyone with access to the site. The site has access to the data you provide. Do not use this site if you are not comfortable with your name, S#, and phone number being visible to other users of the site.</p>
+
+      <h2>Removing your info</h2>
+      <p>You can remove any block you posted from the <em>My Blocks</em> page, which deletes it from the database. You can also sign out of this device from the <em>Profile</em> page, which removes your info from this browser (it does not delete blocks you already posted — remove those first). To have all of your data deleted, contact Max directly.</p>
+
+      <h2>No selling, no ads tracking</h2>
+      <p>We do not sell your information. The PerioMaxer promotion on the site is a static link to the App Store and does not track you.</p>
+
+      <h2>Security</h2>
+      <p>Data is transmitted over HTTPS and stored by Google Firebase. No system is perfectly secure — only share what you are comfortable sharing with other students.</p>
+
+      <h2>Contact</h2>
+      <p>Questions or data deletion requests: contact Max Mendelson directly through GroupMe or the phone number you know him by.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>© <span id="year"></span> Max Mendelson</div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+    document.getElementById('updated').textContent = new Date().toLocaleDateString();
+  </script>
+</body>
+</html>
