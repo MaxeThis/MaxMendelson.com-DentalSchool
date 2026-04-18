@@ -130,7 +130,10 @@ python3 -m http.server 8000
 
 ### Custom domain (maxmendelson.com)
 
-1. In GoDaddy / wherever your DNS lives, add these records:
+When you're ready to hook up `maxmendelson.com`:
+
+1. Create a file called `CNAME` in the repo root containing just one line: `maxmendelson.com`
+2. In GoDaddy / wherever your DNS lives, add these records:
    - `A` `@` → `185.199.108.153`
    - `A` `@` → `185.199.109.153`
    - `A` `@` → `185.199.110.153`
