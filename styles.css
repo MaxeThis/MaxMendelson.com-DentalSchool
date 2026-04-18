@@ -528,6 +528,42 @@ button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
   pointer-events: auto;
 }
 
+.example-screenshot {
+  margin: 4px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 10px 14px;
+}
+.example-screenshot > summary {
+  cursor: pointer;
+  color: var(--red);
+  font-size: 0.9rem;
+  font-weight: 600;
+  list-style: none;
+}
+.example-screenshot > summary::-webkit-details-marker { display: none; }
+.example-screenshot > summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+.example-screenshot[open] > summary::before { content: "▾ "; }
+.example-screenshot[open] > summary { margin-bottom: 8px; }
+.example-screenshot-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.example-screenshot-tips {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+.example-screenshot-tips li { margin-bottom: 4px; }
+
 .checkbox.inline {
   flex-direction: row !important;
   align-items: center;
