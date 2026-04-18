@@ -11,12 +11,12 @@
 // is enforced by your Firestore rules, not by hiding these keys.
 
 window.FIREBASE_CONFIG = {
-  apiKey: "REPLACE_ME_API_KEY",
-  authDomain: "REPLACE_ME_PROJECT_ID.firebaseapp.com",
-  projectId: "REPLACE_ME_PROJECT_ID",
-  storageBucket: "REPLACE_ME_PROJECT_ID.appspot.com",
-  messagingSenderId: "REPLACE_ME_SENDER_ID",
-  appId: "REPLACE_ME_APP_ID",
+  apiKey: "AIzaSyDnNw8OLwcDEhGr0cWPiB5ld-zcA-u54Qk",
+  authDomain: "maxmendelson-com-dental-school.firebaseapp.com",
+  projectId: "maxmendelson-com-dental-school",
+  storageBucket: "maxmendelson-com-dental-school.firebasestorage.app",
+  messagingSenderId: "44601534820",
+  appId: "1:44601534820:web:42febc109238a799b5b271",
 };
 
 // OPTIONAL but STRONGLY RECOMMENDED: Firebase App Check + reCAPTCHA v3.
