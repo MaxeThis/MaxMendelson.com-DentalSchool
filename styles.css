@@ -507,6 +507,69 @@ button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
   font: inherit;
 }
 
+/* Procedure Costs */
+.costs-search {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 320px;
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.costs-search input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+}
+.costs-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+.costs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.costs-table thead th {
+  text-align: left;
+  background: #f5f6f8;
+  color: var(--text);
+  font-weight: 600;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  white-space: nowrap;
+}
+.costs-table th.num,
+.costs-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.costs-table tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.costs-table tbody tr:last-child td { border-bottom: 0; }
+.costs-table tbody tr:nth-child(odd) td { background: #fbfcfd; }
+.costs-table td.code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.costs-table td.empty-cell {
+  text-align: center;
+  padding: 20px;
+  color: var(--muted);
+}
+
 /* Footer */
 .site-footer {
   border-top: 1px solid var(--border);

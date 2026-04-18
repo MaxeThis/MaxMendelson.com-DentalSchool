@@ -38,6 +38,60 @@ const DESC_TO_TYPE = {
 const PROFILE_KEY = 'umsod_be_profile_v1';
 const SCHEDULE_KEY_PREFIX = 'umsod_be_schedule_v1:';
 
+/* CDT code fee reference. Fee = Maryland Healthy Smiles pays + patient pays. */
+const PROCEDURE_COSTS = [
+  ['D0120',   'Periodic oral evaluation',                    46,    28,   18],
+  ['D0140',   'Limited oral eval - problem focused',         53,    32,   21],
+  ['D0150',   'Comprehensive oral evaluation',               67,    40,   27],
+  ['D0210',   'Intraoral complete series (FMS)',            170,    85,   85],
+  ['D0330',   'Panoramic radiograph',                       111,    55,   56],
+  ['D1110',   'Prophylaxis (adult)',                         86,    48,   38],
+  ['D1208',   'Fluoride application',                        33,    20,   13],
+  ['D2330',   'Resin composite 1-surf anterior',            110,    62,   48],
+  ['D2331',   'Resin composite 2-surf anterior',            138,    78,   60],
+  ['D2332',   'Resin composite 3-surf anterior',            169,    95,   74],
+  ['D2335',   'Resin composite 4+ surf anterior',           213,   120,   93],
+  ['D2391',   'Resin composite 1-surf posterior',           129,    72,   57],
+  ['D2392',   'Resin composite 2-surf posterior',           155,    87,   68],
+  ['D2393',   'Resin composite 3-surf posterior',           197,   110,   87],
+  ['D2394',   'Resin composite 4+ surf posterior',          241,   135,  106],
+  ['D2740',   'Crown porcelain/ceramic',                    713,   394,  319],
+  ['D2751',   'Crown PFM noble metal',                      713,   394,  319],
+  ['D2799',   'Provisional crown',                          266,     0,  266],
+  ['D2940',   'Protective restoration',                      82,    45,   37],
+  ['D2950',   'Core buildup incl pins',                     199,   115,   84],
+  ['D2954',   'Prefab post and core',                       243,   140,  103],
+  ['D2999.1', 'Unspecified restorative',                     89,     0,   89],
+  ['D3310',   'Endodontic therapy anterior',                499,   275,  224],
+  ['D3320',   'Endodontic therapy premolar',                584,   330,  254],
+  ['D3330',   'Endodontic therapy molar',                   713,   400,  313],
+  ['D4249',   'Clinical crown lengthening',                 542,     0,  542],
+  ['D4341',   'Scaling/root planing 4+ teeth per quad',     115,    90,   25],
+  ['D4342',   'Scaling/root planing 1-3 teeth per quad',     92,    65,   27],
+  ['D4910',   'Periodontal maintenance',                    113,    62,   51],
+  ['D5110',   'Complete denture maxillary',                1085,   550,  535],
+  ['D5120',   'Complete denture mandibular',               1085,   550,  535],
+  ['D5213',   'Partial denture max cast metal frame',      1172,   600,  572],
+  ['D5214',   'Partial denture mand cast metal frame',     1172,   600,  572],
+  ['D5820',   'Interim partial denture maxillary',          463,   250,  213],
+  ['D5821',   'Interim partial denture mandibular',         463,   250,  213],
+  ['D6010',   'Implant surgical placement',                1395,     0, 1395],
+  ['D6057',   'Custom abutment',                            521,     0,  521],
+  ['D6058',   'Abutment-supported porcelain/ceramic crown', 812,    0,  812],
+  ['D6065',   'Implant porcelain/ceramic crown',            874,     0,  874],
+  ['D6190',   'Radiographic/surgical implant index',        233,     0,  233],
+  ['D6245',   'Pontic porcelain/ceramic',                   696,   350,  346],
+  ['D6241',   'Pontic porc fuse to base metal',             696,   350,  346],
+  ['D6740',   'Retainer crown porcelain/ceramic',           696,   370,  326],
+  ['D6751',   'Retainer crown porc to base metal',          696,   370,  326],
+  ['D7140',   'Extraction erupted tooth',                   108,   108,    0],
+  ['D9450',   'Case presentation',                            0,     0,    0],
+  ['D9450.2', 'Perio case presentation',                      0,     0,    0],
+  ['D9450.3', 'Fixed case presentation',                      0,     0,    0],
+  ['D9450.6', 'Treatment plan update',                        0,     0,    0],
+  ['D9944',   'Occlusal guard',                             403,     0,  403],
+];
+
 const state = {
   profile: null,        // { name, sNumber, phone }
   pendingSNumber: null, // set while we're showing the "complete profile" form
@@ -325,6 +379,7 @@ function setView(view) {
   $('view-my-blocks').classList.toggle('hidden', view !== 'my-blocks');
   $('view-schedule').classList.toggle('hidden', view !== 'schedule');
   $('view-post').classList.toggle('hidden', view !== 'post');
+  $('view-costs').classList.toggle('hidden', view !== 'costs');
   $('view-profile').classList.toggle('hidden', view !== 'profile');
   renderCurrentView();
 }
@@ -333,6 +388,7 @@ function renderCurrentView() {
   if (state.view === 'calendar') renderCalendar();
   else if (state.view === 'my-blocks') renderMyBlocks();
   else if (state.view === 'schedule') renderSchedule();
+  else if (state.view === 'costs') renderProcedureCosts();
   else if (state.view === 'profile') fillProfileEditForm();
 }
 
@@ -347,7 +403,7 @@ function showApp() {
 function showSignIn() {
   setGate('signin');
   $('periomaxer-ad').classList.add('hidden');
-  ['view-calendar', 'view-my-blocks', 'view-schedule', 'view-post', 'view-profile'].forEach((id) => {
+  ['view-calendar', 'view-my-blocks', 'view-schedule', 'view-post', 'view-costs', 'view-profile'].forEach((id) => {
     $(id).classList.add('hidden');
   });
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
@@ -1273,6 +1329,45 @@ function handleDownloadIcs() {
   toast('Calendar file downloaded.');
 }
 
+/* ----------------------------- procedure costs ----------------------------- */
+
+function formatMoney(n) {
+  return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function renderProcedureCosts() {
+  const tbody = $('costs-tbody');
+  if (!tbody) return;
+  const q = ($('costs-filter').value || '').trim().toLowerCase();
+  tbody.innerHTML = '';
+
+  const rows = PROCEDURE_COSTS.filter(([code, desc]) => {
+    if (!q) return true;
+    return code.toLowerCase().includes(q) || desc.toLowerCase().includes(q);
+  });
+
+  if (rows.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    td.className = 'empty-cell';
+    td.textContent = 'No procedures match that search.';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  for (const [code, desc, fee, insurance, patient] of rows) {
+    const tr = document.createElement('tr');
+    const c = document.createElement('td'); c.textContent = code; c.className = 'code'; tr.appendChild(c);
+    const d = document.createElement('td'); d.textContent = desc; tr.appendChild(d);
+    const f = document.createElement('td'); f.textContent = formatMoney(fee); f.className = 'num'; tr.appendChild(f);
+    const i = document.createElement('td'); i.textContent = formatMoney(insurance); i.className = 'num'; tr.appendChild(i);
+    const p = document.createElement('td'); p.textContent = formatMoney(patient); p.className = 'num'; tr.appendChild(p);
+    tbody.appendChild(tr);
+  }
+}
+
 /* ----------------------------- wiring ----------------------------- */
 
 function wireEvents() {
@@ -1322,6 +1417,8 @@ function wireEvents() {
   $('schedule-clear').addEventListener('click', handleScheduleClear);
   $('reminder-enabled').addEventListener('change', handleReminderToggle);
   $('download-ics').addEventListener('click', handleDownloadIcs);
+
+  $('costs-filter').addEventListener('input', renderProcedureCosts);
 }
 
 /* ----------------------------- boot ----------------------------- */

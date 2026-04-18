@@ -19,6 +19,7 @@
         <button class="nav-btn" data-view="my-blocks">My Blocks</button>
         <button class="nav-btn" data-view="schedule">My Schedule</button>
         <button class="nav-btn" data-view="post">Post a Block</button>
+        <button class="nav-btn" data-view="costs">Procedure Costs</button>
         <button class="nav-btn" data-view="profile">Account</button>
       </nav>
     </div>
@@ -246,6 +247,32 @@
         </label>
         <button type="submit" class="primary">Post Block</button>
       </form>
+    </section>
+
+    <!-- Procedure Costs view -->
+    <section id="view-costs" class="view hidden">
+      <div class="view-head">
+        <h2>Procedure Costs</h2>
+        <p class="muted">CDT code reference with fees and Maryland Healthy Smiles coverage. Fee equals Maryland Healthy Smiles pays plus patient pays.</p>
+      </div>
+      <label class="costs-search">
+        Search
+        <input type="text" id="costs-filter" placeholder="CDT code or procedure…" />
+      </label>
+      <div class="costs-table-wrap">
+        <table id="costs-table" class="costs-table">
+          <thead>
+            <tr>
+              <th scope="col">CDT Code</th>
+              <th scope="col">Description</th>
+              <th scope="col" class="num">Fee</th>
+              <th scope="col" class="num">Maryland Healthy Smiles Pays</th>
+              <th scope="col" class="num">Patient Pays</th>
+            </tr>
+          </thead>
+          <tbody id="costs-tbody"></tbody>
+        </table>
+      </div>
     </section>
 
     <!-- Account view -->
