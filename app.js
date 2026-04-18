@@ -1235,13 +1235,18 @@ function loadSchedule() {
   } catch (e) {
     state.schedule = [];
   }
-  // Sync from Firestore in background; re-render if the cloud copy differs.
+  // Sync with Firestore in background. If the cloud has a schedule, pull it
+  // down. Otherwise, if we have a local schedule, push it up (this handles
+  // users who imported before schedule-sync existed).
   if (state.firestoreReady && state.profile) {
     db.collection('users').doc(state.profile.sNumber).get().then((snap) => {
-      if (snap.exists && Array.isArray(snap.data().schedule) && snap.data().schedule.length > 0) {
-        state.schedule = snap.data().schedule;
+      const cloud = snap.exists && Array.isArray(snap.data().schedule) ? snap.data().schedule : [];
+      if (cloud.length > 0) {
+        state.schedule = cloud;
         localStorage.setItem(key, JSON.stringify(state.schedule));
         if (state.view === 'schedule') renderSchedule();
+      } else if (state.schedule.length > 0) {
+        saveSchedule();
       }
     }).catch(() => {});
   }
