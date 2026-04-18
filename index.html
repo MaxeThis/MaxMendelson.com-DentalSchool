@@ -15,12 +15,13 @@
         <p class="tagline">Post a block you want to give up. Find one you want to pick up.</p>
       </div>
       <nav class="site-nav">
-        <button class="nav-btn" data-view="calendar">Calendar</button>
-        <button class="nav-btn" data-view="my-blocks">My Blocks</button>
-        <button class="nav-btn" data-view="schedule">My Schedule</button>
-        <button class="nav-btn" data-view="post">Post a Block</button>
+        <button class="nav-btn auth-only" data-view="calendar">Calendar</button>
+        <button class="nav-btn auth-only" data-view="my-blocks">My Blocks</button>
+        <button class="nav-btn auth-only" data-view="schedule">My Schedule</button>
+        <button class="nav-btn auth-only" data-view="post">Post a Block</button>
         <button class="nav-btn" data-view="costs">Procedure Costs</button>
-        <button class="nav-btn" data-view="profile">Account</button>
+        <button class="nav-btn auth-only" data-view="profile">Account</button>
+        <button class="nav-btn guest-only" id="nav-signin-btn">Sign in</button>
       </nav>
     </div>
   </header>
@@ -70,14 +71,14 @@
           <input type="text" id="setup-name" required autocomplete="name" placeholder="Max Mendelson" />
         </label>
         <label>
-          Phone number
-          <input type="tel" id="setup-phone" required autocomplete="tel" placeholder="(555) 123-4567" />
-          <small>Shared with other students so they can reach out to you about your blocks.</small>
+          Phone number <span class="optional-tag">(optional)</span>
+          <input type="tel" id="setup-phone" autocomplete="tel" placeholder="(555) 123-4567" />
+          <small>Shared with other students so they can reach out to you about your blocks. Leave blank if you'd rather not share it.</small>
         </label>
         <label>
           Create a PIN
           <input type="password" id="setup-pin" required inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" autocomplete="new-password" />
-          <small>4–6 digits. You’ll use this to sign in on other devices — don’t forget it.</small>
+          <small>4–6 digits. Pick something memorable like your birthday (e.g. <code>0421</code> for April 21). You'll enter it to sign in on other devices — don't forget it.</small>
         </label>
         <label>
           Confirm PIN
@@ -288,8 +289,8 @@
           <input type="text" id="edit-name" required autocomplete="name" />
         </label>
         <label>
-          Phone number
-          <input type="tel" id="edit-phone" required autocomplete="tel" />
+          Phone number <span class="optional-tag">(optional)</span>
+          <input type="tel" id="edit-phone" autocomplete="tel" placeholder="(555) 123-4567" />
         </label>
         <div class="row-buttons">
           <button type="submit" class="primary">Save changes</button>

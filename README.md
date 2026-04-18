@@ -28,7 +28,8 @@ You need a Firebase project to store the shared blocks. It is free for this use 
 
        // Helpers
        function validPhone(p) {
-         return p is string && p.size() >= 10 && p.size() <= 25;
+         // Phone is optional — allow empty or up to 25 chars.
+         return p is string && p.size() <= 25;
        }
        function validName(n) {
          return n is string && n.size() > 0 && n.size() <= 80;

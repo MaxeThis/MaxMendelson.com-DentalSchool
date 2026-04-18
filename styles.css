@@ -78,6 +78,9 @@ html, body {
   border-color: #fff;
   font-weight: 600;
 }
+body.signed-out .auth-only { display: none; }
+body.signed-in  .guest-only { display: none; }
+.optional-tag { color: var(--muted); font-weight: 400; font-size: 0.85em; margin-left: 4px; }
 
 /* Panels */
 main { padding: 22px 0 40px; }

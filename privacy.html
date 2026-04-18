@@ -23,41 +23,44 @@
     <section class="panel">
       <p><strong>Last updated:</strong> <span id="updated"></span></p>
 
-      <h2>Who runs this site</h2>
-      <p>This site (UMSOD Block Exchange) is run personally by Max Mendelson, a student at the University of Maryland School of Dentistry. It is not affiliated with, endorsed by, or operated by the University of Maryland, Baltimore or the University of Maryland School of Dentistry.</p>
+      <h2>The short version</h2>
+      <p><strong>Nothing you put into this site is private.</strong> Treat everything you enter as public info that other students can see. I'm not responsible for anything that happens with that info. Use the site at your own risk.</p>
 
-      <h2>What we collect</h2>
-      <p>When you create a profile on this site you provide:</p>
-      <ul>
-        <li><strong>Your full name</strong></li>
-        <li><strong>Your student ID (S#)</strong></li>
-        <li><strong>Your phone number</strong></li>
-        <li><strong>A 4–6 digit PIN</strong> you choose. The PIN itself never leaves your device. Your browser runs it through a one-way hash (PBKDF2 / SHA-256, salted with your S#, 200,000 iterations) and only that hash is stored. We cannot recover or reset your PIN — if you lose it, contact Max to have the account reset.</li>
-      </ul>
-      <p>When you post a block you additionally provide: the date of the block, whether it is a morning or afternoon block, the type of block, and any optional notes you add.</p>
+      <h2>Who runs this</h2>
+      <p>Max Mendelson, a student at the University of Maryland School of Dentistry. This site is a personal side project — it's not affiliated with, endorsed by, or operated by the University of Maryland or the School of Dentistry.</p>
 
-      <h2>How we use and share your info</h2>
+      <h2>What goes in</h2>
       <ul>
-        <li>Your name, S#, phone number, PIN hash, and block details are <strong>stored in a cloud database (Google Firestore)</strong> that powers the site.</li>
-        <li>When you post a block, your <strong>name, S#, and phone number are visible to anyone using the site</strong> so that other students can contact you about that block. This is the whole point of the exchange.</li>
-        <li>To block spam/bots, the site uses <strong>Google reCAPTCHA v3</strong> (via Firebase App Check). reCAPTCHA collects limited hardware and software information (e.g., device events and browser details) to tell humans from bots. See <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google's privacy policy</a> and <a href="https://policies.google.com/terms" target="_blank" rel="noopener">terms of service</a>.</li>
-        <li>Your name, S#, and phone number are cached in your browser's local storage so you don't have to sign in every time. Your PIN and its hash are <strong>not</strong> cached locally.</li>
+        <li>Your name and student ID (S#).</li>
+        <li>Your phone number, if you choose to give one. It's optional.</li>
+        <li>A PIN you pick. The PIN itself isn't stored — your browser hashes it (PBKDF2 / SHA‑256) before sending anything to the database.</li>
+        <li>Any blocks you post and any notes you attach to them.</li>
       </ul>
 
-      <h2>Who can see your data</h2>
-      <p>Your phone number and the rest of your profile are visible to anyone with access to the site. The site has access to the data you provide. Do not use this site if you are not comfortable with your name, S#, and phone number being visible to other users of the site.</p>
+      <h2>Where it goes</h2>
+      <ul>
+        <li>Everything above is stored in a Google Firebase database I control.</li>
+        <li>Your name, S#, any phone number you provide, and every block you post are <strong>visible to everyone else using the site</strong>. That's how the exchange works.</li>
+        <li>Your current profile is cached in your browser so you stay signed in. Your PIN and its hash are <strong>not</strong> cached locally.</li>
+        <li>Anti-bot protection uses Google reCAPTCHA v3, which collects standard device/browser signals to tell humans from scripts. See <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google's privacy policy</a>.</li>
+      </ul>
 
-      <h2>Removing your info</h2>
-      <p>You can remove any block you posted from the <em>My Blocks</em> page, which deletes it from the database. You can also sign out of this device from the <em>Profile</em> page, which removes your info from this browser (it does not delete blocks you already posted — remove those first). To have all of your data deleted, contact Max directly.</p>
+      <h2>What I don't do</h2>
+      <p>I don't sell your data. I don't run analytics or advertising tracking on you. The PerioMaxer link is a plain link to the App Store.</p>
 
-      <h2>No selling, no ads tracking</h2>
-      <p>We do not sell your information. The PerioMaxer promotion on the site is a static link to the App Store and does not track you.</p>
+      <h2>No guarantees</h2>
+      <ul>
+        <li>No warranty of any kind. The site may go down, lose data, get scraped, or otherwise misbehave without warning.</li>
+        <li>I'm not responsible for any harm, loss, or consequence from using this site — including but not limited to missed blocks, miscommunications, or anything involving the info you or anyone else posts here.</li>
+        <li>Don't put anything sensitive in here. If you wouldn't write it on a whiteboard in the hallway, don't put it on this site.</li>
+        <li>By using the site you agree to the above.</li>
+      </ul>
 
-      <h2>Security</h2>
-      <p>Data is transmitted over HTTPS and stored by Google Firebase. No system is perfectly secure — only share what you are comfortable sharing with other students.</p>
+      <h2>Removing your stuff</h2>
+      <p>Remove any block you posted from the <em>My Blocks</em> tab. Sign out from the <em>Account</em> tab to clear the cache on a device. To delete your profile entirely, reach out to Max directly.</p>
 
       <h2>Contact</h2>
-      <p>Questions or data deletion requests: contact Max Mendelson directly through GroupMe or the phone number you know him by.</p>
+      <p>Questions or deletion requests: reach Max on GroupMe.</p>
     </section>
   </main>
 

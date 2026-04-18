@@ -176,11 +176,16 @@ function isWeekday(dateStr) {
 }
 
 function validSNumber(s) { return /^S\d{5}$/.test(s); }
-function validPhone(p) { return (p || '').replace(/\D/g, '').length >= 10; }
+function phoneDigits(p) { return (p || '').replace(/\D/g, ''); }
+function hasPhone(p) { return phoneDigits(p).length >= 10; }
+function validPhoneOrEmpty(p) {
+  const d = phoneDigits(p);
+  return d.length === 0 || d.length >= 10;
+}
 function validName(n) { return typeof n === 'string' && n.trim().length > 0; }
 function validPin(p) { return /^\d{4,6}$/.test(p || ''); }
 function profileValid(p) {
-  return p && validName(p.name) && validSNumber(p.sNumber) && validPhone(p.phone);
+  return p && validName(p.name) && validSNumber(p.sNumber) && validPhoneOrEmpty(p.phone);
 }
 
 /* ----------------------------- PIN hashing ----------------------------- */
@@ -374,6 +379,12 @@ function setGate(which) {
 }
 
 function setView(view) {
+  // Guest-only views available without sign-in.
+  const publicViews = new Set(['costs']);
+  if (!profileValid(state.profile) && !publicViews.has(view)) {
+    view = 'costs';
+  }
+  setGate(null);
   state.view = view;
   document.querySelectorAll('.nav-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === view);
@@ -384,6 +395,7 @@ function setView(view) {
   $('view-post').classList.toggle('hidden', view !== 'post');
   $('view-costs').classList.toggle('hidden', view !== 'costs');
   $('view-profile').classList.toggle('hidden', view !== 'profile');
+  $('periomaxer-ad').classList.remove('hidden');
   renderCurrentView();
 }
 
@@ -395,15 +407,29 @@ function renderCurrentView() {
   else if (state.view === 'profile') fillProfileEditForm();
 }
 
+function setAuthMode(signedIn) {
+  document.body.classList.toggle('signed-in', !!signedIn);
+  document.body.classList.toggle('signed-out', !signedIn);
+}
+
 function showApp() {
+  setAuthMode(true);
   setGate(null);
   $('periomaxer-ad').classList.remove('hidden');
   loadSchedule();
   handleReminderToggle();
-  setView(state.view || 'calendar');
+  setView(state.view && state.view !== 'costs' ? state.view : 'calendar');
+}
+
+function showLoggedOut() {
+  setAuthMode(false);
+  setGate(null);
+  $('periomaxer-ad').classList.remove('hidden');
+  setView('costs');
 }
 
 function showSignIn() {
+  setAuthMode(false);
   setGate('signin');
   $('periomaxer-ad').classList.add('hidden');
   ['view-calendar', 'view-my-blocks', 'view-schedule', 'view-post', 'view-costs', 'view-profile'].forEach((id) => {
@@ -508,7 +534,7 @@ async function handleSetupSubmit(e) {
   const pin = $('setup-pin').value;
   const pin2 = $('setup-pin2').value;
   if (!validName(name)) { toast('Enter your full name.'); return; }
-  if (!validPhone(phone)) { toast('Enter a valid 10-digit phone number.'); return; }
+  if (!validPhoneOrEmpty(phone)) { toast('Phone number needs 10 digits or leave it blank.'); return; }
   if (!validPin(pin)) { toast('PIN must be 4–6 digits.'); return; }
   if (pin !== pin2) { toast('PINs don’t match.'); return; }
 
@@ -678,10 +704,14 @@ function renderBlockCard(b, opts = {}) {
   if (opts.showContact) {
     const contact = document.createElement('div');
     contact.className = 'contact';
-    const phone = formatPhone(b.phone);
-    contact.innerHTML = `<div>Contact:</div>
-      <div><a href="${telHref(b.phone)}">${phone}</a></div>
-      <div><a href="${smsHref(b.phone)}">Send text</a></div>`;
+    if (hasPhone(b.phone)) {
+      const phone = formatPhone(b.phone);
+      contact.innerHTML = `<div>Contact:</div>
+        <div><a href="${telHref(b.phone)}">${phone}</a></div>
+        <div><a href="${smsHref(b.phone)}">Send text</a></div>`;
+    } else {
+      contact.innerHTML = `<div class="small muted">No phone on file — reach out via GroupMe.</div>`;
+    }
     card.appendChild(contact);
   }
 
@@ -811,7 +841,7 @@ async function handleProfileEditSubmit(e) {
   const name = $('edit-name').value.trim();
   const phone = $('edit-phone').value.trim();
   if (!validName(name)) { toast('Enter your full name.'); return; }
-  if (!validPhone(phone)) { toast('Enter a valid 10-digit phone number.'); return; }
+  if (!validPhoneOrEmpty(phone)) { toast('Phone number needs 10 digits or leave it blank.'); return; }
 
   const profile = { name, sNumber: state.profile.sNumber, phone };
   const btn = e.target.querySelector('button[type="submit"]');
@@ -834,7 +864,7 @@ async function handleProfileEditSubmit(e) {
 function handleSignOut() {
   if (!confirm('Sign out? Your posted blocks stay on the calendar.')) return;
   clearLocalProfile();
-  showSignIn();
+  showLoggedOut();
 }
 
 /* ----------------------------- schedule: parsing ----------------------------- */
@@ -1384,9 +1414,11 @@ function wireEvents() {
   $('profile-edit-form').addEventListener('submit', handleProfileEditSubmit);
   $('profile-signout').addEventListener('click', handleSignOut);
 
-  document.querySelectorAll('.nav-btn').forEach((b) => {
+  document.querySelectorAll('.nav-btn[data-view]').forEach((b) => {
     b.addEventListener('click', () => setView(b.dataset.view));
   });
+  const signinBtn = $('nav-signin-btn');
+  if (signinBtn) signinBtn.addEventListener('click', () => showSignIn());
 
   $('filter-type').addEventListener('change', (e) => {
     state.filterType = e.target.value;
@@ -1439,17 +1471,16 @@ async function boot() {
   subscribeBlocks();
 
   if (profileValid(state.profile) && state.firestoreReady) {
-    // Refresh from Firestore in case name/phone changed elsewhere.
     showApp();
     try {
       const fresh = await fetchUserDoc(state.profile.sNumber);
-      if (fresh && validName(fresh.name) && validPhone(fresh.phone)) {
+      if (fresh && validName(fresh.name) && validPhoneOrEmpty(fresh.phone)) {
         cacheProfile({ name: fresh.name, sNumber: state.profile.sNumber, phone: fresh.phone });
         if (state.view === 'profile') fillProfileEditForm();
       }
     } catch (e) { /* ignore */ }
   } else {
-    showSignIn();
+    showLoggedOut();
   }
 }
 
