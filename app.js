@@ -703,7 +703,7 @@ async function handleSignInSubmit(e) {
   btn.disabled = true;
   try {
     const user = await fetchUserDoc(sNumber);
-    if (user && validName(user.name) && validPhone(user.phone) && user.pinHash) {
+    if (user && validName(user.name) && validPhoneOrEmpty(user.phone) && user.pinHash) {
       showPinPrompt(sNumber);
     } else {
       showSetup(sNumber);
@@ -1619,7 +1619,9 @@ function renderProcedureCosts() {
   const q = ($('costs-filter').value || '').trim().toLowerCase();
   tbody.innerHTML = '';
 
-  const rows = PROCEDURE_COSTS.filter(([code, desc]) => {
+  const showUnknown = $('costs-show-unknown')?.checked;
+  const rows = PROCEDURE_COSTS.filter(([code, desc, fee, insurance, patient, frequency]) => {
+    if (!showUnknown && formatCostCell(fee, frequency) === 'Unknown') return false;
     if (!q) return true;
     return code.toLowerCase().includes(q) || desc.toLowerCase().includes(q);
   });
@@ -1719,6 +1721,7 @@ function wireEvents() {
   $('download-ics').addEventListener('click', handleDownloadIcs);
 
   $('costs-filter').addEventListener('input', renderProcedureCosts);
+  $('costs-show-unknown').addEventListener('change', renderProcedureCosts);
 }
 
 /* ----------------------------- boot ----------------------------- */
