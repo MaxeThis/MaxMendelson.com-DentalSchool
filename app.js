@@ -1235,12 +1235,28 @@ function loadSchedule() {
   } catch (e) {
     state.schedule = [];
   }
+  // Sync from Firestore in background; re-render if the cloud copy differs.
+  if (state.firestoreReady && state.profile) {
+    db.collection('users').doc(state.profile.sNumber).get().then((snap) => {
+      if (snap.exists && Array.isArray(snap.data().schedule) && snap.data().schedule.length > 0) {
+        state.schedule = snap.data().schedule;
+        localStorage.setItem(key, JSON.stringify(state.schedule));
+        if (state.view === 'schedule') renderSchedule();
+      }
+    }).catch(() => {});
+  }
 }
 
 function saveSchedule() {
   const key = scheduleKey();
   if (!key) return;
   localStorage.setItem(key, JSON.stringify(state.schedule));
+  if (state.firestoreReady && state.profile) {
+    db.collection('users').doc(state.profile.sNumber).update({
+      schedule: state.schedule,
+      updatedAt: Date.now(),
+    }).catch(() => {});
+  }
 }
 
 function mergeScheduleEntries(newEntries) {
@@ -1566,7 +1582,7 @@ function handleSaveSchedule() {
 
 function handleScheduleClear() {
   if (state.schedule.length === 0) return;
-  if (!confirm('Clear your entire imported schedule? This only affects this device.')) return;
+  if (!confirm('Clear your entire imported schedule? This will remove it from all your devices.')) return;
   state.schedule = [];
   saveSchedule();
   renderSchedule();
