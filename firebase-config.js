@@ -30,4 +30,4 @@ window.FIREBASE_CONFIG = {
 //   3. Back in the App Check console, open each service (Firestore in our
 //      case) and switch enforcement to "Enforced".
 // Leaving this blank disables App Check (site still works).
-window.RECAPTCHA_V3_SITE_KEY = "";
+window.RECAPTCHA_V3_SITE_KEY = "6LchQr4sAAAAAL34gOfS1b-kr2tPPb7GlK5wJ6Ap";
