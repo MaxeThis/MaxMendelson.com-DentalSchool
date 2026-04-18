@@ -13,7 +13,30 @@ const BLOCK_TYPES = [
   'Screening',
 ];
 
+// axiUm / schedule code → display name. Match is case-insensitive; '@' is stripped.
+const SCHEDULE_NAME_MAP = {
+  'BLK-SURGERY': 'ORAL SURGERY BLOCK',
+  'BLK-ORTHO':   'ORTHO BLOCK',
+  'BLK-SPC&G':   'SPECIAL CARE BLOCK',
+  'BLK-PEDS':    'PEDS BLOCK',
+  'CLIN-EMERG':  'EMERGENCY BLOCK',
+  'BLK-ONCALL':  'ON-CALL BLOCK',
+  'BLK-SCR':     'SCREENING BLOCK',
+};
+
+// Display name → swap-listing block type.
+const DESC_TO_TYPE = {
+  'ORAL SURGERY BLOCK': 'Oral Surgery',
+  'ORTHO BLOCK':        'Ortho',
+  'SPECIAL CARE BLOCK': 'Special Care',
+  'PEDS BLOCK':         'Peds',
+  'EMERGENCY BLOCK':    'Emergency',
+  'ON-CALL BLOCK':      'On-Call',
+  'SCREENING BLOCK':    'Screening',
+};
+
 const PROFILE_KEY = 'umsod_be_profile_v1';
+const SCHEDULE_KEY_PREFIX = 'umsod_be_schedule_v1:';
 
 const state = {
   profile: null,        // { name, sNumber, phone }
@@ -25,6 +48,8 @@ const state = {
   selectedDate: null,
   view: 'calendar',
   firestoreReady: false,
+  schedule: [],         // user's imported schedule (local-only, per-device)
+  importTab: 'paste',
 };
 
 let db = null;
@@ -298,6 +323,7 @@ function setView(view) {
   });
   $('view-calendar').classList.toggle('hidden', view !== 'calendar');
   $('view-my-blocks').classList.toggle('hidden', view !== 'my-blocks');
+  $('view-schedule').classList.toggle('hidden', view !== 'schedule');
   $('view-post').classList.toggle('hidden', view !== 'post');
   $('view-profile').classList.toggle('hidden', view !== 'profile');
   renderCurrentView();
@@ -306,19 +332,22 @@ function setView(view) {
 function renderCurrentView() {
   if (state.view === 'calendar') renderCalendar();
   else if (state.view === 'my-blocks') renderMyBlocks();
+  else if (state.view === 'schedule') renderSchedule();
   else if (state.view === 'profile') fillProfileEditForm();
 }
 
 function showApp() {
   setGate(null);
   $('periomaxer-ad').classList.remove('hidden');
+  loadSchedule();
+  handleReminderToggle();
   setView(state.view || 'calendar');
 }
 
 function showSignIn() {
   setGate('signin');
   $('periomaxer-ad').classList.add('hidden');
-  ['view-calendar', 'view-my-blocks', 'view-post', 'view-profile'].forEach((id) => {
+  ['view-calendar', 'view-my-blocks', 'view-schedule', 'view-post', 'view-profile'].forEach((id) => {
     $(id).classList.add('hidden');
   });
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
@@ -749,6 +778,466 @@ function handleSignOut() {
   showSignIn();
 }
 
+/* ----------------------------- schedule: parsing ----------------------------- */
+
+function parseTime12(str) {
+  const m = (str || '').trim().match(/^(\d{1,2}):(\d{2})\s*([APap][Mm])\.?$/);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const ampm = m[3].toUpperCase();
+  if (h < 1 || h > 12 || min < 0 || min > 59) return null;
+  if (h === 12) h = 0;
+  if (ampm === 'PM') h += 12;
+  return { h, min, display: `${pad2(parseInt(m[1],10))}:${pad2(min)} ${ampm}` };
+}
+
+function parseMmDdYyyy(str) {
+  const m = (str || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (!m) return null;
+  const mm = parseInt(m[1], 10);
+  const dd = parseInt(m[2], 10);
+  let yyyy = parseInt(m[3], 10);
+  if (yyyy < 100) yyyy += 2000;
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  return { yyyy, mm, dd, ymd: `${yyyy}-${pad2(mm)}-${pad2(dd)}`, display: `${pad2(mm)}/${pad2(dd)}/${yyyy}` };
+}
+
+function cleanDescription(raw) {
+  const stripped = (raw || '').trim().replace(/^@/, '');
+  const hit = SCHEDULE_NAME_MAP[stripped.toUpperCase()];
+  return hit || stripped;
+}
+
+/* Accept either "desc, date, start, end" lines OR OCR-style lines with
+ * whitespace separating the fields. Best effort — unparseable lines go
+ * to the error list for the UI to show. */
+function parseScheduleText(text) {
+  const entries = [];
+  const errors = [];
+  const lines = (text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    if (/^(description|desc|block|name|event)\b/.test(lower)) continue;
+
+    let parts = line.split(/\s*,\s*/).filter(Boolean);
+    if (parts.length < 4) {
+      // Whitespace fallback: "@CODE  MM/DD/YYYY  HH:MM AM  HH:MM PM"
+      const m = line.match(/^(@?\S+(?:\s+[A-Za-z&]+)*?)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{1,2}:\d{2}\s*[APap][Mm])\s+(\d{1,2}:\d{2}\s*[APap][Mm])\s*$/);
+      if (!m) { errors.push(line); continue; }
+      parts = [m[1], m[2], m[3], m[4]];
+    }
+
+    const [rawDesc, dateStr, startStr, endStr] = parts;
+    const date = parseMmDdYyyy(dateStr);
+    const start = parseTime12(startStr);
+    const end = parseTime12(endStr);
+    if (!date || !start || !end) { errors.push(line); continue; }
+    if ((end.h * 60 + end.min) <= (start.h * 60 + start.min)) { errors.push(line); continue; }
+
+    entries.push({
+      id: 'sch_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+      description: cleanDescription(rawDesc),
+      date: date.ymd,
+      dateDisplay: date.display,
+      startTime: start.display,
+      endTime: end.display,
+    });
+  }
+
+  return { entries, errors };
+}
+
+function startTimeToPeriod(startDisplay) {
+  const t = parseTime12(startDisplay);
+  if (!t) return null;
+  return t.h < 12 ? 'morning' : 'afternoon';
+}
+
+/* ----------------------------- schedule: storage ----------------------------- */
+
+function scheduleKey() {
+  if (!state.profile) return null;
+  return SCHEDULE_KEY_PREFIX + state.profile.sNumber;
+}
+
+function loadSchedule() {
+  const key = scheduleKey();
+  if (!key) { state.schedule = []; return; }
+  try {
+    const raw = localStorage.getItem(key);
+    state.schedule = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    state.schedule = [];
+  }
+}
+
+function saveSchedule() {
+  const key = scheduleKey();
+  if (!key) return;
+  localStorage.setItem(key, JSON.stringify(state.schedule));
+}
+
+function mergeScheduleEntries(newEntries) {
+  const dedupKey = (e) => `${e.date}|${e.startTime}|${e.endTime}|${e.description}`;
+  const seen = new Set(state.schedule.map(dedupKey));
+  let added = 0;
+  for (const e of newEntries) {
+    if (seen.has(dedupKey(e))) continue;
+    seen.add(dedupKey(e));
+    state.schedule.push(e);
+    added++;
+  }
+  state.schedule.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return (a.startTime || '').localeCompare(b.startTime || '');
+  });
+  saveSchedule();
+  return added;
+}
+
+/* ----------------------------- schedule: OCR ----------------------------- */
+
+let _tesseractPromise = null;
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  if (_tesseractPromise) return _tesseractPromise;
+  _tesseractPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.async = true;
+    s.onload = () => resolve(window.Tesseract);
+    s.onerror = () => { _tesseractPromise = null; reject(new Error('Could not load OCR library.')); };
+    document.head.appendChild(s);
+  });
+  return _tesseractPromise;
+}
+
+async function ocrImage(file) {
+  const Tesseract = await loadTesseract();
+  const res = await Tesseract.recognize(file, 'eng');
+  return (res && res.data && res.data.text) || '';
+}
+
+/* ----------------------------- schedule: ICS ----------------------------- */
+
+function icsEscape(s) {
+  return (s || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\r?\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
+}
+
+function combineDateTime(ymdStr, timeDisplay) {
+  const [y, m, d] = ymdStr.split('-').map(Number);
+  const t = parseTime12(timeDisplay);
+  if (!t) return null;
+  return new Date(y, m - 1, d, t.h, t.min, 0);
+}
+
+function icsDateTime(dt) {
+  return `${dt.getFullYear()}${pad2(dt.getMonth() + 1)}${pad2(dt.getDate())}T${pad2(dt.getHours())}${pad2(dt.getMinutes())}00`;
+}
+
+function icsDateTimeUtc(dt) {
+  return `${dt.getUTCFullYear()}${pad2(dt.getUTCMonth() + 1)}${pad2(dt.getUTCDate())}T${pad2(dt.getUTCHours())}${pad2(dt.getUTCMinutes())}${pad2(dt.getUTCSeconds())}Z`;
+}
+
+function uuidLike() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function generateIcs(events, personName, reminder) {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//UMSOD Block Exchange//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    `X-WR-CALNAME:${icsEscape(personName)} Block Schedule`,
+  ];
+
+  const dtstamp = icsDateTimeUtc(new Date());
+  const sorted = events.slice().sort((a, b) => {
+    const da = combineDateTime(a.date, a.startTime);
+    const db = combineDateTime(b.date, b.startTime);
+    return da - db;
+  });
+
+  for (const ev of sorted) {
+    const dtstart = combineDateTime(ev.date, ev.startTime);
+    const dtend = combineDateTime(ev.date, ev.endTime);
+    if (!dtstart || !dtend) continue;
+
+    lines.push('BEGIN:VEVENT');
+    lines.push(`UID:${uuidLike()}@umsod-block-exchange`);
+    lines.push(`DTSTAMP:${dtstamp}`);
+    lines.push(`DTSTART:${icsDateTime(dtstart)}`);
+    lines.push(`DTEND:${icsDateTime(dtend)}`);
+    lines.push(`SUMMARY:${icsEscape(ev.description)}`);
+    lines.push(`DESCRIPTION:${icsEscape(ev.description + ' - ' + personName)}`);
+    lines.push('STATUS:CONFIRMED');
+
+    if (reminder && reminder.enabled) {
+      const nightBefore = new Date(dtstart);
+      nightBefore.setDate(nightBefore.getDate() - 1);
+      nightBefore.setHours(reminder.hour, reminder.minute, 0, 0);
+      const offsetSec = Math.max(0, Math.floor((dtstart - nightBefore) / 1000));
+      const hours = Math.floor(offsetSec / 3600);
+      const mins = Math.floor((offsetSec % 3600) / 60);
+      lines.push('BEGIN:VALARM');
+      lines.push('ACTION:DISPLAY');
+      lines.push(`DESCRIPTION:${icsEscape('Reminder: ' + ev.description + ' tomorrow')}`);
+      lines.push(`TRIGGER:-PT${hours}H${mins}M`);
+      lines.push('END:VALARM');
+    }
+
+    lines.push('END:VEVENT');
+  }
+
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+function downloadBlob(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 0);
+}
+
+/* ----------------------------- schedule: view ----------------------------- */
+
+function renderSchedule() {
+  const listEl = $('schedule-list');
+  listEl.innerHTML = '';
+  const summary = $('schedule-summary');
+
+  if (state.schedule.length === 0) {
+    summary.textContent = 'Nothing imported yet.';
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'Import your schedule above to see your blocks here.';
+    listEl.appendChild(empty);
+    return;
+  }
+  summary.textContent = `${state.schedule.length} block${state.schedule.length === 1 ? '' : 's'} imported.`;
+
+  for (const entry of state.schedule) {
+    listEl.appendChild(renderScheduleRow(entry));
+  }
+}
+
+function renderScheduleRow(entry) {
+  const row = document.createElement('div');
+  row.className = 'schedule-row';
+
+  const period = startTimeToPeriod(entry.startTime);
+  const type = DESC_TO_TYPE[entry.description.toUpperCase()] || null;
+  const postedBlock = state.blocks.find((b) =>
+    state.profile && b.sNumber === state.profile.sNumber &&
+    b.date === entry.date && b.time === period
+  );
+  if (postedBlock) row.classList.add('posted');
+
+  const dateEl = document.createElement('div');
+  dateEl.className = 'sched-date';
+  dateEl.textContent = prettyDate(entry.date).split(',').slice(0, 2).join(',');
+  row.appendChild(dateEl);
+
+  const timeEl = document.createElement('div');
+  timeEl.className = 'sched-time';
+  timeEl.textContent = `${entry.startTime} – ${entry.endTime}`;
+  row.appendChild(timeEl);
+
+  const descEl = document.createElement('div');
+  descEl.className = 'sched-desc';
+  descEl.textContent = entry.description;
+  row.appendChild(descEl);
+
+  const statusEl = document.createElement('div');
+  if (postedBlock) {
+    const badge = document.createElement('span');
+    badge.className = 'posted-badge';
+    badge.textContent = 'Posted';
+    statusEl.appendChild(badge);
+  }
+  row.appendChild(statusEl);
+
+  const actions = document.createElement('div');
+  actions.className = 'sched-actions';
+
+  if (type && period) {
+    if (postedBlock) {
+      const unpost = document.createElement('button');
+      unpost.type = 'button';
+      unpost.className = 'text-btn danger';
+      unpost.textContent = 'Unpost';
+      unpost.addEventListener('click', async () => {
+        if (!confirm('Remove this block from the public calendar?')) return;
+        try {
+          await deleteBlockDoc(postedBlock.id);
+          toast('Block unposted.');
+        } catch (e) {
+          console.error(e);
+          toast('Could not unpost.');
+        }
+      });
+      actions.appendChild(unpost);
+    } else {
+      const post = document.createElement('button');
+      post.type = 'button';
+      post.className = 'text-btn';
+      post.textContent = 'Post for swap';
+      post.addEventListener('click', () => postScheduleEntry(entry, type, period, post));
+      actions.appendChild(post);
+    }
+  } else {
+    const note = document.createElement('span');
+    note.className = 'small muted';
+    note.textContent = 'Unknown block type';
+    actions.appendChild(note);
+  }
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'text-btn';
+  remove.textContent = 'Remove';
+  remove.title = 'Remove from your schedule (doesn’t affect anything on the calendar)';
+  remove.addEventListener('click', () => {
+    state.schedule = state.schedule.filter((x) => x.id !== entry.id);
+    saveSchedule();
+    renderSchedule();
+  });
+  actions.appendChild(remove);
+
+  row.appendChild(actions);
+  return row;
+}
+
+async function postScheduleEntry(entry, type, period, btn) {
+  if (!state.profile) { toast('Sign in first.'); return; }
+  if (!rateLimitOk('post')) { toast('Too many posts — try again in a minute.'); return; }
+  if (!isWeekday(entry.date)) { toast('Blocks are Monday–Friday only.'); return; }
+
+  const block = {
+    date: entry.date,
+    time: period,
+    type,
+    notes: `${entry.startTime} – ${entry.endTime}`,
+    name: state.profile.name,
+    sNumber: state.profile.sNumber,
+    phone: state.profile.phone,
+    createdAt: Date.now(),
+  };
+
+  btn.disabled = true;
+  try {
+    await postBlockDoc(block);
+    toast(`Posted: ${entry.description} on ${entry.dateDisplay}.`);
+  } catch (err) {
+    console.error(err);
+    toast('Could not post. Check your connection.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ----------------------------- schedule: import handlers ----------------------------- */
+
+function setImportTab(tab) {
+  state.importTab = tab;
+  document.querySelectorAll('.import-tab').forEach((b) => {
+    b.classList.toggle('active', b.dataset.importTab === tab);
+  });
+  $('import-pane-paste').classList.toggle('hidden', tab !== 'paste');
+  $('import-pane-screenshot').classList.toggle('hidden', tab !== 'screenshot');
+  $('import-status').textContent = '';
+}
+
+async function handleScreenshotUpload(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const status = $('ocr-status');
+  const ta = $('ocr-textarea');
+  status.textContent = 'Loading OCR engine (first time only, ~10 MB)…';
+  try {
+    const text = await ocrImage(file);
+    ta.value = text.trim();
+    status.textContent = 'Done. Review and fix any mistakes above before parsing.';
+  } catch (err) {
+    console.error(err);
+    status.textContent = 'OCR failed. Try pasting the schedule as text instead.';
+  }
+}
+
+function handleImportParse() {
+  const src = state.importTab === 'screenshot' ? $('ocr-textarea') : $('import-textarea');
+  const text = src.value;
+  if (!text.trim()) { toast('Paste or upload a schedule first.'); return; }
+  const { entries, errors } = parseScheduleText(text);
+  if (entries.length === 0) {
+    $('import-status').textContent = 'No valid rows found. Check formatting.';
+    return;
+  }
+  const added = mergeScheduleEntries(entries);
+  const skipped = entries.length - added;
+  const parts = [`Added ${added} block${added === 1 ? '' : 's'}.`];
+  if (skipped) parts.push(`${skipped} already in your schedule.`);
+  if (errors.length) parts.push(`${errors.length} line${errors.length === 1 ? '' : 's'} couldn’t be parsed.`);
+  $('import-status').textContent = parts.join(' ');
+  src.value = '';
+  renderSchedule();
+}
+
+function handleScheduleClear() {
+  if (state.schedule.length === 0) return;
+  if (!confirm('Clear your entire imported schedule? This only affects this device.')) return;
+  state.schedule = [];
+  saveSchedule();
+  renderSchedule();
+  toast('Schedule cleared.');
+}
+
+function handleReminderToggle() {
+  const enabled = $('reminder-enabled').checked;
+  $('reminder-time-label').style.opacity = enabled ? '1' : '0.4';
+  $('reminder-time').disabled = !enabled;
+}
+
+function handleDownloadIcs() {
+  if (!state.profile) { toast('Sign in first.'); return; }
+  if (state.schedule.length === 0) { toast('Nothing to download — import a schedule first.'); return; }
+  const enabled = $('reminder-enabled').checked;
+  let reminder = null;
+  if (enabled) {
+    const v = ($('reminder-time').value || '19:00').match(/^(\d{1,2}):(\d{2})$/);
+    if (!v) { toast('Invalid reminder time.'); return; }
+    const hour = parseInt(v[1], 10);
+    const minute = parseInt(v[2], 10);
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) { toast('Invalid reminder time.'); return; }
+    reminder = { enabled: true, hour, minute };
+  }
+  const ics = generateIcs(state.schedule, state.profile.name, reminder);
+  const safeName = state.profile.name.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'blocks';
+  downloadBlob(`${safeName}_Blocks.ics`, ics, 'text/calendar');
+  toast('Calendar file downloaded.');
+}
+
 /* ----------------------------- wiring ----------------------------- */
 
 function wireEvents() {
@@ -788,6 +1277,16 @@ function wireEvents() {
   $('day-detail-close').addEventListener('click', closeDayDetail);
 
   $('post-form').addEventListener('submit', handlePostBlock);
+
+  // Schedule / import tabs
+  document.querySelectorAll('.import-tab').forEach((b) => {
+    b.addEventListener('click', () => setImportTab(b.dataset.importTab));
+  });
+  $('import-file').addEventListener('change', handleScreenshotUpload);
+  $('import-parse').addEventListener('click', handleImportParse);
+  $('schedule-clear').addEventListener('click', handleScheduleClear);
+  $('reminder-enabled').addEventListener('change', handleReminderToggle);
+  $('download-ics').addEventListener('click', handleDownloadIcs);
 }
 
 /* ----------------------------- boot ----------------------------- */

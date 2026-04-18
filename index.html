@@ -17,6 +17,7 @@
       <nav class="site-nav">
         <button class="nav-btn" data-view="calendar">Calendar</button>
         <button class="nav-btn" data-view="my-blocks">My Blocks</button>
+        <button class="nav-btn" data-view="schedule">My Schedule</button>
         <button class="nav-btn" data-view="post">Post a Block</button>
         <button class="nav-btn" data-view="profile">Account</button>
       </nav>
@@ -152,6 +153,65 @@
         <p class="muted">Remove a block once someone has agreed to take it.</p>
       </div>
       <div id="my-blocks-list" class="block-list"></div>
+    </section>
+
+    <!-- My Schedule view -->
+    <section id="view-schedule" class="view hidden">
+      <div class="view-head">
+        <h2>My Schedule</h2>
+        <p class="muted">Import your block schedule once, then pick which blocks to post for a swap and download an <code>.ics</code> file for your calendar. Your schedule is stored on this device only — it isn't shared.</p>
+      </div>
+
+      <div class="subpanel">
+        <h3>1. Import your schedule</h3>
+        <div class="import-tabs">
+          <button type="button" class="import-tab active" data-import-tab="paste">Paste text</button>
+          <button type="button" class="import-tab" data-import-tab="screenshot">Upload screenshot</button>
+        </div>
+
+        <div id="import-pane-paste" class="import-pane">
+          <p class="muted small">Copy rows from axiUm (or anywhere) and paste below. One block per line. Commas or whitespace between fields both work.</p>
+          <textarea id="import-textarea" rows="7" placeholder="@BLK-SURGERY, 04/15/2026, 09:00 AM, 12:00 PM&#10;@BLK-PEDS, 04/24/2026, 01:00 PM, 04:00 PM"></textarea>
+        </div>
+
+        <div id="import-pane-screenshot" class="import-pane hidden">
+          <p class="muted small">Best effort. OCR isn't perfect — after uploading, review the parsed text below and fix anything wrong before clicking <em>Parse &amp; Add</em>.</p>
+          <input type="file" id="import-file" accept="image/*" />
+          <div id="ocr-status" class="small muted"></div>
+          <textarea id="ocr-textarea" rows="7" placeholder="OCR results appear here. Edit before parsing."></textarea>
+        </div>
+
+        <div class="row-buttons">
+          <button type="button" id="import-parse" class="primary">Parse &amp; Add</button>
+          <span id="import-status" class="small muted"></span>
+        </div>
+      </div>
+
+      <div class="subpanel">
+        <h3>2. Your schedule</h3>
+        <p class="muted small" id="schedule-summary"></p>
+        <div id="schedule-list" class="schedule-list"></div>
+        <div class="row-buttons">
+          <button type="button" id="schedule-clear" class="text-btn danger">Clear entire schedule</button>
+        </div>
+      </div>
+
+      <div class="subpanel">
+        <h3>3. Download calendar file</h3>
+        <p class="muted small">Creates an <code>.ics</code> file you can import into Apple Calendar, Google Calendar, or Outlook.</p>
+        <label class="checkbox inline">
+          <input type="checkbox" id="reminder-enabled" checked />
+          Include a reminder the night before
+        </label>
+        <label id="reminder-time-label">
+          Reminder time
+          <input type="time" id="reminder-time" value="19:00" />
+          <small>24-hour format. Default 7:00 PM.</small>
+        </label>
+        <div class="row-buttons">
+          <button type="button" id="download-ics" class="primary">Download .ics</button>
+        </div>
+      </div>
     </section>
 
     <!-- Post block view -->
