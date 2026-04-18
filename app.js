@@ -44,13 +44,13 @@ const SCHEDULE_KEY_PREFIX = 'umsod_be_schedule_v1:';
  * verify against the current provider manual before treatment planning. */
 const PROCEDURE_COSTS = [
   // [code, description, fee, mhsPays, patientPays, frequency, preAuth]
-  ['D0120',   'Periodic oral evaluation',                    46,    28,   18, '1× / 6 months',               'No'],
-  ['D0140',   'Limited oral eval - problem focused',         53,    32,   21, 'As needed',                   'No'],
-  ['D0150',   'Comprehensive oral evaluation',               67,    40,   27, '1× / 3 years per dentist',    'No'],
-  ['D0210',   'Intraoral complete series (FMS)',            170,    85,   85, '1× / 5 years',                'No'],
-  ['D0330',   'Panoramic radiograph',                       111,    55,   56, '1× / 5 years',                'No'],
-  ['D1110',   'Prophylaxis (adult)',                         86,    48,   38, '1× / 6 months',               'No'],
-  ['D1208',   'Fluoride application',                        33,    20,   13, '1× / 6 months',               'No'],
+  ['D0120',   'Periodic oral evaluation',                    46,    28,   18, 'Verify in manual',            'No'],
+  ['D0140',   'Limited oral eval - problem focused',         53,    32,   21, 'Verify in manual',            'No'],
+  ['D0150',   'Comprehensive oral evaluation',               67,    40,   27, 'Verify in manual',            'No'],
+  ['D0210',   'Intraoral complete series (FMS)',            170,    85,   85, 'Verify in manual',            'No'],
+  ['D0330',   'Panoramic radiograph',                       111,    55,   56, 'Verify in manual',            'No'],
+  ['D1110',   'Prophylaxis (adult)',                         86,    48,   38, 'Verify in manual',            'No'],
+  ['D1208',   'Fluoride application',                        33,    20,   13, 'Verify in manual',            'No'],
   ['D2330',   'Resin composite 1-surf anterior',            110,    62,   48, '1× / surface / 24 months',    'No'],
   ['D2331',   'Resin composite 2-surf anterior',            138,    78,   60, '1× / surface / 24 months',    'No'],
   ['D2332',   'Resin composite 3-surf anterior',            169,    95,   74, '1× / surface / 24 months',    'No'],
