@@ -18,8 +18,7 @@
         <button class="nav-btn auth-only" data-view="calendar">Calendar</button>
         <button class="nav-btn auth-only" data-view="my-blocks">My Blocks</button>
         <button class="nav-btn auth-only" data-view="schedule">My Schedule</button>
-        <button class="nav-btn auth-only" data-view="post">Post a Block</button>
-        <button class="nav-btn" data-view="costs">Procedure Costs</button>
+<button class="nav-btn" data-view="costs">Procedure Costs</button>
         <button class="nav-btn auth-only" data-view="profile">Account</button>
         <button class="nav-btn guest-only" id="nav-signin-btn">Sign in</button>
       </nav>
@@ -80,7 +79,7 @@
       <form id="setup-form" class="stacked-form">
         <label>
           Full name
-          <input type="text" id="setup-name" required autocomplete="name" placeholder="Max Mendelson" />
+          <input type="text" id="setup-name" required autocomplete="name" placeholder="Full name" />
         </label>
         <label>
           Phone number <span class="optional-tag">(optional)</span>
@@ -167,7 +166,18 @@
       <div class="subpanel">
         <h3>1. Import your schedule</h3>
         <p class="muted small">Upload one or more axiUm screenshots. Blocks are added to your schedule automatically — duplicates across uploads are skipped.</p>
-        <input type="file" id="import-file" accept="image/*" multiple />
+        <div id="drop-zone" class="drop-zone">
+          <div class="drop-zone-inner">
+            <svg class="drop-zone-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect x="4" y="12" width="40" height="28" rx="4" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+              <path d="M16 12V10a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+              <path d="M24 22v10M19 27l5-5 5 5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <p class="drop-zone-title">Drop screenshots here</p>
+            <p class="drop-zone-hint">or <button type="button" class="drop-zone-browse">choose files</button></p>
+          </div>
+          <input type="file" id="import-file" accept="image/*" multiple />
+        </div>
         <div id="import-status" class="small muted"></div>
       </div>
 
@@ -197,40 +207,6 @@
           <button type="button" id="download-ics" class="primary">Download .ics</button>
         </div>
       </div>
-    </section>
-
-    <!-- Post block view -->
-    <section id="view-post" class="view hidden">
-      <div class="view-head">
-        <h2>Post a Block</h2>
-        <p class="muted">Give up a morning or afternoon block. It appears on the calendar for other students.</p>
-      </div>
-      <form id="post-form" class="stacked-form">
-        <label>
-          Date
-          <input type="date" id="post-date" required />
-          <small>Weekdays only (Mon–Fri).</small>
-        </label>
-        <label>
-          Time
-          <select id="post-time" required>
-            <option value="">Select…</option>
-            <option value="morning">Morning</option>
-            <option value="afternoon">Afternoon</option>
-          </select>
-        </label>
-        <label>
-          Block type
-          <select id="post-type" required>
-            <option value="">Select…</option>
-          </select>
-        </label>
-        <label>
-          Notes (optional)
-          <textarea id="post-notes" rows="2" maxlength="200" placeholder="Anything someone should know…"></textarea>
-        </label>
-        <button type="submit" class="primary">Post Block</button>
-      </form>
     </section>
 
     <!-- Procedure Costs view -->
