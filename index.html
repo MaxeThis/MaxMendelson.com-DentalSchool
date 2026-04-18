@@ -27,6 +27,18 @@
   </header>
 
   <main class="container">
+    <!-- PerioMaxer ad -->
+    <aside id="periomaxer-ad" class="ad-card hidden">
+      <a href="https://apps.apple.com/app/periomaxer" target="_blank" rel="noopener" class="ad-link">
+        <div class="ad-icon" aria-hidden="true">🦷</div>
+        <div class="ad-copy">
+          <div class="ad-kicker">Built by a UMSOD student</div>
+          <div class="ad-title">PerioMaxer</div>
+          <div class="ad-sub">Fast perio charting &amp; study tools. Get it on the App Store →</div>
+        </div>
+      </a>
+    </aside>
+
     <!-- Sign-in gate: just S# -->
     <section id="signin-gate" class="panel hidden">
       <h2>Sign in</h2>
@@ -94,18 +106,6 @@
         </div>
       </form>
     </section>
-
-    <!-- PerioMaxer ad -->
-    <aside id="periomaxer-ad" class="ad-card hidden">
-      <a href="https://apps.apple.com/app/periomaxer" target="_blank" rel="noopener" class="ad-link">
-        <div class="ad-icon" aria-hidden="true">🦷</div>
-        <div class="ad-copy">
-          <div class="ad-kicker">Built by a UMSOD student</div>
-          <div class="ad-title">PerioMaxer</div>
-          <div class="ad-sub">Fast perio charting &amp; study tools. Get it on the App Store →</div>
-        </div>
-      </a>
-    </aside>
 
     <!-- Calendar view -->
     <section id="view-calendar" class="view hidden">
@@ -177,8 +177,8 @@
         </div>
 
         <div id="import-pane-screenshot" class="import-pane hidden">
-          <p class="muted small">Best effort. OCR isn't perfect — after uploading, review the parsed text below and fix anything wrong before clicking <em>Parse &amp; Add</em>.</p>
-          <input type="file" id="import-file" accept="image/*" />
+          <p class="muted small">Best effort. OCR isn't perfect — select one or more screenshots, review the parsed text below, and fix anything wrong before clicking <em>Parse &amp; Add</em>. Duplicate blocks across images are removed automatically.</p>
+          <input type="file" id="import-file" accept="image/*" multiple />
           <div id="ocr-status" class="small muted"></div>
           <textarea id="ocr-textarea" rows="7" placeholder="OCR results appear here. Edit before parsing."></textarea>
         </div>
@@ -255,7 +255,7 @@
       <div class="view-head">
         <h2>Procedure Costs</h2>
         <p class="muted">CDT code reference with fees, Maryland Healthy Smiles coverage, and typical frequency limits. Fee equals Maryland Healthy Smiles pays plus patient pays.</p>
-        <p class="muted small">Frequency limits and pre-auth flags are <strong>best-effort guidance only — always verify</strong> against the adult benefit section of the current Maryland Healthy Smiles Provider Manual:
+        <p class="muted small">Frequency limits and pre-auth flags reflect Provider Manual V16 (effective 1/1/2025) and cover adult, child (&lt;21), REM, and Former Foster Care (21–25) plans. Where limits differ, the adult value is shown first; child/REM variants follow in parentheses. "Kids only" means the code is not a covered benefit under the adult plans. Always <strong>verify</strong> before treatment planning:
           <a href="https://health.maryland.gov/mmcp/Pages/Maryland-Healthy-Smiles-Dental-Program-for-Providers.aspx" target="_blank" rel="noopener">MHS Provider Page</a>
           &middot;
           <a href="https://health.maryland.gov/mmcp/Documents/MD%20Provider%20Manual%20V16%20-%20MDH_APPROVED.pdf" target="_blank" rel="noopener">Provider Manual (PDF)</a>

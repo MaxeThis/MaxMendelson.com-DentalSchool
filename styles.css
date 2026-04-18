@@ -80,6 +80,8 @@ html, body {
 }
 body.signed-out .auth-only { display: none; }
 body.signed-in  .guest-only { display: none; }
+body.signed-out main.container { padding-top: 48px; }
+body.signed-out .ad-card { margin-bottom: 48px; }
 .optional-tag { color: var(--muted); font-weight: 400; font-size: 0.85em; margin-left: 4px; }
 
 /* Panels */

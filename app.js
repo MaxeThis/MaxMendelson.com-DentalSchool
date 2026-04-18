@@ -39,61 +39,250 @@ const PROFILE_KEY = 'umsod_be_profile_v1';
 const SCHEDULE_KEY_PREFIX = 'umsod_be_schedule_v1:';
 
 /* CDT code fee reference. Fee = Maryland Healthy Smiles pays + patient pays.
- * Frequency limits and pre-auth flags below reflect typical Maryland Healthy
- * Smiles (adult Medicaid) patterns and are for quick reference only — always
- * verify against the current provider manual before treatment planning. */
+ * Frequency limits and pre-auth flags below are pulled from the Maryland
+ * Healthy Smiles Provider Manual V16 (effective 1/1/2025). Where adult and
+ * child limits differ, the adult limit is shown first and the child/REM
+ * variant appears in parentheses. "Kids only" = covered for Children < 21,
+ * REM Children, and Former Foster Care (21–25) but not the Adult plans.
+ * Fees come from the separate 2025 Dental Fee Schedule; entries at $0 are
+ * either covered at no cost, not in the fee schedule, or UMSOD-specific
+ * codes. Always verify before treatment planning. */
 const PROCEDURE_COSTS = [
   // [code, description, fee, mhsPays, patientPays, frequency, preAuth]
-  ['D0120',   'Periodic oral evaluation',                    46,    28,   18, 'Verify in manual',            'No'],
-  ['D0140',   'Limited oral eval - problem focused',         53,    32,   21, 'Verify in manual',            'No'],
-  ['D0150',   'Comprehensive oral evaluation',               67,    40,   27, 'Verify in manual',            'No'],
-  ['D0210',   'Intraoral complete series (FMS)',            170,    85,   85, 'Verify in manual',            'No'],
-  ['D0330',   'Panoramic radiograph',                       111,    55,   56, 'Verify in manual',            'No'],
-  ['D1110',   'Prophylaxis (adult)',                         86,    48,   38, 'Verify in manual',            'No'],
-  ['D1208',   'Fluoride application',                        33,    20,   13, 'Verify in manual',            'No'],
-  ['D2330',   'Resin composite 1-surf anterior',            110,    62,   48, '1× / surface / 24 months',    'No'],
-  ['D2331',   'Resin composite 2-surf anterior',            138,    78,   60, '1× / surface / 24 months',    'No'],
-  ['D2332',   'Resin composite 3-surf anterior',            169,    95,   74, '1× / surface / 24 months',    'No'],
-  ['D2335',   'Resin composite 4+ surf anterior',           213,   120,   93, '1× / surface / 24 months',    'No'],
-  ['D2391',   'Resin composite 1-surf posterior',           129,    72,   57, '1× / surface / 24 months',    'No'],
-  ['D2392',   'Resin composite 2-surf posterior',           155,    87,   68, '1× / surface / 24 months',    'No'],
-  ['D2393',   'Resin composite 3-surf posterior',           197,   110,   87, '1× / surface / 24 months',    'No'],
-  ['D2394',   'Resin composite 4+ surf posterior',          241,   135,  106, '1× / surface / 24 months',    'No'],
-  ['D2740',   'Crown porcelain/ceramic',                    713,   394,  319, '1× / tooth / 5 years',        'Yes'],
-  ['D2751',   'Crown PFM noble metal',                      713,   394,  319, '1× / tooth / 5 years',        'Yes'],
-  ['D2799',   'Provisional crown',                          266,     0,  266, 'Bridge to definitive',        'No'],
-  ['D2940',   'Protective restoration',                      82,    45,   37, 'As needed',                   'No'],
-  ['D2950',   'Core buildup incl pins',                     199,   115,   84, '1× / tooth / 5 years',        'Yes'],
-  ['D2954',   'Prefab post and core',                       243,   140,  103, '1× / tooth / 5 years',        'Yes'],
-  ['D2999.1', 'Unspecified restorative',                     89,     0,   89, 'As needed',                   'Yes'],
-  ['D3310',   'Endodontic therapy anterior',                499,   275,  224, '1× / tooth (lifetime)',       'Yes'],
-  ['D3320',   'Endodontic therapy premolar',                584,   330,  254, '1× / tooth (lifetime)',       'Yes'],
-  ['D3330',   'Endodontic therapy molar',                   713,   400,  313, '1× / tooth (lifetime)',       'Yes'],
-  ['D4249',   'Clinical crown lengthening',                 542,     0,  542, 'As needed',                   'Yes'],
-  ['D4341',   'Scaling/root planing 4+ teeth per quad',     115,    90,   25, '1× / quadrant / 24 months',   'Yes'],
-  ['D4342',   'Scaling/root planing 1-3 teeth per quad',     92,    65,   27, '1× / quadrant / 24 months',   'Yes'],
-  ['D4910',   'Periodontal maintenance',                    113,    62,   51, 'Up to 4× / year',             'No'],
-  ['D5110',   'Complete denture maxillary',                1085,   550,  535, '1× / 8 years',                'Yes'],
-  ['D5120',   'Complete denture mandibular',               1085,   550,  535, '1× / 8 years',                'Yes'],
-  ['D5213',   'Partial denture max cast metal frame',      1172,   600,  572, '1× / 8 years',                'Yes'],
-  ['D5214',   'Partial denture mand cast metal frame',     1172,   600,  572, '1× / 8 years',                'Yes'],
-  ['D5820',   'Interim partial denture maxillary',          463,   250,  213, 'Bridge to definitive',        'Yes'],
-  ['D5821',   'Interim partial denture mandibular',         463,   250,  213, 'Bridge to definitive',        'Yes'],
-  ['D6010',   'Implant surgical placement',                1395,     0, 1395, 'Limited coverage',            'Yes'],
-  ['D6057',   'Custom abutment',                            521,     0,  521, 'Limited coverage',            'Yes'],
-  ['D6058',   'Abutment-supported porcelain/ceramic crown', 812,    0,  812, 'Limited coverage',            'Yes'],
-  ['D6065',   'Implant porcelain/ceramic crown',            874,     0,  874, 'Limited coverage',            'Yes'],
-  ['D6190',   'Radiographic/surgical implant index',        233,     0,  233, 'Limited coverage',            'Yes'],
-  ['D6245',   'Pontic porcelain/ceramic',                   696,   350,  346, '1× / tooth / 5 years',        'Yes'],
-  ['D6241',   'Pontic porc fuse to base metal',             696,   350,  346, '1× / tooth / 5 years',        'Yes'],
-  ['D6740',   'Retainer crown porcelain/ceramic',           696,   370,  326, '1× / tooth / 5 years',        'Yes'],
-  ['D6751',   'Retainer crown porc to base metal',          696,   370,  326, '1× / tooth / 5 years',        'Yes'],
-  ['D7140',   'Extraction erupted tooth',                   108,   108,    0, 'As needed',                   'No'],
-  ['D9450',   'Case presentation',                            0,     0,    0, 'As needed',                   'No'],
-  ['D9450.2', 'Perio case presentation',                      0,     0,    0, 'As needed',                   'No'],
-  ['D9450.3', 'Fixed case presentation',                      0,     0,    0, 'As needed',                   'No'],
-  ['D9450.6', 'Treatment plan update',                        0,     0,    0, 'As needed',                   'No'],
-  ['D9944',   'Occlusal guard',                             403,     0,  403, '1× / 24 months, limited',     'Yes'],
+
+  /* Diagnostic (D0xxx) */
+  ['D0120',   'Periodic oral evaluation',                    46,    28,   18, '2× / 12 mo; 120-day lockout w/ D0145/D0150/D0160', 'No'],
+  ['D0140',   'Limited oral eval - problem focused',         53,    32,   21, 'Pain eval only; not w/ routine services',          'No'],
+  ['D0145',   'Oral eval, patient under 3 + caregiver',       0,     0,    0, 'Kids <3: 2× / 12 mo',                              'No'],
+  ['D0150',   'Comprehensive oral evaluation',               67,    40,   27, '1× / 3 years per provider/location',               'No'],
+  ['D0160',   'Detailed/extensive eval - problem focused',    0,     0,    0, '1× / 3 years per provider/location',               'No'],
+  ['D0210',   'Intraoral complete series (FMS)',            170,    85,   85, '1× / 36 mo (shares limit w/ D0330)',               'No'],
+  ['D0220',   'Periapical - first image',                     0,     0,    0, '1× on same DOS as endo',                           'No'],
+  ['D0230',   'Periapical - each additional image',           0,     0,    0, 'No limit',                                         'No'],
+  ['D0240',   'Occlusal radiographic image',                  0,     0,    0, 'Kids: 2× / 12 mo',                                 'No'],
+  ['D0250',   'Extraoral - first image',                      0,     0,    0, 'Kids: no limit',                                   'No'],
+  ['D0270',   'Bitewing - single image',                      0,     0,    0, '1× / 12 mo (REM: 1× / 6 mo)',                      'No'],
+  ['D0272',   'Bitewings - two images',                       0,     0,    0, '1× / 12 mo (REM: 1× / 6 mo)',                      'No'],
+  ['D0273',   'Bitewings - three images',                     0,     0,    0, '1× / 12 mo (REM: 1× / 6 mo)',                      'No'],
+  ['D0274',   'Bitewings - four images',                      0,     0,    0, '1× / 12 mo (REM: 1× / 6 mo)',                      'No'],
+  ['D0330',   'Panoramic radiograph',                       111,    55,   56, '1× / 36 mo (shares limit w/ D0210)',               'No'],
+  ['D0340',   '2D cephalometric image',                       0,     0,    0, 'Kids: 1× / 36 mo, non-ortho only',                 'No'],
+  ['D0431',   'Adjunctive oral cancer screen',                0,     0,    0, 'Kids 0-20: 1× / 12 mo',                            'No'],
+  ['D0460',   'Pulp vitality test',                           0,     0,    0, 'Kids: 1× / visit',                                 'No'],
+
+  /* Preventive (D1xxx) */
+  ['D1110',   'Prophylaxis (adult)',                         86,    48,   38, '2× / 12 mo, min 120 days (REM: 1× / 3 mo)',        'No'],
+  ['D1120',   'Prophylaxis (child)',                          0,     0,    0, 'Kids 0-13: 2× / 12 mo (REM: 1× / 3 mo)',           'No'],
+  ['D1206',   'Topical fluoride varnish',                    33,    20,   13, '1× / 6 mo (Kids 0-5: 4×/yr per prov, 8× max; 6-25: 4×/yr)', 'No'],
+  ['D1208',   'Topical fluoride - excluding varnish',        33,    20,   13, '1× / 6 mo (REM: 1× / 3 mo)',                       'No'],
+  ['D1330',   'Oral hygiene instructions',                    0,     0,    0, 'Kids: 1× / 12 mo',                                 'No'],
+  ['D1351',   'Sealant - per tooth',                          0,     0,    0, 'Kids: 1× lifetime per tooth (perm posterior only)', 'No'],
+  ['D1352',   'Preventive resin restoration',                 0,     0,    0, 'Kids: 1× lifetime per tooth',                      'No'],
+  ['D1354',   'Silver diamine fluoride (SDF)',                0,     0,    0, 'Kids: 1× / 6 mo per tooth, max 4 lifetime (ages 7+ need preauth)', 'Yes'],
+  ['D1510',   'Fixed unilateral space maintainer',            0,     0,    0, 'Kids: 1× / 24 mo per quadrant',                    'No'],
+  ['D1516',   'Fixed bilateral space maintainer - maxillary', 0,     0,    0, 'Kids: 1× / 24 mo (D1516 or D1526)',                'No'],
+  ['D1517',   'Fixed bilateral space maintainer - mand.',     0,     0,    0, 'Kids: 1× / 24 mo (D1517 or D1527)',                'No'],
+  ['D1520',   'Removable unilateral space maintainer',        0,     0,    0, 'Kids: 1× / 24 mo per quadrant',                    'No'],
+  ['D1556',   'Removal of fixed unilateral space maint.',     0,     0,    0, 'Kids: not by placing office',                      'No'],
+
+  /* Restorative (D2xxx) */
+  ['D2140',   'Amalgam - 1 surface',                          0,     0,    0, '1× / surface / 24 mo; 1× / tooth / 6 mo',          'No'],
+  ['D2150',   'Amalgam - 2 surfaces',                         0,     0,    0, '1× / surface / 24 mo; 1× / tooth / 6 mo',          'No'],
+  ['D2160',   'Amalgam - 3 surfaces',                         0,     0,    0, '1× / surface / 24 mo; 1× / tooth / 6 mo',          'No'],
+  ['D2161',   'Amalgam - 4+ surfaces',                        0,     0,    0, '1× / surface / 24 mo; 1× / tooth / 6 mo',          'No'],
+  ['D2330',   'Resin composite 1-surf anterior',            110,    62,   48, '1× / surface / 24 mo; 1× / tooth / 6 mo',          'No'],
+  ['D2331',   'Resin composite 2-surf anterior',            138,    78,   60, '1× / surface / 24 mo; 1× / tooth / 6 mo',          'No'],
+  ['D2332',   'Resin composite 3-surf anterior',            169,    95,   74, '1× / surface / 24 mo; 1× / tooth / 6 mo',          'No'],
+  ['D2335',   'Resin composite 4+ surf anterior',           213,   120,   93, '1× / surface / 24 mo; 1× / tooth / 6 mo',          'No'],
+  ['D2390',   'Resin composite crown, anterior',              0,     0,    0, 'Kids: not w/ endo (D3310-D3348) same DOS',         'No'],
+  ['D2391',   'Resin composite 1-surf posterior',           129,    72,   57, '1× / surface / 24 mo; 1× / tooth / 6 mo',          'No'],
+  ['D2392',   'Resin composite 2-surf posterior',           155,    87,   68, '1× / surface / 24 mo; 1× / tooth / 6 mo',          'No'],
+  ['D2393',   'Resin composite 3-surf posterior',           197,   110,   87, '1× / surface / 24 mo; 1× / tooth / 6 mo',          'No'],
+  ['D2394',   'Resin composite 4+ surf posterior',          241,   135,  106, '1× / surface / 24 mo; 1× / tooth / 6 mo',          'No'],
+  ['D2721',   'Crown resin w/ predominantly base metal',      0,     0,    0, 'Kids: 1× / 60 mo per tooth',                       'Yes'],
+  ['D2740',   'Crown porcelain/ceramic',                    713,   394,  319, '1× / 60 mo per tooth',                             'Yes'],
+  ['D2750',   'Crown PFM high noble metal',                   0,     0,    0, '1× / 60 mo per tooth',                             'Yes'],
+  ['D2751',   'Crown PFM predominantly base metal',          713,   394,  319, '1× / 60 mo per tooth',                             'Yes'],
+  ['D2752',   'Crown PFM noble metal',                        0,     0,    0, '1× / 60 mo per tooth',                             'Yes'],
+  ['D2780',   'Crown ¾ cast high noble metal',                0,     0,    0, '1× / 60 mo per tooth',                             'Yes'],
+  ['D2790',   'Crown full cast high noble metal',             0,     0,    0, '1× / 60 mo per tooth',                             'Yes'],
+  ['D2791',   'Crown full cast predominantly base metal',     0,     0,    0, '1× / 60 mo per tooth',                             'Yes'],
+  ['D2792',   'Crown full cast noble metal',                  0,     0,    0, '1× / 60 mo per tooth',                             'Yes'],
+  ['D2794',   'Crown titanium',                               0,     0,    0, '1× / 60 mo per tooth',                             'Yes'],
+  ['D2799',   'Provisional crown',                          266,     0,  266, 'Bridge to definitive (UMSOD use)',                 'No'],
+  ['D2910',   'Re-cement or re-bond inlay/onlay/veneer',      0,     0,    0, 'No limit',                                         'No'],
+  ['D2920',   'Re-cement or re-bond crown',                   0,     0,    0, 'Adult: 2× / lifetime per tooth, not w/in 6 mo of placement', 'No'],
+  ['D2928',   'Prefab porcelain/ceramic crown - permanent',   0,     0,    0, 'Kids: 1× / 36 mo per tooth',                       'No'],
+  ['D2929',   'Prefab porcelain/ceramic crown - primary',     0,     0,    0, 'Kids: 1× / 36 mo per tooth',                       'Yes'],
+  ['D2930',   'Prefab stainless-steel crown - primary',       0,     0,    0, 'Kids: 1× / 36 mo per tooth',                       'No'],
+  ['D2931',   'Prefab stainless-steel crown - permanent',     0,     0,    0, '1× / 60 mo per tooth',                             'No'],
+  ['D2932',   'Prefab resin crown',                           0,     0,    0, 'Kids: 1× / 36 mo per tooth',                       'No'],
+  ['D2933',   'Prefab SS crown w/ resin window',              0,     0,    0, 'Kids: 1× / 36 mo per tooth',                       'No'],
+  ['D2934',   'Prefab esthetic coated SS crown - primary',    0,     0,    0, 'Kids: 1× / 36 mo per tooth',                       'No'],
+  ['D2940',   'Protective restoration',                      82,    45,   37, '1× / tooth / lifetime',                            'No'],
+  ['D2950',   'Core buildup incl pins',                     199,   115,   84, '1× / 60 mo per tooth (shares w/ D2952/D2954)',     'Yes'],
+  ['D2951',   'Pin retention - per tooth',                    0,     0,    0, 'No limit',                                         'No'],
+  ['D2952',   'Cast post and core in addition to crown',      0,     0,    0, '1× / 60 mo per tooth (shares w/ D2950/D2954)',     'Yes'],
+  ['D2954',   'Prefab post and core',                       243,   140,  103, '1× / 60 mo per tooth (shares w/ D2950/D2952)',     'Yes'],
+  ['D2955',   'Post removal',                                 0,     0,    0, 'Kids: not w/ D3346-D3348 same DOS',                'Yes'],
+  ['D2960',   'Labial veneer, chairside',                     0,     0,    0, 'Kids 6-11: 1× / 60 mo per tooth',                  'Yes'],
+  ['D2961',   'Labial veneer (resin) - lab',                  0,     0,    0, 'Kids 6-11: 1× / 60 mo per tooth',                  'Yes'],
+  ['D2962',   'Labial veneer (porcelain) - lab',              0,     0,    0, 'Kids 6-11: 1× / 60 mo per tooth',                  'Yes'],
+  ['D2980',   'Crown repair, by report',                      0,     0,    0, 'No limit',                                         'No'],
+  ['D2999.1', 'Unspecified restorative (UMSOD)',             89,     0,   89, 'UMSOD reporting code',                             'Yes'],
+
+  /* Endodontics (D3xxx) */
+  ['D3110',   'Pulp cap - direct',                            0,     0,    0, 'No limit',                                         'No'],
+  ['D3120',   'Pulp cap - indirect',                          0,     0,    0, 'No limit',                                         'No'],
+  ['D3220',   'Therapeutic pulpotomy',                        0,     0,    0, 'No limit',                                         'No'],
+  ['D3221',   'Pulpal debridement',                           0,     0,    0, 'No limit',                                         'No'],
+  ['D3230',   'Pulpal therapy - anterior primary',            0,     0,    0, 'Kids: 1× lifetime per tooth',                      'No'],
+  ['D3240',   'Pulpal therapy - posterior primary',           0,     0,    0, 'Kids: 1× lifetime per tooth',                      'No'],
+  ['D3310',   'Endodontic therapy anterior',                499,   275,  224, '1× lifetime per tooth',                            'Yes'],
+  ['D3320',   'Endodontic therapy premolar',                584,   330,  254, '1× lifetime per tooth',                            'Yes'],
+  ['D3330',   'Endodontic therapy molar',                   713,   400,  313, '1× lifetime per tooth',                            'Yes'],
+  ['D3346',   'Retreatment root canal - anterior',            0,     0,    0, '1× lifetime per tooth, not w/in 24 mo of initial', 'Yes'],
+  ['D3347',   'Retreatment root canal - premolar',            0,     0,    0, '1× lifetime per tooth, not w/in 24 mo of initial', 'Yes'],
+  ['D3348',   'Retreatment root canal - molar',               0,     0,    0, '1× lifetime per tooth, not w/in 24 mo of initial', 'Yes'],
+  ['D3351',   'Apexification - initial visit',                0,     0,    0, 'Kids: 1× lifetime per tooth',                      'Yes'],
+  ['D3352',   'Apexification - interim',                      0,     0,    0, 'Kids: 1× lifetime per tooth',                      'Yes'],
+  ['D3353',   'Apexification - final',                        0,     0,    0, 'Kids: 1× lifetime per tooth',                      'Yes'],
+  ['D3410',   'Apicoectomy - anterior',                       0,     0,    0, 'Kids: 1× lifetime per tooth',                      'Yes'],
+  ['D3421',   'Apicoectomy - premolar (first root)',          0,     0,    0, 'Kids: 1× lifetime per tooth',                      'Yes'],
+  ['D3425',   'Apicoectomy - molar (first root)',             0,     0,    0, 'Kids: 1× lifetime per tooth',                      'Yes'],
+  ['D3426',   'Apicoectomy - each additional root',           0,     0,    0, 'Kids: 1× lifetime per tooth',                      'Yes'],
+  ['D3430',   'Retrograde filling - per root',                0,     0,    0, 'Kids: 1× lifetime per tooth',                      'Yes'],
+
+  /* Periodontics (D4xxx) */
+  ['D4210',   'Gingivectomy/plasty - 4+ teeth / quad',        0,     0,    0, '1× / 24 mo per quadrant; max 2 quads / 12 mo',     'Yes'],
+  ['D4211',   'Gingivectomy/plasty - 1-3 teeth / quad',       0,     0,    0, 'Kids: 1× / 24 mo per quadrant',                    'Yes'],
+  ['D4230',   'Anatomical crown exposure - 4+ teeth',         0,     0,    0, 'Kids: 1× lifetime',                                'Yes'],
+  ['D4231',   'Anatomical crown exposure - 1-3 teeth',        0,     0,    0, 'Kids: 1× lifetime',                                'Yes'],
+  ['D4240',   'Gingival flap w/ root planing - 4+ teeth',     0,     0,    0, 'Kids: 1× / 24 mo per quadrant',                    'Yes'],
+  ['D4241',   'Gingival flap w/ root planing - 1-3 teeth',    0,     0,    0, 'Kids: 1× / 24 mo per quadrant',                    'Yes'],
+  ['D4249',   'Clinical crown lengthening - hard tissue',   542,     0,  542, 'Kids: 1× / 24 mo per tooth',                       'Yes'],
+  ['D4260',   'Osseous surgery - 4+ teeth / quad',            0,     0,    0, 'Kids: 1× / 24 mo per quadrant',                    'Yes'],
+  ['D4261',   'Osseous surgery - 1-3 teeth / quad',           0,     0,    0, 'Kids: 1× / 24 mo per quadrant',                    'Yes'],
+  ['D4341',   'Scaling/root planing 4+ teeth per quad',     115,    90,   25, 'Adult: 1× / 12 mo per quad (kids: 1× / 24 mo)',    'Yes'],
+  ['D4342',   'Scaling/root planing 1-3 teeth per quad',     92,    65,   27, 'Adult: 1× / 12 mo per quad (kids: 1× / 24 mo)',    'Yes'],
+  ['D4355',   'Full mouth debridement',                        0,     0,    0, '1× / 24 mo (REM: 1× / 12 mo); not w/ D1110 same DOS', 'No'],
+  ['D4910',   'Periodontal maintenance',                    113,    62,   51, '2× / 12 mo; not w/in 90 days of SRP',              'Yes'],
+  ['D4920',   'Unscheduled dressing change',                   0,     0,    0, 'Kids: not by original treating dentist',           'Yes'],
+
+  /* Prosthodontics - removable (D5xxx) */
+  ['D5110',   'Complete denture - maxillary',              1085,   550,  535, 'Kids/FFC: 1× / 60 mo',                             'Yes'],
+  ['D5120',   'Complete denture - mandibular',             1085,   550,  535, 'Kids/FFC: 1× / 60 mo',                             'Yes'],
+  ['D5211',   'Partial denture - max resin base',             0,     0,    0, 'Kids/FFC: 1× / 60 mo (shares w/ D5225)',           'Yes'],
+  ['D5212',   'Partial denture - mand resin base',            0,     0,    0, 'Kids/FFC: 1× / 60 mo (shares w/ D5226)',           'Yes'],
+  ['D5213',   'Partial denture - max cast metal frame',    1172,   600,  572, 'Not a MHS covered service',                        'Yes'],
+  ['D5214',   'Partial denture - mand cast metal frame',   1172,   600,  572, 'Not a MHS covered service',                        'Yes'],
+  ['D5225',   'Partial denture - max flexible base',          0,     0,    0, 'Kids/FFC: 1× / 60 mo (shares w/ D5211)',           'Yes'],
+  ['D5226',   'Partial denture - mand flexible base',         0,     0,    0, 'Kids/FFC: 1× / 60 mo (shares w/ D5212)',           'Yes'],
+  ['D5410',   'Adjust complete denture - maxillary',          0,     0,    0, 'Not w/in 6 mo of placement',                       'No'],
+  ['D5411',   'Adjust complete denture - mandibular',         0,     0,    0, 'Not w/in 6 mo of placement',                       'No'],
+  ['D5421',   'Adjust partial denture - maxillary',           0,     0,    0, 'Not w/in 6 mo of placement',                       'No'],
+  ['D5422',   'Adjust partial denture - mandibular',          0,     0,    0, 'Not w/in 6 mo of placement',                       'No'],
+  ['D5511',   'Repair broken complete denture - mand',        0,     0,    0, 'No limit',                                         'No'],
+  ['D5512',   'Repair broken complete denture - max',         0,     0,    0, 'No limit',                                         'No'],
+  ['D5520',   'Replace missing/broken teeth - complete dent.', 0,    0,    0, 'No limit',                                         'No'],
+  ['D5630',   'Repair or replace broken clasp',                0,    0,    0, 'No limit',                                         'No'],
+  ['D5640',   'Replace missing/broken teeth - partial dent.',  0,    0,    0, 'No limit',                                         'No'],
+  ['D5650',   'Add tooth to existing partial - per tooth',    0,     0,    0, 'Kids: no limit',                                   'No'],
+  ['D5660',   'Add clasp to existing partial',                0,     0,    0, 'Kids: no limit',                                   'No'],
+  ['D5710',   'Rebase complete maxillary denture',            0,     0,    0, 'Kids: 1× / 24 mo (shares w/ D5750); not w/in 6 mo', 'Yes'],
+  ['D5711',   'Rebase complete mandibular denture',           0,     0,    0, 'Kids: 1× / 24 mo (shares w/ D5751); not w/in 6 mo', 'Yes'],
+  ['D5720',   'Rebase maxillary partial denture',             0,     0,    0, 'Kids: 1× / 24 mo (shares w/ D5760); not w/in 6 mo', 'Yes'],
+  ['D5721',   'Rebase mandibular partial denture',            0,     0,    0, 'Kids: 1× / 24 mo (shares w/ D5761); not w/in 6 mo', 'Yes'],
+  ['D5750',   'Reline complete max denture (lab)',            0,     0,    0, 'Kids: 1× / 24 mo (shares w/ D5710); not w/in 6 mo', 'No'],
+  ['D5751',   'Reline complete mand denture (lab)',           0,     0,    0, 'Kids: 1× / 24 mo (shares w/ D5711); not w/in 6 mo', 'No'],
+  ['D5760',   'Reline maxillary partial denture (lab)',       0,     0,    0, 'Kids: 1× / 24 mo (shares w/ D5720); not w/in 6 mo', 'No'],
+  ['D5761',   'Reline mandibular partial denture (lab)',      0,     0,    0, 'Kids: 1× / 24 mo (shares w/ D5721); not w/in 6 mo', 'No'],
+  ['D5820',   'Interim partial denture - maxillary',        463,   250,  213, 'Not a MHS covered service',                        'Yes'],
+  ['D5821',   'Interim partial denture - mandibular',       463,   250,  213, 'Not a MHS covered service',                        'Yes'],
+  ['D5850',   'Tissue conditioning - maxillary',              0,     0,    0, 'Kids: prior to new denture impression only',       'No'],
+  ['D5851',   'Tissue conditioning - mandibular',             0,     0,    0, 'Kids: prior to new denture impression only',       'No'],
+  ['D5863',   'Overdenture - complete maxillary',             0,     0,    0, 'Kids: 1× / 60 mo',                                 'Yes'],
+  ['D5864',   'Overdenture - partial maxillary',              0,     0,    0, 'Kids: 1× / 60 mo',                                 'Yes'],
+  ['D5865',   'Overdenture - complete mandibular',            0,     0,    0, 'Kids: 1× / 60 mo',                                 'Yes'],
+  ['D5866',   'Overdenture - partial mandibular',             0,     0,    0, 'Kids: 1× / 60 mo',                                 'Yes'],
+
+  /* Prosthodontics - fixed & implants (D6xxx) - not covered for adults under MHS */
+  ['D6010',   'Implant surgical placement',                1395,     0, 1395, 'Not a MHS covered service',                        'Yes'],
+  ['D6057',   'Custom abutment',                            521,     0,  521, 'Not a MHS covered service',                        'Yes'],
+  ['D6058',   'Abutment-supported porcelain/ceramic crown', 812,    0,  812, 'Not a MHS covered service',                        'Yes'],
+  ['D6065',   'Implant porcelain/ceramic crown',            874,     0,  874, 'Not a MHS covered service',                        'Yes'],
+  ['D6190',   'Radiographic/surgical implant index',        233,     0,  233, 'Not a MHS covered service',                        'Yes'],
+  ['D6241',   'Pontic PFM predominantly base metal',        696,   350,  346, 'Not a MHS covered service',                        'Yes'],
+  ['D6245',   'Pontic porcelain/ceramic',                   696,   350,  346, 'Not a MHS covered service',                        'Yes'],
+  ['D6740',   'Retainer crown porcelain/ceramic',           696,   370,  326, 'Not a MHS covered service',                        'Yes'],
+  ['D6751',   'Retainer crown PFM base metal',              696,   370,  326, 'Not a MHS covered service',                        'Yes'],
+  ['D6930',   'Re-cement or re-bond fixed partial denture',   0,     0,    0, 'Adult: 2× lifetime per bridge',                    'No'],
+
+  /* Oral & Maxillofacial Surgery (D7xxx) */
+  ['D7111',   'Extraction, coronal remnants - deciduous',     0,     0,    0, 'No limit',                                         'No'],
+  ['D7140',   'Extraction erupted tooth',                   108,   108,    0, 'No limit',                                         'No'],
+  ['D7210',   'Surgical removal of erupted tooth',            0,     0,    0, 'No limit',                                         'No'],
+  ['D7220',   'Removal of impacted tooth - soft tissue',      0,     0,    0, 'Asymptomatic not covered',                         'No'],
+  ['D7230',   'Removal of impacted tooth - partially bony',   0,     0,    0, 'Asymptomatic not covered',                         'No'],
+  ['D7240',   'Removal of impacted tooth - completely bony',  0,     0,    0, 'Asymptomatic not covered',                         'No'],
+  ['D7241',   'Impacted completely bony + surgical complic.', 0,     0,    0, 'Kids: asymptomatic not covered',                   'Yes'],
+  ['D7250',   'Surgical removal of residual tooth roots',     0,     0,    0, 'Not paid to dentist who removed tooth',            'Yes'],
+  ['D7251',   'Coronectomy - intentional partial removal',    0,     0,    0, 'Kids: 1× lifetime per tooth',                      'Yes'],
+  ['D7270',   'Reimplantation/stabilization of evulsed tooth', 0,    0,    0, 'Kids: incl splinting/stabilization',               'Yes'],
+  ['D7280',   'Surgical access of unerupted tooth',           0,     0,    0, 'Kids: only w/ authorized ortho',                   'Yes'],
+  ['D7285',   'Incisional biopsy oral tissue - hard',         0,     0,    0, 'Pathology report required',                        'No'],
+  ['D7286',   'Incisional biopsy oral tissue - soft',         0,     0,    0, 'Pathology report required',                        'No'],
+  ['D7310',   'Alveoloplasty w/ extractions - 4+ teeth',      0,     0,    0, '1× lifetime per quadrant; min 3 extractions',      'No'],
+  ['D7311',   'Alveoloplasty w/ extractions - 1-3 teeth',     0,     0,    0, 'Kids: 1× lifetime per quadrant',                   'Yes'],
+  ['D7320',   'Alveoloplasty w/o extractions - 4+ teeth',     0,     0,    0, '1× lifetime per quadrant',                         'Yes'],
+  ['D7321',   'Alveoloplasty w/o extractions - 1-3 teeth',    0,     0,    0, 'Kids: 1× lifetime per quadrant',                   'Yes'],
+  ['D7450',   'Removal odontogenic cyst/tumor - ≤1.25cm',     0,     0,    0, 'Kids only; pathology report required',             'No'],
+  ['D7471',   'Removal of exostosis - per site',              0,     0,    0, 'Kids only',                                        'Yes'],
+  ['D7472',   'Removal of torus palatinus',                   0,     0,    0, 'Kids only',                                        'Yes'],
+  ['D7473',   'Removal of torus mandibularis',                0,     0,    0, 'Kids only',                                        'Yes'],
+  ['D7510',   'I&D of abscess - intraoral soft tissue',       0,     0,    0, 'Adult: not w/ extraction',                         'No'],
+  ['D7520',   'I&D of abscess - extraoral soft tissue',       0,     0,    0, 'No limit',                                         'No'],
+  ['D7961',   'Buccal/labial frenectomy',                     0,     0,    0, 'Kids: 1× lifetime',                                'Yes'],
+  ['D7962',   'Lingual frenectomy',                           0,     0,    0, 'Kids: 1× lifetime',                                'Yes'],
+  ['D7971',   'Excision of pericoronal gingiva',              0,     0,    0, 'Kids: 1× lifetime per tooth',                      'No'],
+
+  /* Orthodontics (D8xxx) - Kids only, HLD ≥15 */
+  ['D8080',   'Comprehensive ortho - adolescent',             0,     0,    0, 'Kids: 1× lifetime (HLD ≥15)',                      'Yes'],
+  ['D8090',   'Comprehensive ortho - self-ligating',          0,     0,    0, 'Kids: 1× lifetime (self-lig cases only)',          'Yes'],
+  ['D8660',   'Pre-ortho treatment exam',                     0,     0,    0, 'Kids: 1× / 12 mo; only w/ D8080 request',          'No'],
+  ['D8670',   'Periodic ortho treatment visit',               0,     0,    0, 'Kids: max 24 lifetime (12 for self-lig)',          'Yes'],
+  ['D8680',   'Orthodontic retention (appliance removal)',    0,     0,    0, 'Kids: 1× lifetime',                                'Yes'],
+  ['D8698',   'Re-cement fixed retainer - maxillary',         0,     0,    0, 'Kids: 1× w/in 24 mo of debanding',                 'Yes'],
+  ['D8699',   'Re-cement fixed retainer - mandibular',        0,     0,    0, 'Kids: 1× w/in 24 mo of debanding',                 'Yes'],
+  ['D8703',   'Replace lost/broken retainer - maxillary',     0,     0,    0, 'Kids: 1× lifetime w/in 24 mo of debanding',        'Yes'],
+  ['D8704',   'Replace lost/broken retainer - mandibular',    0,     0,    0, 'Kids: 1× lifetime w/in 24 mo of debanding',        'Yes'],
+  ['D8999',   'Orthodontic continuation of care',             0,     0,    0, 'Kids: 1× lifetime, different payee only',          'Yes'],
+
+  /* Adjunctive (D9xxx) */
+  ['D9110',   'Palliative treatment of dental pain',          0,     0,    0, 'Only w/ radiographs; not w/ other services',       'No'],
+  ['D9222',   'Deep sedation / GA - first 15 min',            0,     0,    0, '1 per day',                                        'No'],
+  ['D9223',   'Deep sedation / GA - each 15 min',             0,     0,    0, 'Max 90 min (6 units); not w/ D9230/D9243/D9248',   'No'],
+  ['D9230',   'Nitrous oxide / anxiolysis',                   0,     0,    0, 'Not w/ D9223/D9243/D9248',                         'No'],
+  ['D9239',   'IV moderate sedation - first 15 min',          0,     0,    0, '1 per day',                                        'No'],
+  ['D9243',   'IV moderate sedation - each 15 min',           0,     0,    0, 'Max 90 min (6 units); not w/ D9223/D9230/D9248',   'No'],
+  ['D9248',   'Non-IV moderate (conscious) sedation',         0,     0,    0, 'Not w/ D9223/D9230/D9243',                         'No'],
+  ['D9310',   'Consultation - diagnostic service',            0,     0,    0, 'Not w/in 90 days of D0120/D0140/D0150',            'No'],
+  ['D9410',   'House/extended care facility call',            0,     0,    0, 'Kids: report required',                            'Yes'],
+  ['D9420',   'Hospital or ambulatory surgical center call',  0,     0,    0, 'Kids: requires ASC/OP approval',                   'No'],
+  ['D9910',   'Application of desensitizing medicament',      0,     0,    0, 'Kids: 1× / visit',                                 'No'],
+  ['D9941',   'Fabrication of athletic mouthguard',           0,     0,    0, 'Kids: 1× / 12 mo',                                 'No'],
+  ['D9944',   'Occlusal guard - hard appliance, full arch',  403,     0,  403, 'Kids: 1× / 24 mo (shares D9944/D9945/D9946)',      'No'],
+  ['D9945',   'Occlusal guard - soft appliance, full arch',   0,     0,    0, 'Kids: 1× / 24 mo (shares D9944/D9945/D9946)',      'No'],
+  ['D9946',   'Occlusal guard - hard appliance, partial arch', 0,    0,    0, 'Kids: 1× / 24 mo (shares D9944/D9945/D9946)',      'No'],
+  ['D9951',   'Occlusal adjustment - limited',                0,     0,    0, '1× / 12 mo; not w/ restorative same DOS',          'No'],
+  ['D9952',   'Occlusal adjustment - complete',               0,     0,    0, '1× / 12 mo; not w/ restorative same DOS',          'No'],
+  ['D9999',   'Unspecified adjunctive procedure (by report)', 0,     0,    0, 'Facility referral; narrative required',            'Yes'],
+
+  /* UMSOD-specific reporting codes (not in MHS manual) */
+  ['D9450',   'Case presentation',                            0,     0,    0, 'UMSOD reporting code',                             'No'],
+  ['D9450.2', 'Perio case presentation',                      0,     0,    0, 'UMSOD reporting code',                             'No'],
+  ['D9450.3', 'Fixed case presentation',                      0,     0,    0, 'UMSOD reporting code',                             'No'],
+  ['D9450.6', 'Treatment plan update',                        0,     0,    0, 'UMSOD reporting code',                             'No'],
 ];
 
 const state = {
@@ -383,7 +572,8 @@ function setView(view) {
   // Guest-only views available without sign-in.
   const publicViews = new Set(['costs']);
   if (!profileValid(state.profile) && !publicViews.has(view)) {
-    view = 'costs';
+    showSignIn();
+    return;
   }
   setGate(null);
   state.view = view;
@@ -1288,19 +1478,27 @@ function setImportTab(tab) {
 }
 
 async function handleScreenshotUpload(e) {
-  const file = e.target.files && e.target.files[0];
-  if (!file) return;
+  const files = Array.from(e.target.files || []);
+  if (files.length === 0) return;
   const status = $('ocr-status');
   const ta = $('ocr-textarea');
   status.textContent = 'Loading OCR engine (first time only, ~10 MB)…';
-  try {
-    const text = await ocrImage(file);
-    ta.value = text.trim();
-    status.textContent = 'Done. Review and fix any mistakes above before parsing.';
-  } catch (err) {
-    console.error(err);
-    status.textContent = 'OCR failed. Try pasting the schedule as text instead.';
+  const results = [];
+  for (let i = 0; i < files.length; i++) {
+    if (files.length > 1) status.textContent = `Processing image ${i + 1} of ${files.length}…`;
+    try {
+      const text = await ocrImage(files[i]);
+      if (text.trim()) results.push(text.trim());
+    } catch (err) {
+      console.error(err);
+      status.textContent = `OCR failed on image ${i + 1}. Try pasting the schedule as text instead.`;
+      return;
+    }
   }
+  const existing = ta.value.trim();
+  ta.value = [existing, ...results].filter(Boolean).join('\n');
+  const label = files.length > 1 ? `${files.length} images` : '1 image';
+  status.textContent = `Done (${label}). Review and fix any mistakes above before parsing.`;
 }
 
 function handleImportParse() {
