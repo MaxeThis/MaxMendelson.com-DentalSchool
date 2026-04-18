@@ -209,6 +209,40 @@
       </div>
     </section>
 
+    <!-- Post block view -->
+    <section id="view-post" class="view hidden">
+      <div class="view-head">
+        <h2>Post a Block</h2>
+        <p class="muted">Give up a morning or afternoon block. It appears on the calendar for other students.</p>
+      </div>
+      <form id="post-form" class="stacked-form">
+        <label>
+          Date
+          <input type="date" id="post-date" required />
+          <small>Weekdays only (Mon–Fri).</small>
+        </label>
+        <label>
+          Time
+          <select id="post-time" required>
+            <option value="">Select…</option>
+            <option value="morning">Morning</option>
+            <option value="afternoon">Afternoon</option>
+          </select>
+        </label>
+        <label>
+          Block type
+          <select id="post-type" required>
+            <option value="">Select…</option>
+          </select>
+        </label>
+        <label>
+          Notes (optional)
+          <textarea id="post-notes" rows="2" maxlength="200" placeholder="Anything someone should know…"></textarea>
+        </label>
+        <button type="submit" class="primary">Post Block</button>
+      </form>
+    </section>
+
     <!-- Procedure Costs view -->
     <section id="view-costs" class="view hidden">
       <div class="view-head">
