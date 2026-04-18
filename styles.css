@@ -83,7 +83,7 @@ body.signed-in  .guest-only { display: none; }
 .optional-tag { color: var(--muted); font-weight: 400; font-size: 0.85em; margin-left: 4px; }
 
 /* Panels */
-main { padding: 22px 0 40px; }
+main.container { padding: 26px 20px 40px; }
 .panel, .view {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -571,6 +571,20 @@ button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
   white-space: nowrap;
   color: var(--muted);
   font-size: 0.85rem;
+}
+.costs-table td.preauth {
+  white-space: nowrap;
+  color: var(--muted);
+}
+.pa-badge {
+  display: inline-block;
+  background: var(--red);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
 }
 .costs-table td.empty-cell {
   text-align: center;

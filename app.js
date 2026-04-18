@@ -39,60 +39,61 @@ const PROFILE_KEY = 'umsod_be_profile_v1';
 const SCHEDULE_KEY_PREFIX = 'umsod_be_schedule_v1:';
 
 /* CDT code fee reference. Fee = Maryland Healthy Smiles pays + patient pays.
- * Frequency limits below reflect typical Maryland Healthy Smiles (adult
- * Medicaid) guidelines and are for quick reference only — always verify
- * against the current provider manual before treatment planning. */
+ * Frequency limits and pre-auth flags below reflect typical Maryland Healthy
+ * Smiles (adult Medicaid) patterns and are for quick reference only — always
+ * verify against the current provider manual before treatment planning. */
 const PROCEDURE_COSTS = [
-  ['D0120',   'Periodic oral evaluation',                    46,    28,   18, '1× / 6 months'],
-  ['D0140',   'Limited oral eval - problem focused',         53,    32,   21, 'As needed'],
-  ['D0150',   'Comprehensive oral evaluation',               67,    40,   27, '1× / 3 years per dentist'],
-  ['D0210',   'Intraoral complete series (FMS)',            170,    85,   85, '1× / 5 years'],
-  ['D0330',   'Panoramic radiograph',                       111,    55,   56, '1× / 5 years'],
-  ['D1110',   'Prophylaxis (adult)',                         86,    48,   38, '1× / 6 months'],
-  ['D1208',   'Fluoride application',                        33,    20,   13, '1× / 6 months'],
-  ['D2330',   'Resin composite 1-surf anterior',            110,    62,   48, '1× / surface / 24 months'],
-  ['D2331',   'Resin composite 2-surf anterior',            138,    78,   60, '1× / surface / 24 months'],
-  ['D2332',   'Resin composite 3-surf anterior',            169,    95,   74, '1× / surface / 24 months'],
-  ['D2335',   'Resin composite 4+ surf anterior',           213,   120,   93, '1× / surface / 24 months'],
-  ['D2391',   'Resin composite 1-surf posterior',           129,    72,   57, '1× / surface / 24 months'],
-  ['D2392',   'Resin composite 2-surf posterior',           155,    87,   68, '1× / surface / 24 months'],
-  ['D2393',   'Resin composite 3-surf posterior',           197,   110,   87, '1× / surface / 24 months'],
-  ['D2394',   'Resin composite 4+ surf posterior',          241,   135,  106, '1× / surface / 24 months'],
-  ['D2740',   'Crown porcelain/ceramic',                    713,   394,  319, '1× / tooth / 5 years'],
-  ['D2751',   'Crown PFM noble metal',                      713,   394,  319, '1× / tooth / 5 years'],
-  ['D2799',   'Provisional crown',                          266,     0,  266, 'Bridge to definitive'],
-  ['D2940',   'Protective restoration',                      82,    45,   37, 'As needed'],
-  ['D2950',   'Core buildup incl pins',                     199,   115,   84, '1× / tooth / 5 years'],
-  ['D2954',   'Prefab post and core',                       243,   140,  103, '1× / tooth / 5 years'],
-  ['D2999.1', 'Unspecified restorative',                     89,     0,   89, 'Prior authorization'],
-  ['D3310',   'Endodontic therapy anterior',                499,   275,  224, '1× / tooth (lifetime)'],
-  ['D3320',   'Endodontic therapy premolar',                584,   330,  254, '1× / tooth (lifetime)'],
-  ['D3330',   'Endodontic therapy molar',                   713,   400,  313, '1× / tooth (lifetime)'],
-  ['D4249',   'Clinical crown lengthening',                 542,     0,  542, 'Prior authorization'],
-  ['D4341',   'Scaling/root planing 4+ teeth per quad',     115,    90,   25, '1× / quadrant / 24 months'],
-  ['D4342',   'Scaling/root planing 1-3 teeth per quad',     92,    65,   27, '1× / quadrant / 24 months'],
-  ['D4910',   'Periodontal maintenance',                    113,    62,   51, 'Up to 4× / year'],
-  ['D5110',   'Complete denture maxillary',                1085,   550,  535, '1× / 8 years'],
-  ['D5120',   'Complete denture mandibular',               1085,   550,  535, '1× / 8 years'],
-  ['D5213',   'Partial denture max cast metal frame',      1172,   600,  572, '1× / 8 years'],
-  ['D5214',   'Partial denture mand cast metal frame',     1172,   600,  572, '1× / 8 years'],
-  ['D5820',   'Interim partial denture maxillary',          463,   250,  213, 'Bridge to definitive'],
-  ['D5821',   'Interim partial denture mandibular',         463,   250,  213, 'Bridge to definitive'],
-  ['D6010',   'Implant surgical placement',                1395,     0, 1395, 'Limited, PA required'],
-  ['D6057',   'Custom abutment',                            521,     0,  521, 'Limited, PA required'],
-  ['D6058',   'Abutment-supported porcelain/ceramic crown', 812,    0,  812, 'Limited, PA required'],
-  ['D6065',   'Implant porcelain/ceramic crown',            874,     0,  874, 'Limited, PA required'],
-  ['D6190',   'Radiographic/surgical implant index',        233,     0,  233, 'Limited, PA required'],
-  ['D6245',   'Pontic porcelain/ceramic',                   696,   350,  346, '1× / tooth / 5 years'],
-  ['D6241',   'Pontic porc fuse to base metal',             696,   350,  346, '1× / tooth / 5 years'],
-  ['D6740',   'Retainer crown porcelain/ceramic',           696,   370,  326, '1× / tooth / 5 years'],
-  ['D6751',   'Retainer crown porc to base metal',          696,   370,  326, '1× / tooth / 5 years'],
-  ['D7140',   'Extraction erupted tooth',                   108,   108,    0, 'As needed'],
-  ['D9450',   'Case presentation',                            0,     0,    0, 'As needed'],
-  ['D9450.2', 'Perio case presentation',                      0,     0,    0, 'As needed'],
-  ['D9450.3', 'Fixed case presentation',                      0,     0,    0, 'As needed'],
-  ['D9450.6', 'Treatment plan update',                        0,     0,    0, 'As needed'],
-  ['D9944',   'Occlusal guard',                             403,     0,  403, '1× / 24 months, limited'],
+  // [code, description, fee, mhsPays, patientPays, frequency, preAuth]
+  ['D0120',   'Periodic oral evaluation',                    46,    28,   18, '1× / 6 months',               'No'],
+  ['D0140',   'Limited oral eval - problem focused',         53,    32,   21, 'As needed',                   'No'],
+  ['D0150',   'Comprehensive oral evaluation',               67,    40,   27, '1× / 3 years per dentist',    'No'],
+  ['D0210',   'Intraoral complete series (FMS)',            170,    85,   85, '1× / 5 years',                'No'],
+  ['D0330',   'Panoramic radiograph',                       111,    55,   56, '1× / 5 years',                'No'],
+  ['D1110',   'Prophylaxis (adult)',                         86,    48,   38, '1× / 6 months',               'No'],
+  ['D1208',   'Fluoride application',                        33,    20,   13, '1× / 6 months',               'No'],
+  ['D2330',   'Resin composite 1-surf anterior',            110,    62,   48, '1× / surface / 24 months',    'No'],
+  ['D2331',   'Resin composite 2-surf anterior',            138,    78,   60, '1× / surface / 24 months',    'No'],
+  ['D2332',   'Resin composite 3-surf anterior',            169,    95,   74, '1× / surface / 24 months',    'No'],
+  ['D2335',   'Resin composite 4+ surf anterior',           213,   120,   93, '1× / surface / 24 months',    'No'],
+  ['D2391',   'Resin composite 1-surf posterior',           129,    72,   57, '1× / surface / 24 months',    'No'],
+  ['D2392',   'Resin composite 2-surf posterior',           155,    87,   68, '1× / surface / 24 months',    'No'],
+  ['D2393',   'Resin composite 3-surf posterior',           197,   110,   87, '1× / surface / 24 months',    'No'],
+  ['D2394',   'Resin composite 4+ surf posterior',          241,   135,  106, '1× / surface / 24 months',    'No'],
+  ['D2740',   'Crown porcelain/ceramic',                    713,   394,  319, '1× / tooth / 5 years',        'Yes'],
+  ['D2751',   'Crown PFM noble metal',                      713,   394,  319, '1× / tooth / 5 years',        'Yes'],
+  ['D2799',   'Provisional crown',                          266,     0,  266, 'Bridge to definitive',        'No'],
+  ['D2940',   'Protective restoration',                      82,    45,   37, 'As needed',                   'No'],
+  ['D2950',   'Core buildup incl pins',                     199,   115,   84, '1× / tooth / 5 years',        'Yes'],
+  ['D2954',   'Prefab post and core',                       243,   140,  103, '1× / tooth / 5 years',        'Yes'],
+  ['D2999.1', 'Unspecified restorative',                     89,     0,   89, 'As needed',                   'Yes'],
+  ['D3310',   'Endodontic therapy anterior',                499,   275,  224, '1× / tooth (lifetime)',       'Yes'],
+  ['D3320',   'Endodontic therapy premolar',                584,   330,  254, '1× / tooth (lifetime)',       'Yes'],
+  ['D3330',   'Endodontic therapy molar',                   713,   400,  313, '1× / tooth (lifetime)',       'Yes'],
+  ['D4249',   'Clinical crown lengthening',                 542,     0,  542, 'As needed',                   'Yes'],
+  ['D4341',   'Scaling/root planing 4+ teeth per quad',     115,    90,   25, '1× / quadrant / 24 months',   'Yes'],
+  ['D4342',   'Scaling/root planing 1-3 teeth per quad',     92,    65,   27, '1× / quadrant / 24 months',   'Yes'],
+  ['D4910',   'Periodontal maintenance',                    113,    62,   51, 'Up to 4× / year',             'No'],
+  ['D5110',   'Complete denture maxillary',                1085,   550,  535, '1× / 8 years',                'Yes'],
+  ['D5120',   'Complete denture mandibular',               1085,   550,  535, '1× / 8 years',                'Yes'],
+  ['D5213',   'Partial denture max cast metal frame',      1172,   600,  572, '1× / 8 years',                'Yes'],
+  ['D5214',   'Partial denture mand cast metal frame',     1172,   600,  572, '1× / 8 years',                'Yes'],
+  ['D5820',   'Interim partial denture maxillary',          463,   250,  213, 'Bridge to definitive',        'Yes'],
+  ['D5821',   'Interim partial denture mandibular',         463,   250,  213, 'Bridge to definitive',        'Yes'],
+  ['D6010',   'Implant surgical placement',                1395,     0, 1395, 'Limited coverage',            'Yes'],
+  ['D6057',   'Custom abutment',                            521,     0,  521, 'Limited coverage',            'Yes'],
+  ['D6058',   'Abutment-supported porcelain/ceramic crown', 812,    0,  812, 'Limited coverage',            'Yes'],
+  ['D6065',   'Implant porcelain/ceramic crown',            874,     0,  874, 'Limited coverage',            'Yes'],
+  ['D6190',   'Radiographic/surgical implant index',        233,     0,  233, 'Limited coverage',            'Yes'],
+  ['D6245',   'Pontic porcelain/ceramic',                   696,   350,  346, '1× / tooth / 5 years',        'Yes'],
+  ['D6241',   'Pontic porc fuse to base metal',             696,   350,  346, '1× / tooth / 5 years',        'Yes'],
+  ['D6740',   'Retainer crown porcelain/ceramic',           696,   370,  326, '1× / tooth / 5 years',        'Yes'],
+  ['D6751',   'Retainer crown porc to base metal',          696,   370,  326, '1× / tooth / 5 years',        'Yes'],
+  ['D7140',   'Extraction erupted tooth',                   108,   108,    0, 'As needed',                   'No'],
+  ['D9450',   'Case presentation',                            0,     0,    0, 'As needed',                   'No'],
+  ['D9450.2', 'Perio case presentation',                      0,     0,    0, 'As needed',                   'No'],
+  ['D9450.3', 'Fixed case presentation',                      0,     0,    0, 'As needed',                   'No'],
+  ['D9450.6', 'Treatment plan update',                        0,     0,    0, 'As needed',                   'No'],
+  ['D9944',   'Occlusal guard',                             403,     0,  403, '1× / 24 months, limited',     'Yes'],
 ];
 
 const state = {
@@ -1375,7 +1376,7 @@ function renderProcedureCosts() {
   if (rows.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.colSpan = 6;
+    td.colSpan = 7;
     td.className = 'empty-cell';
     td.textContent = 'No procedures match that search.';
     tr.appendChild(td);
@@ -1383,7 +1384,7 @@ function renderProcedureCosts() {
     return;
   }
 
-  for (const [code, desc, fee, insurance, patient, frequency] of rows) {
+  for (const [code, desc, fee, insurance, patient, frequency, preAuth] of rows) {
     const tr = document.createElement('tr');
     const c = document.createElement('td'); c.textContent = code; c.className = 'code'; tr.appendChild(c);
     const d = document.createElement('td'); d.textContent = desc; tr.appendChild(d);
@@ -1391,6 +1392,16 @@ function renderProcedureCosts() {
     const i = document.createElement('td'); i.textContent = formatMoney(insurance); i.className = 'num'; tr.appendChild(i);
     const p = document.createElement('td'); p.textContent = formatMoney(patient); p.className = 'num'; tr.appendChild(p);
     const q = document.createElement('td'); q.textContent = frequency || '—'; q.className = 'freq'; tr.appendChild(q);
+    const pa = document.createElement('td'); pa.className = 'preauth';
+    if (preAuth === 'Yes') {
+      const badge = document.createElement('span');
+      badge.className = 'pa-badge';
+      badge.textContent = 'Pre-auth';
+      pa.appendChild(badge);
+    } else {
+      pa.textContent = '—';
+    }
+    tr.appendChild(pa);
     tbody.appendChild(tr);
   }
 }
