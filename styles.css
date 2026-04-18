@@ -564,6 +564,11 @@ button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
   white-space: nowrap;
   color: var(--muted);
 }
+.costs-table td.freq {
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
 .costs-table td.empty-cell {
   text-align: center;
   padding: 20px;
