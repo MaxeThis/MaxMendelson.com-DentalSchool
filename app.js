@@ -804,49 +804,84 @@ function parseMmDdYyyy(str) {
 }
 
 function cleanDescription(raw) {
-  const stripped = (raw || '').trim().replace(/^@/, '');
-  const hit = SCHEDULE_NAME_MAP[stripped.toUpperCase()];
-  return hit || stripped;
+  const stripped = (raw || '').trim().replace(/^@/, '').trim();
+  const upper = stripped.toUpperCase();
+  if (SCHEDULE_NAME_MAP[upper]) return SCHEDULE_NAME_MAP[upper];
+  // Fuzzy fallback: if a known code appears anywhere in the string (handles
+  // OCR artifacts like extra trailing whitespace or columns that got glued
+  // onto the description).
+  for (const code of Object.keys(SCHEDULE_NAME_MAP)) {
+    if (upper.includes(code)) return SCHEDULE_NAME_MAP[code];
+  }
+  return stripped;
 }
 
-/* Accept either "desc, date, start, end" lines OR OCR-style lines with
- * whitespace separating the fields. Best effort — unparseable lines go
- * to the error list for the UI to show. */
+/* Parse a chunk of schedule text. Accepts:
+ *   - Short CSV:   desc, MM/DD/YYYY, H:MM AM, H:MM PM
+ *   - axiUm table: desc  start_date  end_date  from  to  weekdays  recur
+ *   - OCR-style whitespace output with extra trailing columns.
+ * Strategy: for each line, find the first MM/DD/YYYY pattern and the first
+ * two H:MM AM/PM patterns. Everything before the first date is the
+ * description; extra trailing columns (weekdays, recur) are ignored. */
 function parseScheduleText(text) {
   const entries = [];
   const errors = [];
   const lines = (text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
-  for (const line of lines) {
-    const lower = line.toLowerCase();
-    if (/^(description|desc|block|name|event)\b/.test(lower)) continue;
+  const DATE_RE = /\b(\d{1,2}\/\d{1,2}\/\d{2,4})\b/g;
+  const TIME_RE = /\b(\d{1,2}:\d{2}\s*[APap][Mm])\b/g;
+  const HEADER_RE = /^(description|desc|block|name|event|start|end|from|to|weekdays?|recur)\b/i;
 
-    let parts = line.split(/\s*,\s*/).filter(Boolean);
-    if (parts.length < 4) {
-      // Whitespace fallback: "@CODE  MM/DD/YYYY  HH:MM AM  HH:MM PM"
-      const m = line.match(/^(@?\S+(?:\s+[A-Za-z&]+)*?)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{1,2}:\d{2}\s*[APap][Mm])\s+(\d{1,2}:\d{2}\s*[APap][Mm])\s*$/);
-      if (!m) { errors.push(line); continue; }
-      parts = [m[1], m[2], m[3], m[4]];
+  for (const line of lines) {
+    if (HEADER_RE.test(line)) continue;
+
+    DATE_RE.lastIndex = 0;
+    TIME_RE.lastIndex = 0;
+    const dates = [];
+    let m;
+    while ((m = DATE_RE.exec(line)) !== null) dates.push({ str: m[1], index: m.index });
+    const times = [];
+    while ((m = TIME_RE.exec(line)) !== null) times.push({ str: m[1], index: m.index });
+
+    if (dates.length === 0 || times.length < 2) {
+      // Fall back to a strict CSV parse for the Python-script format.
+      const parts = line.split(/\s*,\s*/).filter(Boolean);
+      if (parts.length >= 4) {
+        const d = parseMmDdYyyy(parts[1]);
+        const s = parseTime12(parts[2]);
+        const e = parseTime12(parts[3]);
+        if (d && s && e && (e.h * 60 + e.min) > (s.h * 60 + s.min)) {
+          entries.push(buildEntry(parts[0], d, s, e));
+          continue;
+        }
+      }
+      errors.push(line);
+      continue;
     }
 
-    const [rawDesc, dateStr, startStr, endStr] = parts;
-    const date = parseMmDdYyyy(dateStr);
-    const start = parseTime12(startStr);
-    const end = parseTime12(endStr);
-    if (!date || !start || !end) { errors.push(line); continue; }
+    const date = parseMmDdYyyy(dates[0].str);
+    const start = parseTime12(times[0].str);
+    const end = parseTime12(times[1].str);
+    const descRaw = line.slice(0, dates[0].index).replace(/[,\s]+$/, '').trim();
+
+    if (!date || !start || !end || !descRaw) { errors.push(line); continue; }
     if ((end.h * 60 + end.min) <= (start.h * 60 + start.min)) { errors.push(line); continue; }
 
-    entries.push({
-      id: 'sch_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
-      description: cleanDescription(rawDesc),
-      date: date.ymd,
-      dateDisplay: date.display,
-      startTime: start.display,
-      endTime: end.display,
-    });
+    entries.push(buildEntry(descRaw, date, start, end));
   }
 
   return { entries, errors };
+}
+
+function buildEntry(descRaw, date, start, end) {
+  return {
+    id: 'sch_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+    description: cleanDescription(descRaw),
+    date: date.ymd,
+    dateDisplay: date.display,
+    startTime: start.display,
+    endTime: end.display,
+  };
 }
 
 function startTimeToPeriod(startDisplay) {
