@@ -421,17 +421,10 @@ function showApp() {
   setView(state.view && state.view !== 'costs' ? state.view : 'calendar');
 }
 
-function showLoggedOut() {
-  setAuthMode(false);
-  setGate(null);
-  $('periomaxer-ad').classList.remove('hidden');
-  setView('costs');
-}
-
 function showSignIn() {
   setAuthMode(false);
   setGate('signin');
-  $('periomaxer-ad').classList.add('hidden');
+  $('periomaxer-ad').classList.remove('hidden');
   ['view-calendar', 'view-my-blocks', 'view-schedule', 'view-post', 'view-costs', 'view-profile'].forEach((id) => {
     $(id).classList.add('hidden');
   });
@@ -864,7 +857,7 @@ async function handleProfileEditSubmit(e) {
 function handleSignOut() {
   if (!confirm('Sign out? Your posted blocks stay on the calendar.')) return;
   clearLocalProfile();
-  showLoggedOut();
+  showSignIn();
 }
 
 /* ----------------------------- schedule: parsing ----------------------------- */
@@ -1480,7 +1473,7 @@ async function boot() {
       }
     } catch (e) { /* ignore */ }
   } else {
-    showLoggedOut();
+    showSignIn();
   }
 }
 
