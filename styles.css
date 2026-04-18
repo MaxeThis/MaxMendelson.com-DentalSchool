@@ -557,6 +557,11 @@ button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.costs-table td.num.unknown {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.85rem;
+}
 .costs-table tbody td {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);

@@ -32,9 +32,9 @@
       <a href="https://apps.apple.com/app/periomaxer" target="_blank" rel="noopener" class="ad-link">
         <div class="ad-icon" aria-hidden="true">🦷</div>
         <div class="ad-copy">
-          <div class="ad-kicker">Built by a UMSOD student</div>
+          <div class="ad-kicker">This site is sponsored by</div>
           <div class="ad-title">PerioMaxer</div>
-          <div class="ad-sub">Fast perio charting &amp; study tools. Get it on the App Store →</div>
+          <div class="ad-sub">Fast voice perio charting &amp; more! Get it on the App Store →</div>
         </div>
       </a>
     </aside>
@@ -166,27 +166,9 @@
 
       <div class="subpanel">
         <h3>1. Import your schedule</h3>
-        <div class="import-tabs">
-          <button type="button" class="import-tab active" data-import-tab="paste">Paste text</button>
-          <button type="button" class="import-tab" data-import-tab="screenshot">Upload screenshot</button>
-        </div>
-
-        <div id="import-pane-paste" class="import-pane">
-          <p class="muted small">Copy rows from axiUm (or anywhere) and paste below. One block per line. Commas or whitespace between fields both work.</p>
-          <textarea id="import-textarea" rows="7" placeholder="@BLK-SURGERY, 04/15/2026, 09:00 AM, 12:00 PM&#10;@BLK-PEDS, 04/24/2026, 01:00 PM, 04:00 PM"></textarea>
-        </div>
-
-        <div id="import-pane-screenshot" class="import-pane hidden">
-          <p class="muted small">Best effort. OCR isn't perfect — select one or more screenshots, review the parsed text below, and fix anything wrong before clicking <em>Parse &amp; Add</em>. Duplicate blocks across images are removed automatically.</p>
-          <input type="file" id="import-file" accept="image/*" multiple />
-          <div id="ocr-status" class="small muted"></div>
-          <textarea id="ocr-textarea" rows="7" placeholder="OCR results appear here. Edit before parsing."></textarea>
-        </div>
-
-        <div class="row-buttons">
-          <button type="button" id="import-parse" class="primary">Parse &amp; Add</button>
-          <span id="import-status" class="small muted"></span>
-        </div>
+        <p class="muted small">Upload one or more axiUm screenshots. Blocks are added to your schedule automatically — duplicates across uploads are skipped.</p>
+        <input type="file" id="import-file" accept="image/*" multiple />
+        <div id="import-status" class="small muted"></div>
       </div>
 
       <div class="subpanel">

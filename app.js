@@ -183,7 +183,7 @@ const PROCEDURE_COSTS = [
   ['D4231',   'Anatomical crown exposure - 1-3 teeth',        0,     0,    0, 'Kids: 1× lifetime',                                'Yes'],
   ['D4240',   'Gingival flap w/ root planing - 4+ teeth',     0,     0,    0, 'Kids: 1× / 24 mo per quadrant',                    'Yes'],
   ['D4241',   'Gingival flap w/ root planing - 1-3 teeth',    0,     0,    0, 'Kids: 1× / 24 mo per quadrant',                    'Yes'],
-  ['D4249',   'Clinical crown lengthening - hard tissue',   542, 542,   0, 'Kids: 1× / 24 mo per tooth',                       'Yes'],
+  ['D4249',   'Clinical crown lengthening - hard tissue',   542, 542,   0, 'Kids: 1× / 24 mo per tooth (Adult: not covered by MHS)', 'Yes'],
   ['D4260',   'Osseous surgery - 4+ teeth / quad',            0,     0,    0, 'Kids: 1× / 24 mo per quadrant',                    'Yes'],
   ['D4261',   'Osseous surgery - 1-3 teeth / quad',           0,     0,    0, 'Kids: 1× / 24 mo per quadrant',                    'Yes'],
   ['D4322',   'Splint intra-coronal - natural/crown',         0,     0,    0, 'Kids: narrative + X-rays required',                'No'],
@@ -315,9 +315,9 @@ const PROCEDURE_COSTS = [
   ['D9420',   'Hospital or ambulatory surgical center call',  0,     0,    0, 'Kids: requires ASC/OP approval',                   'No'],
   ['D9910',   'Application of desensitizing medicament',      0,     0,    0, 'Kids: 1× / visit',                                 'No'],
   ['D9941',   'Fabrication of athletic mouthguard',           0,     0,    0, 'Kids: 1× / 12 mo',                                 'No'],
-  ['D9944',   'Occlusal guard - hard appliance, full arch',  403, 403,   0, 'Kids: 1× / 24 mo (shares D9944/D9945/D9946)',      'No'],
-  ['D9945',   'Occlusal guard - soft appliance, full arch',   0,     0,    0, 'Kids: 1× / 24 mo (shares D9944/D9945/D9946)',      'No'],
-  ['D9946',   'Occlusal guard - hard appliance, partial arch', 0,    0,    0, 'Kids: 1× / 24 mo (shares D9944/D9945/D9946)',      'No'],
+  ['D9944',   'Occlusal guard - hard appliance, full arch',  403, 403,   0, 'Kids: 1× / 24 mo, shares D9944-D9946 (Adult: not covered by MHS)', 'No'],
+  ['D9945',   'Occlusal guard - soft appliance, full arch',   0,     0,    0, 'Kids: 1× / 24 mo, shares D9944-D9946 (Adult: not covered by MHS)', 'No'],
+  ['D9946',   'Occlusal guard - hard appliance, partial arch', 0,    0,    0, 'Kids: 1× / 24 mo, shares D9944-D9946 (Adult: not covered by MHS)', 'No'],
   ['D9951',   'Occlusal adjustment - limited',                0,     0,    0, '1× / 12 mo; not w/ restorative same DOS',          'No'],
   ['D9952',   'Occlusal adjustment - complete',               0,     0,    0, '1× / 12 mo; not w/ restorative same DOS',          'No'],
   ['D9999',   'Unspecified adjunctive procedure (by report)', 0,     0,    0, 'Facility referral; narrative required',            'Yes'],
@@ -340,7 +340,6 @@ const state = {
   view: 'calendar',
   firestoreReady: false,
   schedule: [],         // user's imported schedule (local-only, per-device)
-  importTab: 'paste',
 };
 
 let db = null;
@@ -1524,57 +1523,35 @@ async function postScheduleEntry(entry, type, period, btn) {
 
 /* ----------------------------- schedule: import handlers ----------------------------- */
 
-function setImportTab(tab) {
-  state.importTab = tab;
-  document.querySelectorAll('.import-tab').forEach((b) => {
-    b.classList.toggle('active', b.dataset.importTab === tab);
-  });
-  $('import-pane-paste').classList.toggle('hidden', tab !== 'paste');
-  $('import-pane-screenshot').classList.toggle('hidden', tab !== 'screenshot');
-  $('import-status').textContent = '';
-}
-
 async function handleScreenshotUpload(e) {
   const files = Array.from(e.target.files || []);
   if (files.length === 0) return;
-  const status = $('ocr-status');
-  const ta = $('ocr-textarea');
+  const status = $('import-status');
   status.textContent = 'Loading OCR engine (first time only, ~10 MB)…';
-  const results = [];
+  let totalAdded = 0;
+  let totalErrors = 0;
   for (let i = 0; i < files.length; i++) {
     if (files.length > 1) status.textContent = `Processing image ${i + 1} of ${files.length}…`;
+    let text;
     try {
-      const text = await ocrImage(files[i]);
-      if (text.trim()) results.push(text.trim());
+      text = await ocrImage(files[i]);
     } catch (err) {
-      console.error(err);
-      status.textContent = `OCR failed on image ${i + 1}. Try pasting the schedule as text instead.`;
+      console.error('OCR failed on image', i + 1, err);
+      status.textContent = `OCR failed on image ${i + 1}.`;
       return;
     }
+    console.log(`[Schedule OCR] Image ${i + 1} raw text:\n${text}`);
+    const { entries, errors } = parseScheduleText(text);
+    console.log(`[Schedule parser] Image ${i + 1}:`, entries, errors.length ? errors : '(no errors)');
+    const added = mergeScheduleEntries(entries);
+    totalAdded += added;
+    totalErrors += errors.length;
+    renderSchedule();
   }
-  const existing = ta.value.trim();
-  ta.value = [existing, ...results].filter(Boolean).join('\n');
-  const label = files.length > 1 ? `${files.length} images` : '1 image';
-  status.textContent = `Done (${label}). Review and fix any mistakes above before parsing.`;
-}
-
-function handleImportParse() {
-  const src = state.importTab === 'screenshot' ? $('ocr-textarea') : $('import-textarea');
-  const text = src.value;
-  if (!text.trim()) { toast('Paste or upload a schedule first.'); return; }
-  const { entries, errors } = parseScheduleText(text);
-  if (entries.length === 0) {
-    $('import-status').textContent = 'No valid rows found. Check formatting.';
-    return;
-  }
-  const added = mergeScheduleEntries(entries);
-  const skipped = entries.length - added;
-  const parts = [`Added ${added} block${added === 1 ? '' : 's'}.`];
-  if (skipped) parts.push(`${skipped} already in your schedule.`);
-  if (errors.length) parts.push(`${errors.length} line${errors.length === 1 ? '' : 's'} couldn’t be parsed.`);
-  $('import-status').textContent = parts.join(' ');
-  src.value = '';
-  renderSchedule();
+  const parts = [`Added ${totalAdded} block${totalAdded === 1 ? '' : 's'}.`];
+  if (totalErrors) parts.push(`${totalErrors} line${totalErrors === 1 ? '' : 's'} couldn’t be parsed.`);
+  status.textContent = parts.join(' ');
+  e.target.value = '';
 }
 
 function handleSaveSchedule() {
@@ -1623,6 +1600,15 @@ function formatMoney(n) {
   return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/* Format a cost cell. We use $0 fees as a sentinel for "fee unknown / not in
+ * our reference" so students aren't misled into quoting a free service.
+ * UMSOD reporting codes that really are billed at $0 keep their $0.00 display. */
+function formatCostCell(amount, frequency) {
+  if (amount > 0) return formatMoney(amount);
+  if (/UMSOD reporting code/i.test(frequency || '')) return formatMoney(0);
+  return 'Unknown';
+}
+
 function renderProcedureCosts() {
   const tbody = $('costs-tbody');
   if (!tbody) return;
@@ -1649,9 +1635,11 @@ function renderProcedureCosts() {
     const tr = document.createElement('tr');
     const c = document.createElement('td'); c.textContent = code; c.className = 'code'; tr.appendChild(c);
     const d = document.createElement('td'); d.textContent = desc; tr.appendChild(d);
-    const f = document.createElement('td'); f.textContent = formatMoney(fee); f.className = 'num'; tr.appendChild(f);
-    const i = document.createElement('td'); i.textContent = formatMoney(insurance); i.className = 'num'; tr.appendChild(i);
-    const p = document.createElement('td'); p.textContent = formatMoney(patient); p.className = 'num'; tr.appendChild(p);
+    const feeText = formatCostCell(fee, frequency);
+    const unknown = feeText === 'Unknown';
+    const f = document.createElement('td'); f.textContent = feeText; f.className = 'num' + (unknown ? ' unknown' : ''); tr.appendChild(f);
+    const i = document.createElement('td'); i.textContent = unknown ? 'Unknown' : formatMoney(insurance); i.className = 'num' + (unknown ? ' unknown' : ''); tr.appendChild(i);
+    const p = document.createElement('td'); p.textContent = unknown ? 'Unknown' : formatMoney(patient); p.className = 'num' + (unknown ? ' unknown' : ''); tr.appendChild(p);
     const q = document.createElement('td'); q.textContent = frequency || '—'; q.className = 'freq'; tr.appendChild(q);
     const pa = document.createElement('td'); pa.className = 'preauth';
     if (preAuth === 'Yes') {
@@ -1709,12 +1697,7 @@ function wireEvents() {
 
   $('post-form').addEventListener('submit', handlePostBlock);
 
-  // Schedule / import tabs
-  document.querySelectorAll('.import-tab').forEach((b) => {
-    b.addEventListener('click', () => setImportTab(b.dataset.importTab));
-  });
   $('import-file').addEventListener('change', handleScreenshotUpload);
-  $('import-parse').addEventListener('click', handleImportParse);
   $('schedule-save').addEventListener('click', handleSaveSchedule);
   $('schedule-clear').addEventListener('click', handleScheduleClear);
   $('reminder-enabled').addEventListener('change', handleReminderToggle);
