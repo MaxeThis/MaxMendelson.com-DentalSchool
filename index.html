@@ -151,8 +151,8 @@
     <!-- My blocks view -->
     <section id="view-my-blocks" class="view hidden">
       <div class="view-head">
-        <h2>My Posted Blocks</h2>
-        <p class="muted">Remove a block once someone has agreed to take it.</p>
+        <h2>My Blocks</h2>
+        <p class="muted">Post a block to make it available for a swap. Unpost once someone has agreed to take it.</p>
       </div>
       <div id="my-blocks-list" class="block-list"></div>
     </section>
@@ -194,6 +194,7 @@
         <p class="muted small" id="schedule-summary"></p>
         <div id="schedule-list" class="schedule-list"></div>
         <div class="row-buttons">
+          <button type="button" id="schedule-save" class="primary">Save &amp; Go to My Blocks</button>
           <button type="button" id="schedule-clear" class="text-btn danger">Clear entire schedule</button>
         </div>
       </div>
@@ -254,8 +255,8 @@
     <section id="view-costs" class="view hidden">
       <div class="view-head">
         <h2>Procedure Costs</h2>
-        <p class="muted">CDT code reference with fees, Maryland Healthy Smiles coverage, and typical frequency limits. Fee equals Maryland Healthy Smiles pays plus patient pays.</p>
-        <p class="muted small">Frequency limits and pre-auth flags reflect Provider Manual V16 (effective 1/1/2025) and cover adult, child (&lt;21), REM, and Former Foster Care (21–25) plans. Where limits differ, the adult value is shown first; child/REM variants follow in parentheses. "Kids only" means the code is not a covered benefit under the adult plans. Always <strong>verify</strong> before treatment planning:
+        <p class="muted">CDT code reference with fees, Maryland Healthy Smiles coverage, and typical frequency limits. Fee equals Maryland Healthy Smiles pays plus patient pays. Most covered services — including fillings, prophy, exams, endo, and extractions — are paid in full by Medicaid, so the participant owes $0. Patient-pays is only &gt; 0 for codes MHS doesn't cover (implants, fixed bridges, cast-metal partials, etc.) or when a service exceeds its frequency limit.</p>
+        <p class="muted small"><strong>These numbers are a quick reference only — always verify the current fee, coverage, and frequency yourself</strong> before quoting a patient or submitting a claim. Frequency limits and pre-auth flags reflect Provider Manual V16 (effective 1/1/2025) and cover adult, child (&lt;21), REM, and Former Foster Care (21–25) plans. Where limits differ, the adult value is shown first; child/REM variants follow in parentheses. "Kids only" means the code is not a covered benefit under the adult plans. Primary sources:
           <a href="https://health.maryland.gov/mmcp/Pages/Maryland-Healthy-Smiles-Dental-Program-for-Providers.aspx" target="_blank" rel="noopener">MHS Provider Page</a>
           &middot;
           <a href="https://health.maryland.gov/mmcp/Documents/MD%20Provider%20Manual%20V16%20-%20MDH_APPROVED.pdf" target="_blank" rel="noopener">Provider Manual (PDF)</a>
