@@ -340,6 +340,7 @@ const state = {
   view: 'calendar',
   firestoreReady: false,
   schedule: [],         // user's imported schedule (local-only, per-device)
+  myBlocksMode: 'display', // 'display' | 'edit' — sub-mode of the My Blocks view
 };
 
 let db = null;
@@ -590,6 +591,35 @@ async function deleteBlockDoc(id) {
   return true;
 }
 
+async function setBlockUrgent(id, urgent) {
+  if (!state.firestoreReady) return false;
+  await db.collection('blocks').doc(id).update({ urgent });
+  return true;
+}
+
+function createUrgentToggleBtn(block) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'urgent-toggle-btn' + (block.urgent ? ' active' : '');
+  btn.textContent = '!';
+  const label = block.urgent ? 'Currently urgent — click to clear' : 'Mark urgent';
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      await setBlockUrgent(block.id, !block.urgent);
+      toast(block.urgent ? 'Urgency cleared.' : 'Marked urgent.');
+    } catch (e) {
+      console.error(e);
+      toast('Could not update urgency.');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  return btn;
+}
+
 function showSetupWarning() {
   const gate = $('signin-gate');
   if (!gate) return;
@@ -625,20 +655,39 @@ function setView(view) {
   });
   $('view-calendar').classList.toggle('hidden', view !== 'calendar');
   $('view-my-blocks').classList.toggle('hidden', view !== 'my-blocks');
-  $('view-schedule').classList.toggle('hidden', view !== 'schedule');
   $('view-post').classList.toggle('hidden', view !== 'post');
   $('view-costs').classList.toggle('hidden', view !== 'costs');
   $('view-profile').classList.toggle('hidden', view !== 'profile');
-  $('periomaxer-ad').classList.remove('hidden');
+  if (view === 'my-blocks') {
+    // When nothing is imported yet, drop straight into edit mode so the user
+    // sees the upload UI. Otherwise keep whatever mode they were last in.
+    const mode = state.schedule.length === 0 ? 'edit' : state.myBlocksMode;
+    setMyBlocksMode(mode);
+    return;
+  }
   renderCurrentView();
 }
 
 function renderCurrentView() {
   if (state.view === 'calendar') renderCalendar();
-  else if (state.view === 'my-blocks') renderMyBlocks();
-  else if (state.view === 'schedule') renderSchedule();
+  else if (state.view === 'my-blocks') renderMyBlocksView();
   else if (state.view === 'costs') renderProcedureCosts();
   else if (state.view === 'profile') fillProfileEditForm();
+}
+
+function setMyBlocksMode(mode) {
+  state.myBlocksMode = mode;
+  $('my-blocks-display').classList.toggle('hidden', mode !== 'display');
+  $('my-blocks-edit').classList.toggle('hidden', mode !== 'edit');
+  renderMyBlocksView();
+}
+
+function renderMyBlocksView() {
+  if (state.myBlocksMode === 'edit') {
+    renderSchedule();
+  } else {
+    renderMyBlocks();
+  }
 }
 
 function setAuthMode(signedIn) {
@@ -649,17 +698,16 @@ function setAuthMode(signedIn) {
 function showApp() {
   setAuthMode(true);
   setGate(null);
-  $('periomaxer-ad').classList.remove('hidden');
   loadSchedule();
   handleReminderToggle();
-  setView(state.view && state.view !== 'costs' ? state.view : 'calendar');
+  const knownViews = new Set(['calendar', 'my-blocks', 'post', 'profile']);
+  setView(knownViews.has(state.view) ? state.view : 'calendar');
 }
 
 function showSignIn() {
   setAuthMode(false);
   setGate('signin');
-  $('periomaxer-ad').classList.remove('hidden');
-  ['view-calendar', 'view-my-blocks', 'view-schedule', 'view-post', 'view-costs', 'view-profile'].forEach((id) => {
+  ['view-calendar', 'view-my-blocks', 'view-post', 'view-costs', 'view-profile'].forEach((id) => {
     $(id).classList.add('hidden');
   });
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
@@ -837,9 +885,10 @@ function renderCalendar() {
 
     const dstr = ymd(date);
     const list = byDate.get(dstr) || [];
+    const hasUrgent = list.some((b) => b.urgent);
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'cal-day' + (list.length === 0 ? ' has-none' : '') + (dstr === todayStr ? ' today' : '');
+    btn.className = 'cal-day' + (list.length === 0 ? ' has-none' : '') + (dstr === todayStr ? ' today' : '') + (hasUrgent ? ' has-urgent' : '');
     btn.dataset.date = dstr;
 
     const headRow = document.createElement('div');
@@ -857,6 +906,13 @@ function renderCalendar() {
       pill.className = 'count-pill';
       pill.textContent = list.length + (list.length === 1 ? ' block' : ' blocks');
       headRow.appendChild(pill);
+    }
+    if (hasUrgent) {
+      const bang = document.createElement('span');
+      bang.className = 'urgent-dot';
+      bang.textContent = '!';
+      bang.title = 'At least one urgent block';
+      headRow.appendChild(bang);
     }
     btn.appendChild(headRow);
 
@@ -913,13 +969,21 @@ function closeDayDetail() {
 
 function renderBlockCard(b, opts = {}) {
   const card = document.createElement('div');
-  card.className = 'block-card';
+  card.className = 'block-card' + (b.urgent ? ' urgent' : '');
 
   const meta = document.createElement('div');
   meta.className = 'meta';
   const title = document.createElement('div');
   title.className = 'title';
   title.textContent = `${b.type} — ${b.time === 'morning' ? 'Morning' : 'Afternoon'}`;
+  if (b.urgent) {
+    const badge = document.createElement('span');
+    badge.className = 'urgent-badge';
+    badge.textContent = 'Urgent';
+    badge.title = 'Poster marked this block as urgent';
+    title.appendChild(document.createTextNode(' '));
+    title.appendChild(badge);
+  }
   meta.appendChild(title);
 
   const sub = document.createElement('div');
@@ -945,6 +1009,7 @@ function renderBlockCard(b, opts = {}) {
   if (opts.mine) {
     const actions = document.createElement('div');
     actions.className = 'actions';
+    actions.appendChild(createUrgentToggleBtn(b));
     const del = document.createElement('button');
     del.className = 'text-btn danger';
     del.textContent = 'Remove';
@@ -982,7 +1047,7 @@ function renderMyBlocks() {
   if (state.schedule.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.textContent = 'No schedule imported yet. Go to My Schedule to import your blocks, then come back here to post them.';
+    empty.textContent = 'No schedule imported yet. Click “Edit schedule” above to upload your blocks, then come back here to post them.';
     listEl.appendChild(empty);
     return;
   }
@@ -1455,11 +1520,19 @@ function renderScheduleRow(entry) {
   row.appendChild(descEl);
 
   const statusEl = document.createElement('div');
+  statusEl.className = 'sched-status';
   if (postedBlock) {
     const badge = document.createElement('span');
     badge.className = 'posted-badge';
     badge.textContent = 'Posted';
     statusEl.appendChild(badge);
+    if (postedBlock.urgent) {
+      row.classList.add('urgent');
+      const urgentBadge = document.createElement('span');
+      urgentBadge.className = 'urgent-badge';
+      urgentBadge.textContent = 'Urgent';
+      statusEl.appendChild(urgentBadge);
+    }
   }
   row.appendChild(statusEl);
 
@@ -1468,6 +1541,7 @@ function renderScheduleRow(entry) {
 
   if (type && period) {
     if (postedBlock) {
+      actions.appendChild(createUrgentToggleBtn(postedBlock));
       const unpost = document.createElement('button');
       unpost.type = 'button';
       unpost.className = 'text-btn danger';
@@ -1577,12 +1651,6 @@ async function processScreenshotFiles(files) {
   const parts = [`Added ${totalAdded} block${totalAdded === 1 ? '' : 's'}.`];
   if (totalErrors) parts.push(`${totalErrors} line${totalErrors === 1 ? '' : 's'} couldn’t be parsed.`);
   status.textContent = parts.join(' ');
-}
-
-function handleSaveSchedule() {
-  if (state.schedule.length === 0) { toast('Import a schedule first.'); return; }
-  saveSchedule();
-  setView('my-blocks');
 }
 
 function handleScheduleClear() {
@@ -1736,10 +1804,12 @@ function wireEvents() {
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
     processScreenshotFiles(files);
   });
-  $('schedule-save').addEventListener('click', handleSaveSchedule);
   $('schedule-clear').addEventListener('click', handleScheduleClear);
   $('reminder-enabled').addEventListener('change', handleReminderToggle);
   $('download-ics').addEventListener('click', handleDownloadIcs);
+
+  $('my-blocks-edit-btn').addEventListener('click', () => setMyBlocksMode('edit'));
+  $('my-blocks-done-btn').addEventListener('click', () => setMyBlocksMode('display'));
 
   $('costs-filter').addEventListener('input', renderProcedureCosts);
   $('costs-show-unknown').addEventListener('change', renderProcedureCosts);

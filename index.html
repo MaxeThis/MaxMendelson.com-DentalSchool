@@ -17,7 +17,6 @@
       <nav class="site-nav">
         <button class="nav-btn auth-only" data-view="calendar">Calendar</button>
         <button class="nav-btn auth-only" data-view="my-blocks">My Blocks</button>
-        <button class="nav-btn auth-only" data-view="schedule">My Schedule</button>
 <button class="nav-btn" data-view="costs">Procedure Costs</button>
         <button class="nav-btn auth-only" data-view="profile">Account</button>
         <button class="nav-btn guest-only" id="nav-signin-btn">Sign in</button>
@@ -147,73 +146,82 @@
       </div>
     </section>
 
-    <!-- My blocks view -->
+    <!-- My blocks view (display + edit modes) -->
     <section id="view-my-blocks" class="view hidden">
-      <div class="view-head">
-        <h2>My Blocks</h2>
-        <p class="muted">Post a block to make it available for a swap. Unpost once someone has agreed to take it.</p>
-      </div>
-      <div id="my-blocks-list" class="block-list"></div>
-    </section>
-
-    <!-- My Schedule view -->
-    <section id="view-schedule" class="view hidden">
-      <div class="view-head">
-        <h2>My Schedule</h2>
-        <p class="muted">Import your block schedule once, then pick which blocks to post for a swap and download an <code>.ics</code> file for your calendar.</p>
-      </div>
-
-      <div class="subpanel">
-        <h3>1. Import your schedule</h3>
-        <p class="muted small">Upload one or more axiUm screenshots. Blocks are added to your schedule automatically — duplicates across uploads are skipped.</p>
-        <details class="example-screenshot">
-          <summary>See an example screenshot</summary>
-          <p class="muted small">Take a screenshot of your axiUm schedule that looks like this:</p>
-          <img src="assets/example-schedule.jpg" alt="Example axiUm schedule screenshot showing columns: Description, Start, End, From, To, Weekdays, Recur" class="example-screenshot-img" />
-          <ul class="muted small example-screenshot-tips">
-            <li>If your schedule doesn't fit on one screen, scroll down and take a second screenshot — you can upload as many as you need.</li>
-            <li>It's fine if blocks overlap between screenshots. Duplicates are detected and skipped automatically.</li>
-          </ul>
-        </details>
-        <div id="drop-zone" class="drop-zone">
-          <div class="drop-zone-inner">
-            <svg class="drop-zone-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <rect x="4" y="12" width="40" height="28" rx="4" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-              <path d="M16 12V10a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-              <path d="M24 22v10M19 27l5-5 5 5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <p class="drop-zone-title">Drop screenshots here</p>
-            <p class="drop-zone-hint">or <button type="button" class="drop-zone-browse">choose files</button></p>
+      <!-- Display mode: post/unpost, mark urgent -->
+      <div id="my-blocks-display">
+        <div class="view-head">
+          <div>
+            <h2>My Blocks</h2>
+            <p class="muted">Post a block to make it available for a swap. Unpost once someone has agreed to take it. Hit <strong>!</strong> to flag a block as urgent.</p>
           </div>
-          <input type="file" id="import-file" accept="image/*" multiple />
+          <button type="button" id="my-blocks-edit-btn" class="text-btn">Edit schedule</button>
         </div>
-        <div id="import-status" class="small muted"></div>
+        <div id="my-blocks-list" class="block-list"></div>
       </div>
 
-      <div class="subpanel">
-        <h3>2. Your schedule</h3>
-        <p class="muted small" id="schedule-summary"></p>
-        <div id="schedule-list" class="schedule-list"></div>
-        <div class="row-buttons">
-          <button type="button" id="schedule-save" class="primary">Save &amp; Go to My Blocks</button>
-          <button type="button" id="schedule-clear" class="text-btn danger">Clear entire schedule</button>
+      <!-- Edit mode: import, manage schedule, download ICS -->
+      <div id="my-blocks-edit" class="hidden">
+        <div class="view-head">
+          <h2>My Blocks — Edit</h2>
+          <p class="muted">Import your block schedule, then pick which blocks to post for a swap and download an <code>.ics</code> file for your calendar.</p>
         </div>
-      </div>
 
-      <div class="subpanel">
-        <h3>3. Download calendar file</h3>
-        <p class="muted small">Creates an <code>.ics</code> file you can import into Apple Calendar, Google Calendar, or Outlook.</p>
-        <label class="checkbox inline">
-          <input type="checkbox" id="reminder-enabled" checked />
-          Include a reminder the night before
-        </label>
-        <label id="reminder-time-label">
-          Reminder time
-          <input type="time" id="reminder-time" value="19:00" />
-          <small>24-hour format. Default 7:00 PM.</small>
-        </label>
-        <div class="row-buttons">
-          <button type="button" id="download-ics" class="primary">Download .ics</button>
+        <div class="subpanel">
+          <h3>1. Import your schedule</h3>
+          <p class="muted small">Upload one or more axiUm screenshots. Blocks are added to your schedule automatically — duplicates across uploads are skipped.</p>
+          <details class="example-screenshot">
+            <summary>See an example screenshot</summary>
+            <p class="muted small">Take a screenshot of your axiUm schedule that looks like this:</p>
+            <img src="assets/example-schedule.jpg" alt="Example axiUm schedule screenshot showing columns: Description, Start, End, From, To, Weekdays, Recur" class="example-screenshot-img" />
+            <ul class="muted small example-screenshot-tips">
+              <li>If your schedule doesn't fit on one screen, scroll down and take a second screenshot — you can upload as many as you need.</li>
+              <li>It's fine if blocks overlap between screenshots. Duplicates are detected and skipped automatically.</li>
+            </ul>
+          </details>
+          <div id="drop-zone" class="drop-zone">
+            <div class="drop-zone-inner">
+              <svg class="drop-zone-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <rect x="4" y="12" width="40" height="28" rx="4" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+                <path d="M16 12V10a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                <path d="M24 22v10M19 27l5-5 5 5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <p class="drop-zone-title">Drop screenshots here</p>
+              <p class="drop-zone-hint">or <button type="button" class="drop-zone-browse">choose files</button></p>
+            </div>
+            <input type="file" id="import-file" accept="image/*" multiple />
+          </div>
+          <div id="import-status" class="small muted"></div>
+        </div>
+
+        <div class="subpanel">
+          <h3>2. Your schedule</h3>
+          <p class="muted small" id="schedule-summary"></p>
+          <div id="schedule-list" class="schedule-list"></div>
+          <div class="row-buttons">
+            <button type="button" id="schedule-clear" class="text-btn danger">Clear entire schedule</button>
+          </div>
+        </div>
+
+        <div class="subpanel">
+          <h3>3. Download calendar file</h3>
+          <p class="muted small">Creates an <code>.ics</code> file you can import into Apple Calendar, Google Calendar, or Outlook.</p>
+          <label class="checkbox inline">
+            <input type="checkbox" id="reminder-enabled" checked />
+            Include a reminder the night before
+          </label>
+          <label id="reminder-time-label">
+            Reminder time
+            <input type="time" id="reminder-time" value="19:00" />
+            <small>24-hour format. Default 7:00 PM.</small>
+          </label>
+          <div class="row-buttons">
+            <button type="button" id="download-ics" class="primary">Download .ics</button>
+          </div>
+        </div>
+
+        <div class="row-buttons my-blocks-done-row">
+          <button type="button" id="my-blocks-done-btn" class="primary">Done</button>
         </div>
       </div>
     </section>
