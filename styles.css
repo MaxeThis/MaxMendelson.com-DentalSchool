@@ -78,8 +78,13 @@ html, body {
   border-color: #fff;
   font-weight: 600;
 }
-body.signed-out .auth-only { display: none; }
-body.signed-in  .guest-only { display: none; }
+/* Hide auth-dependent nav items by default so they don't flash on
+ * first paint before JS finishes booting. Body starts without any
+ * auth class; boot() sets signed-in/signed-out once it's decided. */
+.auth-only  { display: none; }
+.guest-only { display: none; }
+body.signed-in  .auth-only  { display: inline-block; }
+body.signed-out .guest-only { display: inline-block; }
 .admin-only { display: none !important; }
 body.admin.signed-in .admin-only { display: inline-block !important; }
 body.signed-out main.container { padding-top: 48px; }

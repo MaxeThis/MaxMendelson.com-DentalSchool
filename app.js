@@ -371,6 +371,7 @@ const state = {
 const ADMIN_KDF_SALT = 'umsod-admin-v1';
 const ADMIN_KDF_ITERATIONS = 200000;
 const ADMIN_FLAG_KEY = 'umsod-admin-enabled-v1';
+const ADMIN_SNUMBER = 'S42585'; // Admin tab is only exposed to this S# while the localStorage flag is also set.
 const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const ONLINE_WINDOW_MS = 6 * 60 * 1000;      // mark "online" if heartbeat within 6 min
 
@@ -681,11 +682,19 @@ async function maybeBootstrapAdmin() {
       toast('Admin unlock failed.');
     }
   }
-  // Only trust the localStorage flag when we have a valid auth session.
-  // Otherwise the admin button would show under a broken session.
+  refreshAdminState();
+}
+
+/* Recomputes whether the admin UI should be visible. Admin requires
+ * three things at once: a live auth session, the per-browser unlock
+ * flag (set by ?adminkey=), AND the signed-in profile's S# matches
+ * ADMIN_SNUMBER. Any of those missing and the admin class is stripped. */
+function refreshAdminState() {
   const authed = typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser;
-  state.isAdmin = authed && localStorage.getItem(ADMIN_FLAG_KEY) === '1';
-  document.body.classList.toggle('admin', !!state.isAdmin);
+  const flag = localStorage.getItem(ADMIN_FLAG_KEY) === '1';
+  const correctUser = !!(state.profile && state.profile.sNumber === ADMIN_SNUMBER);
+  state.isAdmin = !!(authed && flag && correctUser);
+  document.body.classList.toggle('admin', state.isAdmin);
 }
 
 function forgetAdmin() {
@@ -916,6 +925,7 @@ function showApp() {
   setGate(null);
   loadSchedule();
   handleReminderToggle();
+  refreshAdminState();
   ensureAnonAuth().then(() => {
     if (!state.sessionId) startSession();
   });
@@ -925,6 +935,7 @@ function showApp() {
 
 function showSignIn() {
   setAuthMode(false);
+  refreshAdminState();
   setGate('signin');
   ['view-calendar', 'view-my-blocks', 'view-post', 'view-costs', 'view-profile', 'view-admin'].forEach((id) => {
     const el = $(id);
