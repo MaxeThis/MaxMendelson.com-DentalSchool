@@ -11,6 +11,7 @@ const BLOCK_TYPES = [
   'Emergency',
   'On-Call',
   'Screening',
+  'Hospital',
 ];
 
 // axiUm / schedule code → display name. Match is case-insensitive; '@' is stripped.
@@ -23,6 +24,7 @@ const SCHEDULE_NAME_MAP = {
   'CLIN-EMERG':  'EMERGENCY BLOCK',
   'BLK-ONCALL':  'ON-CALL BLOCK',
   'BLK-SCR':     'SCREENING BLOCK',
+  'BLK-HOSPITAL': 'HOSPITAL BLOCK',
 };
 
 // Display name → swap-listing block type.
@@ -34,6 +36,7 @@ const DESC_TO_TYPE = {
   'EMERGENCY BLOCK':    'Emergency',
   'ON-CALL BLOCK':      'On-Call',
   'SCREENING BLOCK':    'Screening',
+  'HOSPITAL BLOCK':     'Hospital',
 };
 
 const PROFILE_KEY = 'umsod_be_profile_v1';
@@ -341,7 +344,35 @@ const state = {
   firestoreReady: false,
   schedule: [],         // user's imported schedule (local-only, per-device)
   myBlocksMode: 'display', // 'display' | 'edit' — sub-mode of the My Blocks view
+  isAdmin: false,
+  sessionId: null,      // id of the Firestore session doc for this tab
+  heartbeatTimer: null,
+  admin: {
+    loaded: false,
+    users: [],          // [{sNumber, name, phone, createdAt, updatedAt, ...}]
+    sessions: [],       // recent sessions (last ~30 days)
+    allBlocks: [],      // every block, any date
+    selectedUser: null, // sNumber of expanded row
+    subView: 'users',   // 'users' | 'calendar'
+    calMonth: null,
+    selectedDate: null,
+    filterType: '',
+    filterTime: '',
+    filterUser: '',
+  },
 };
+
+/* Admin gate: the expected hash lives in Firestore at config/admin.hash
+ * (PBKDF2-SHA-256, 200k iterations, fixed salt). Reads are gated by
+ * anonymous auth, so the hash isn't exposed to anyone loading the JS
+ * bundle. Users bootstrap by visiting ?adminkey=<secret>; the client
+ * signs in anon, fetches the hash, compares, and stores a localStorage
+ * flag if it matches — admin stays unlocked on that browser only. */
+const ADMIN_KDF_SALT = 'umsod-admin-v1';
+const ADMIN_KDF_ITERATIONS = 200000;
+const ADMIN_FLAG_KEY = 'umsod-admin-enabled-v1';
+const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const ONLINE_WINDOW_MS = 6 * 60 * 1000;      // mark "online" if heartbeat within 6 min
 
 let db = null;
 let blocksUnsub = null;
@@ -532,6 +563,7 @@ function subscribeBlocks() {
       },
       (err) => {
         console.error('Firestore subscription error:', err);
+        logClientError('blocks-subscribe', err);
         toast('Could not load blocks. Check Firestore rules.');
       }
     );
@@ -597,6 +629,172 @@ async function setBlockUrgent(id, urgent) {
   return true;
 }
 
+/* ----------------------------- admin gate ----------------------------- */
+
+async function pbkdf2Hex(text, salt, iterations) {
+  if (!window.crypto || !window.crypto.subtle) return '';
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(text), 'PBKDF2', false, ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: enc.encode(salt), iterations, hash: 'SHA-256' },
+    keyMaterial,
+    256
+  );
+  return Array.from(new Uint8Array(bits))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/* Checks the URL for ?adminkey=...; if provided, signs in anonymously
+ * so we can read the auth-gated config/admin doc, then compares hashes.
+ * The hash lives in Firestore (not in this file) so view-source can't
+ * expose it to casual readers. */
+async function maybeBootstrapAdmin() {
+  const url = new URL(location.href);
+  const key = url.searchParams.get('adminkey');
+  if (key) {
+    url.searchParams.delete('adminkey');
+    history.replaceState({}, '', url.toString());
+    try {
+      await ensureAnonAuth();
+      if (!state.firestoreReady) { toast('Data storage not ready.'); }
+      else {
+        const snap = await db.collection('config').doc('admin').get();
+        const expected = snap.exists ? snap.data().hash : null;
+        if (!expected) {
+          toast('Admin config missing in Firestore.');
+        } else {
+          const actual = await pbkdf2Hex(key, ADMIN_KDF_SALT, ADMIN_KDF_ITERATIONS);
+          if (actual === expected) {
+            localStorage.setItem(ADMIN_FLAG_KEY, '1');
+            toast('Admin unlocked on this browser.');
+          } else {
+            toast('Wrong admin key.');
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Admin bootstrap failed:', err);
+      logClientError('admin-bootstrap', err);
+      toast('Admin unlock failed.');
+    }
+  }
+  state.isAdmin = localStorage.getItem(ADMIN_FLAG_KEY) === '1';
+  document.body.classList.toggle('admin', state.isAdmin);
+}
+
+function forgetAdmin() {
+  localStorage.removeItem(ADMIN_FLAG_KEY);
+  state.isAdmin = false;
+  document.body.classList.remove('admin');
+  toast('Admin access removed from this browser.');
+  if (state.view === 'admin') setView('calendar');
+}
+
+/* ----------------------------- anon auth ----------------------------- */
+
+/* Firebase Anonymous Auth. Used as a lightweight "someone is using the
+ * real app" marker so Firestore rules can require request.auth != null
+ * for reads — this blocks direct REST scraping without having to run
+ * the full client. It is NOT user-level auth (anyone can get an anon
+ * token), but paired with App Check it meaningfully raises the bar.
+ *
+ * Graceful: if Anonymous sign-in isn't enabled in the Firebase console,
+ * this no-ops so the app keeps working on older, unlocked rules. */
+async function ensureAnonAuth() {
+  if (typeof firebase === 'undefined' || !firebase.auth) return null;
+  const auth = firebase.auth();
+  if (auth.currentUser) return auth.currentUser;
+  try {
+    const cred = await auth.signInAnonymously();
+    return cred.user;
+  } catch (err) {
+    console.warn('Anonymous sign-in failed — rules may still permit access:', err);
+    logClientError('anon-auth', err);
+    return null;
+  }
+}
+
+async function endAnonAuth() {
+  if (typeof firebase === 'undefined' || !firebase.auth) return;
+  try { await firebase.auth().signOut(); } catch (_) { /* noop */ }
+}
+
+/* ----------------------------- sessions ----------------------------- */
+
+/* Tracks sign-in sessions so the admin view can show usage frequency,
+ * total time, and who is online right now. Writes are kept cheap:
+ * one create on sign-in, one update every 5 min while the tab is
+ * visible, one final update on unload. Hidden tabs stop heart-
+ * beating so an idle browser costs nothing. */
+async function startSession() {
+  if (!state.firestoreReady || !state.profile) return;
+  try {
+    const ref = await db.collection('sessions').add({
+      sNumber: state.profile.sNumber,
+      startedAt: Date.now(),
+      lastActive: Date.now(),
+    });
+    state.sessionId = ref.id;
+  } catch (err) {
+    logClientError('session-start', err);
+    return;
+  }
+  stopHeartbeat();
+  state.heartbeatTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') heartbeat();
+  }, HEARTBEAT_INTERVAL_MS);
+}
+
+async function heartbeat() {
+  if (!state.firestoreReady || !state.sessionId) return;
+  try {
+    await db.collection('sessions').doc(state.sessionId).update({
+      lastActive: Date.now(),
+    });
+  } catch (_) { /* best-effort */ }
+}
+
+function stopHeartbeat() {
+  if (state.heartbeatTimer) {
+    clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = null;
+  }
+}
+
+async function endSession() {
+  stopHeartbeat();
+  await heartbeat();
+  state.sessionId = null;
+}
+
+/* Log a client-side error to Firestore so the site owner can diagnose
+ * issues without asking the user to open DevTools. Best-effort: if the
+ * write itself fails (e.g. App Check blocked, offline), we give up
+ * silently rather than loop. */
+async function logClientError(context, err) {
+  try {
+    if (!state.firestoreReady || !db) return;
+    const sNumber =
+      state.pendingSNumber ||
+      (state.profile && state.profile.sNumber) ||
+      null;
+    await db.collection('clientErrors').add({
+      context: String(context || 'unknown').slice(0, 60),
+      message: String((err && err.message) || err || '').slice(0, 500),
+      code: err && err.code ? String(err.code).slice(0, 60) : '',
+      sNumber: sNumber ? String(sNumber).slice(0, 6) : '',
+      userAgent: String(navigator.userAgent || '').slice(0, 300),
+      url: String(location.href || '').slice(0, 200),
+      timestamp: Date.now(),
+    });
+  } catch (_) {
+    /* swallow — never loop on the error path */
+  }
+}
+
 function createUrgentToggleBtn(block) {
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -648,6 +846,7 @@ function setView(view) {
     showSignIn();
     return;
   }
+  if (view === 'admin' && !state.isAdmin) { view = 'calendar'; }
   setGate(null);
   state.view = view;
   document.querySelectorAll('.nav-btn').forEach((b) => {
@@ -658,6 +857,8 @@ function setView(view) {
   $('view-post').classList.toggle('hidden', view !== 'post');
   $('view-costs').classList.toggle('hidden', view !== 'costs');
   $('view-profile').classList.toggle('hidden', view !== 'profile');
+  const adminEl = $('view-admin');
+  if (adminEl) adminEl.classList.toggle('hidden', view !== 'admin');
   if (view === 'my-blocks') {
     // When nothing is imported yet, drop straight into edit mode so the user
     // sees the upload UI. Otherwise keep whatever mode they were last in.
@@ -673,6 +874,7 @@ function renderCurrentView() {
   else if (state.view === 'my-blocks') renderMyBlocksView();
   else if (state.view === 'costs') renderProcedureCosts();
   else if (state.view === 'profile') fillProfileEditForm();
+  else if (state.view === 'admin') enterAdminView();
 }
 
 function setMyBlocksMode(mode) {
@@ -700,15 +902,19 @@ function showApp() {
   setGate(null);
   loadSchedule();
   handleReminderToggle();
-  const knownViews = new Set(['calendar', 'my-blocks', 'post', 'profile']);
+  ensureAnonAuth().then(() => {
+    if (!state.sessionId) startSession();
+  });
+  const knownViews = new Set(['calendar', 'my-blocks', 'post', 'profile', 'admin']);
   setView(knownViews.has(state.view) ? state.view : 'calendar');
 }
 
 function showSignIn() {
   setAuthMode(false);
   setGate('signin');
-  ['view-calendar', 'view-my-blocks', 'view-post', 'view-costs', 'view-profile'].forEach((id) => {
-    $(id).classList.add('hidden');
+  ['view-calendar', 'view-my-blocks', 'view-post', 'view-costs', 'view-profile', 'view-admin'].forEach((id) => {
+    const el = $(id);
+    if (el) el.classList.add('hidden');
   });
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
   $('signin-snum').value = '';
@@ -758,6 +964,7 @@ async function handleSignInSubmit(e) {
     }
   } catch (err) {
     console.error(err);
+    logClientError('sign-in-lookup', err);
     toast('Sign in failed. Check your connection.');
   } finally {
     btn.disabled = false;
@@ -790,6 +997,7 @@ async function handlePinSubmit(e) {
     showApp();
   } catch (err) {
     console.error(err);
+    logClientError('pin-submit', err);
     toast('Sign in failed. Check your connection.');
   } finally {
     btn.disabled = false;
@@ -826,7 +1034,9 @@ async function handleSetupSubmit(e) {
     showApp();
   } catch (err) {
     console.error(err);
-    toast('Could not create account. Check Firestore rules.');
+    logClientError('account-create', err);
+    const codeSuffix = err && err.code ? ' (' + err.code + ')' : '';
+    toast('Could not create account' + codeSuffix + '. Check Firestore rules.');
   } finally {
     btn.disabled = false;
   }
@@ -904,7 +1114,8 @@ function renderCalendar() {
     if (list.length > 0) {
       const pill = document.createElement('span');
       pill.className = 'count-pill';
-      pill.textContent = list.length + (list.length === 1 ? ' block' : ' blocks');
+      pill.textContent = String(list.length);
+      pill.setAttribute('aria-label', list.length === 1 ? '1 block' : list.length + ' blocks');
       headRow.appendChild(pill);
     }
     if (hasUrgent) {
@@ -1074,9 +1285,14 @@ function renderMyBlocks() {
 
 function populateBlockTypeSelects() {
   const filterSel = $('filter-type');
+  const adminFilterSel = $('admin-cal-filter-type');
   const postSel = $('post-type');
   for (const t of BLOCK_TYPES) {
     const o1 = document.createElement('option'); o1.value = t; o1.textContent = t; filterSel.appendChild(o1);
+    if (adminFilterSel) {
+      const oA = document.createElement('option'); oA.value = t; oA.textContent = t; adminFilterSel.appendChild(oA);
+    }
+    if (t === 'Hospital') continue;
     const o2 = document.createElement('option'); o2.value = t; o2.textContent = t; postSel.appendChild(o2);
   }
 }
@@ -1093,6 +1309,7 @@ async function handlePostBlock(e) {
   if (!date || !time || !type) { toast('Please fill in every field.'); return; }
   if (!isWeekday(date)) { toast('Blocks are Monday–Friday only.'); return; }
   if (!BLOCK_TYPES.includes(type)) { toast('Unknown block type.'); return; }
+  if (type === 'Hospital') { toast('Hospital blocks cannot be posted for swap.'); return; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast('Invalid date.'); return; }
 
   // Reject posts more than 1 year in the past or 1 year in the future.
@@ -1126,6 +1343,7 @@ async function handlePostBlock(e) {
     setView('calendar');
   } catch (err) {
     console.error(err);
+    logClientError('block-post', err);
     toast('Could not post block. Check your connection.');
   } finally {
     btn.disabled = false;
@@ -1160,6 +1378,7 @@ async function handleProfileEditSubmit(e) {
     toast('Account updated.');
   } catch (err) {
     console.error(err);
+    logClientError('account-update', err);
     toast('Could not save changes.');
   } finally {
     btn.disabled = false;
@@ -1168,6 +1387,7 @@ async function handleProfileEditSubmit(e) {
 
 function handleSignOut() {
   if (!confirm('Sign out? Your posted blocks stay on the calendar.')) return;
+  endSession();
   clearLocalProfile();
   showSignIn();
 }
@@ -1207,6 +1427,7 @@ function cleanDescription(raw) {
   for (const code of Object.keys(SCHEDULE_NAME_MAP)) {
     if (upper.includes(code)) return SCHEDULE_NAME_MAP[code];
   }
+  if (upper.includes('HOSP')) return 'HOSPITAL BLOCK';
   return stripped;
 }
 
@@ -1590,6 +1811,7 @@ function renderScheduleRow(entry) {
 
 async function postScheduleEntry(entry, type, period, btn) {
   if (!state.profile) { toast('Sign in first.'); return; }
+  if (type === 'Hospital') { toast('Hospital blocks cannot be posted for swap.'); return; }
   if (!rateLimitOk('post')) { toast('Too many posts — try again in a minute.'); return; }
   if (!isWeekday(entry.date)) { toast('Blocks are Monday–Friday only.'); return; }
 
@@ -1750,6 +1972,336 @@ function renderProcedureCosts() {
   }
 }
 
+/* ----------------------------- admin view ----------------------------- */
+
+async function enterAdminView() {
+  if (!state.isAdmin) { setView('calendar'); return; }
+  if (!state.admin.loaded) await loadAdminData();
+  setAdminSubView(state.admin.subView || 'users');
+}
+
+/* One-shot fetches so the admin view doesn't pay for a live subscription
+ * on potentially-large collections. A Refresh button re-runs this. */
+async function loadAdminData() {
+  if (!state.firestoreReady) {
+    toast('Data storage not ready.');
+    return;
+  }
+  const statusEl = $('admin-status');
+  if (statusEl) statusEl.textContent = 'Loading…';
+  try {
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const [usersSnap, sessionsSnap, blocksSnap] = await Promise.all([
+      db.collection('users').get(),
+      db.collection('sessions').where('startedAt', '>=', thirtyDaysAgo).get(),
+      db.collection('blocks').get(),
+    ]);
+    state.admin.users = [];
+    usersSnap.forEach((doc) => state.admin.users.push({ id: doc.id, ...doc.data() }));
+    state.admin.sessions = [];
+    sessionsSnap.forEach((doc) => state.admin.sessions.push({ id: doc.id, ...doc.data() }));
+    state.admin.allBlocks = [];
+    blocksSnap.forEach((doc) => state.admin.allBlocks.push({ id: doc.id, ...doc.data() }));
+    state.admin.loaded = true;
+    if (statusEl) statusEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch (err) {
+    console.error(err);
+    logClientError('admin-load', err);
+    toast('Could not load admin data.');
+    if (statusEl) statusEl.textContent = 'Load failed.';
+  }
+}
+
+function setAdminSubView(sub) {
+  state.admin.subView = sub;
+  document.querySelectorAll('#view-admin .admin-tab').forEach((b) => {
+    b.classList.toggle('active', b.dataset.adminTab === sub);
+  });
+  $('admin-pane-users').classList.toggle('hidden', sub !== 'users');
+  $('admin-pane-calendar').classList.toggle('hidden', sub !== 'calendar');
+  if (sub === 'users') renderAdminUsers();
+  else if (sub === 'calendar') {
+    if (!state.admin.calMonth) {
+      state.admin.calMonth = new Date();
+      state.admin.calMonth.setDate(1);
+    }
+    populateAdminUserFilter();
+    renderAdminCalendar();
+  }
+}
+
+function aggregateSessions(sNumber) {
+  const mine = state.admin.sessions.filter((s) => s.sNumber === sNumber);
+  let total = 0;
+  let latest = 0;
+  for (const s of mine) {
+    const dur = Math.max(0, (s.lastActive || s.startedAt) - s.startedAt);
+    total += dur;
+    if ((s.lastActive || s.startedAt) > latest) latest = s.lastActive || s.startedAt;
+  }
+  return {
+    count: mine.length,
+    totalMs: total,
+    lastSeenAt: latest,
+    online: latest > 0 && (Date.now() - latest) < ONLINE_WINDOW_MS,
+  };
+}
+
+function formatDuration(ms) {
+  if (!ms || ms < 0) return '0m';
+  const mins = Math.floor(ms / 60000);
+  if (mins < 60) return mins + 'm';
+  const hours = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return hours + 'h ' + rem + 'm';
+}
+
+function formatRelative(ts) {
+  if (!ts) return '—';
+  const diff = Date.now() - ts;
+  if (diff < 60 * 1000) return 'just now';
+  if (diff < 60 * 60 * 1000) return Math.floor(diff / 60000) + 'm ago';
+  if (diff < 24 * 60 * 60 * 1000) return Math.floor(diff / 3600000) + 'h ago';
+  const days = Math.floor(diff / 86400000);
+  if (days < 30) return days + 'd ago';
+  return new Date(ts).toLocaleDateString();
+}
+
+function renderAdminUsers() {
+  const root = $('admin-users-list');
+  root.innerHTML = '';
+  const users = [...state.admin.users].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const onlineCount = users.filter((u) => aggregateSessions(u.sNumber).online).length;
+  $('admin-stat-total').textContent = String(users.length);
+  $('admin-stat-online').textContent = String(onlineCount);
+  $('admin-stat-blocks').textContent = String(state.admin.allBlocks.length);
+  if (users.length === 0) {
+    root.innerHTML = '<div class="empty-state">No users yet.</div>';
+    return;
+  }
+  for (const u of users) {
+    const agg = aggregateSessions(u.sNumber);
+    const row = document.createElement('div');
+    row.className = 'admin-user-row' + (state.admin.selectedUser === u.sNumber ? ' expanded' : '');
+    row.dataset.snum = u.sNumber;
+    row.innerHTML =
+      '<div class="admin-user-main">' +
+        '<div class="admin-user-name">' +
+          '<span class="status-dot' + (agg.online ? ' online' : '') + '" title="' + (agg.online ? 'Currently signed in' : 'Offline') + '"></span>' +
+          escapeHtml(u.name || '—') +
+          ' <span class="muted small">' + escapeHtml(u.sNumber) + '</span>' +
+        '</div>' +
+        '<div class="admin-user-meta">' +
+          '<span>Joined ' + (u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—') + '</span>' +
+          '<span>' + agg.count + ' session' + (agg.count === 1 ? '' : 's') + ' (30d)</span>' +
+          '<span>' + formatDuration(agg.totalMs) + ' total</span>' +
+          '<span>Seen ' + formatRelative(agg.lastSeenAt) + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="admin-user-detail"></div>';
+    row.querySelector('.admin-user-main').addEventListener('click', () => {
+      state.admin.selectedUser = state.admin.selectedUser === u.sNumber ? null : u.sNumber;
+      renderAdminUsers();
+    });
+    if (state.admin.selectedUser === u.sNumber) {
+      renderAdminUserDetail(u, row.querySelector('.admin-user-detail'));
+    }
+    root.appendChild(row);
+  }
+}
+
+function renderAdminUserDetail(user, host) {
+  const mySessions = state.admin.sessions
+    .filter((s) => s.sNumber === user.sNumber)
+    .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+  const myBlocks = state.admin.allBlocks
+    .filter((b) => b.sNumber === user.sNumber)
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const parts = [];
+  parts.push(
+    '<div class="admin-user-detail-section">' +
+      '<strong>Contact</strong><br>' +
+      'Phone: ' + escapeHtml(user.phone || '—') + '<br>' +
+      'Updated: ' + (user.updatedAt ? new Date(user.updatedAt).toLocaleString() : '—') +
+    '</div>'
+  );
+  parts.push('<div class="admin-user-detail-section"><strong>Posted blocks (' + myBlocks.length + ')</strong>');
+  if (myBlocks.length === 0) {
+    parts.push('<div class="muted small">None.</div>');
+  } else {
+    parts.push('<ul class="admin-list">');
+    for (const b of myBlocks.slice(0, 30)) {
+      parts.push(
+        '<li>' + escapeHtml(b.date) + ' ' + escapeHtml(b.time || '') + ' — ' + escapeHtml(b.type || '') +
+        (b.urgent ? ' <span class="urgent-badge">urgent</span>' : '') +
+        '</li>'
+      );
+    }
+    if (myBlocks.length > 30) parts.push('<li class="muted small">… + ' + (myBlocks.length - 30) + ' more</li>');
+    parts.push('</ul>');
+  }
+  parts.push('</div>');
+  parts.push('<div class="admin-user-detail-section"><strong>Recent sessions (' + mySessions.length + ')</strong>');
+  if (mySessions.length === 0) {
+    parts.push('<div class="muted small">No sessions recorded in the last 30 days.</div>');
+  } else {
+    parts.push('<ul class="admin-list">');
+    for (const s of mySessions.slice(0, 20)) {
+      const dur = Math.max(0, (s.lastActive || s.startedAt) - s.startedAt);
+      parts.push(
+        '<li>' + new Date(s.startedAt).toLocaleString() + ' — ' + formatDuration(dur) + '</li>'
+      );
+    }
+    if (mySessions.length > 20) parts.push('<li class="muted small">… + ' + (mySessions.length - 20) + ' more</li>');
+    parts.push('</ul>');
+  }
+  parts.push('</div>');
+  host.innerHTML = parts.join('');
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+function populateAdminUserFilter() {
+  const sel = $('admin-cal-filter-user');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Everyone</option>';
+  const sorted = [...state.admin.users].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  for (const u of sorted) {
+    const opt = document.createElement('option');
+    opt.value = u.sNumber;
+    opt.textContent = (u.name || '—') + ' (' + u.sNumber + ')';
+    sel.appendChild(opt);
+  }
+  sel.value = prev || '';
+}
+
+function adminMatchesFilters(block) {
+  if (state.admin.filterType && block.type !== state.admin.filterType) return false;
+  if (state.admin.filterTime && block.time !== state.admin.filterTime) return false;
+  if (state.admin.filterUser && block.sNumber !== state.admin.filterUser) return false;
+  return true;
+}
+
+function renderAdminCalendar() {
+  const root = $('admin-calendar');
+  if (!root) return;
+  root.innerHTML = '';
+  const month = state.admin.calMonth;
+  $('admin-cal-label').textContent = month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+  const byDate = new Map();
+  for (const b of state.admin.allBlocks) {
+    if (!adminMatchesFilters(b)) continue;
+    if (!byDate.has(b.date)) byDate.set(b.date, []);
+    byDate.get(b.date).push(b);
+  }
+
+  const firstOfMonth = new Date(month.getFullYear(), month.getMonth(), 1);
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const firstDow = firstOfMonth.getDay();
+  let leadingEmpties = 0;
+  if (firstDow === 0 || firstDow === 6) leadingEmpties = 5;
+  else leadingEmpties = firstDow - 1;
+  for (let i = 0; i < leadingEmpties; i++) {
+    const empty = document.createElement('div');
+    empty.className = 'cal-day empty';
+    root.appendChild(empty);
+  }
+  const todayStr = ymd(new Date());
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = new Date(month.getFullYear(), month.getMonth(), d);
+    const dow = date.getDay();
+    if (dow === 0 || dow === 6) continue;
+    const dstr = ymd(date);
+    const list = byDate.get(dstr) || [];
+    const hasUrgent = list.some((b) => b.urgent);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cal-day' + (list.length === 0 ? ' has-none' : '') + (dstr === todayStr ? ' today' : '') + (hasUrgent ? ' has-urgent' : '');
+    btn.dataset.date = dstr;
+
+    const headRow = document.createElement('div');
+    headRow.style.display = 'flex';
+    headRow.style.justifyContent = 'space-between';
+    headRow.style.alignItems = 'center';
+    const num = document.createElement('span');
+    num.className = 'date-num';
+    num.textContent = String(d);
+    headRow.appendChild(num);
+    if (list.length > 0) {
+      const pill = document.createElement('span');
+      pill.className = 'count-pill';
+      pill.textContent = String(list.length);
+      pill.setAttribute('aria-label', list.length + ' block' + (list.length === 1 ? '' : 's'));
+      headRow.appendChild(pill);
+    }
+    if (hasUrgent) {
+      const bang = document.createElement('span');
+      bang.className = 'urgent-dot';
+      bang.textContent = '!';
+      headRow.appendChild(bang);
+    }
+    btn.appendChild(headRow);
+    if (list.length > 0) {
+      const tagRow = document.createElement('div');
+      tagRow.className = 'tag-row';
+      if (list.some((b) => b.time === 'morning')) {
+        const t = document.createElement('span'); t.className = 'tag morning'; t.textContent = 'AM'; tagRow.appendChild(t);
+      }
+      if (list.some((b) => b.time === 'afternoon')) {
+        const t = document.createElement('span'); t.className = 'tag afternoon'; t.textContent = 'PM'; tagRow.appendChild(t);
+      }
+      btn.appendChild(tagRow);
+    }
+    btn.addEventListener('click', () => openAdminDayDetail(dstr));
+    root.appendChild(btn);
+  }
+  if (state.admin.selectedDate) openAdminDayDetail(state.admin.selectedDate, { keepOpen: true });
+}
+
+function openAdminDayDetail(dstr, opts = {}) {
+  state.admin.selectedDate = dstr;
+  const blocks = state.admin.allBlocks
+    .filter((b) => b.date === dstr && adminMatchesFilters(b))
+    .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  const host = $('admin-day-detail');
+  host.classList.remove('hidden');
+  const title = new Date(dstr + 'T00:00:00').toLocaleDateString(undefined, {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+  });
+  $('admin-day-detail-title').textContent = 'Blocks on ' + title;
+  const list = $('admin-day-detail-list');
+  list.innerHTML = '';
+  if (blocks.length === 0) {
+    list.innerHTML = '<div class="empty-state">No matching blocks.</div>';
+    return;
+  }
+  for (const b of blocks) {
+    const card = document.createElement('div');
+    card.className = 'block-card' + (b.urgent ? ' urgent' : '');
+    card.innerHTML =
+      '<div class="meta">' +
+        '<div class="title">' + escapeHtml(b.type || '') + ' — ' + escapeHtml(b.time === 'morning' ? 'Morning' : 'Afternoon') +
+          (b.urgent ? ' <span class="urgent-badge">urgent</span>' : '') +
+        '</div>' +
+        '<div class="sub">' + escapeHtml(b.date) + ' • ' + escapeHtml(b.name || '—') + ' (' + escapeHtml(b.sNumber || '') + ')</div>' +
+      '</div>' +
+      '<div class="contact">' + (b.phone ? escapeHtml(b.phone) : '<span class="muted">no phone</span>') + '</div>' +
+      (b.notes ? '<div class="notes">' + escapeHtml(b.notes) + '</div>' : '');
+    list.appendChild(card);
+  }
+}
+
+function closeAdminDayDetail() {
+  state.admin.selectedDate = null;
+  $('admin-day-detail').classList.add('hidden');
+}
+
 /* ----------------------------- wiring ----------------------------- */
 
 function wireEvents() {
@@ -1813,6 +2365,46 @@ function wireEvents() {
 
   $('costs-filter').addEventListener('input', renderProcedureCosts);
   $('costs-show-unknown').addEventListener('change', renderProcedureCosts);
+
+  /* ------- admin view wiring ------- */
+  document.querySelectorAll('#view-admin .admin-tab').forEach((b) => {
+    b.addEventListener('click', () => setAdminSubView(b.dataset.adminTab));
+  });
+  const refreshBtn = $('admin-refresh');
+  if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+    await loadAdminData();
+    setAdminSubView(state.admin.subView || 'users');
+  });
+  const forgetBtn = $('admin-forget');
+  if (forgetBtn) forgetBtn.addEventListener('click', () => {
+    if (confirm('Remove admin access from this browser?')) forgetAdmin();
+  });
+  const acPrev = $('admin-cal-prev');
+  const acNext = $('admin-cal-next');
+  if (acPrev) acPrev.addEventListener('click', () => {
+    state.admin.calMonth = new Date(state.admin.calMonth.getFullYear(), state.admin.calMonth.getMonth() - 1, 1);
+    closeAdminDayDetail();
+    renderAdminCalendar();
+  });
+  if (acNext) acNext.addEventListener('click', () => {
+    state.admin.calMonth = new Date(state.admin.calMonth.getFullYear(), state.admin.calMonth.getMonth() + 1, 1);
+    closeAdminDayDetail();
+    renderAdminCalendar();
+  });
+  const adFilterType = $('admin-cal-filter-type');
+  const adFilterTime = $('admin-cal-filter-time');
+  const adFilterUser = $('admin-cal-filter-user');
+  if (adFilterType) adFilterType.addEventListener('change', (e) => { state.admin.filterType = e.target.value; renderAdminCalendar(); });
+  if (adFilterTime) adFilterTime.addEventListener('change', (e) => { state.admin.filterTime = e.target.value; renderAdminCalendar(); });
+  if (adFilterUser) adFilterUser.addEventListener('change', (e) => { state.admin.filterUser = e.target.value; renderAdminCalendar(); });
+  const adClose = $('admin-day-detail-close');
+  if (adClose) adClose.addEventListener('click', closeAdminDayDetail);
+
+  /* ------- session lifecycle ------- */
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && state.sessionId) heartbeat();
+  });
+  window.addEventListener('pagehide', () => { heartbeat(); });
 }
 
 /* ----------------------------- boot ----------------------------- */
@@ -1826,7 +2418,11 @@ async function boot() {
   wireEvents();
   loadLocalProfile();
   initFirestore();
+  // Sign in anonymously BEFORE touching any data so rules that require
+  // request.auth != null are satisfied on the first read.
+  await ensureAnonAuth();
   subscribeBlocks();
+  await maybeBootstrapAdmin();
 
   if (profileValid(state.profile) && state.firestoreReady) {
     showApp();

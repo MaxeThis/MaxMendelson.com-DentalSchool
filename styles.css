@@ -80,6 +80,8 @@ html, body {
 }
 body.signed-out .auth-only { display: none; }
 body.signed-in  .guest-only { display: none; }
+.admin-only { display: none !important; }
+body.admin.signed-in .admin-only { display: inline-block !important; }
 body.signed-out main.container { padding-top: 48px; }
 body.signed-out .ad-card { margin-bottom: 48px; }
 .optional-tag { color: var(--muted); font-weight: 400; font-size: 0.85em; margin-left: 4px; }
@@ -239,7 +241,7 @@ button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
 .cal-label { font-weight: 600; font-size: 1.05rem; }
 .calendar-grid-head {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
   font-size: 0.78rem;
   color: var(--muted);
@@ -249,7 +251,7 @@ button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
 }
 .calendar-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
 }
 .cal-day {
@@ -837,7 +839,129 @@ button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
 @media (max-width: 600px) {
   .brand h1 { font-size: 1.1rem; }
-  .cal-day { min-height: 70px; }
+  .cal-day {
+    min-height: 64px;
+    padding: 4px 5px;
+    gap: 3px;
+  }
+  .cal-day .date-num { font-size: 0.85rem; }
+  .cal-day .count-pill {
+    padding: 1px 6px;
+    font-size: 0.68rem;
+    min-width: 18px;
+    text-align: center;
+  }
+  .cal-day .tag { padding: 1px 5px; font-size: 0.6rem; }
   .calendar-grid-head, .calendar-grid { gap: 4px; }
+  .calendar-grid-head { font-size: 0.68rem; letter-spacing: 0.3px; padding: 0 0 4px; }
+  .urgent-dot { width: 14px; height: 14px; font-size: 0.65rem; margin-left: 2px; }
   .nav-btn { padding: 6px 9px; font-size: 0.85rem; }
+  .block-card { padding: 10px 12px; }
+  .block-card .meta { min-width: 0; }
+}
+
+/* Admin view */
+.admin-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+  margin: 10px 0 14px;
+  flex-wrap: wrap;
+}
+.admin-tab {
+  background: transparent;
+  border: 0;
+  padding: 8px 12px;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.admin-tab:hover { color: var(--text); }
+.admin-tab.active {
+  color: var(--red);
+  border-bottom-color: var(--red);
+  font-weight: 600;
+}
+.admin-tools { margin-left: auto; display: flex; gap: 8px; }
+
+.admin-stats {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.admin-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  min-width: 110px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.admin-stat span { font-size: 1.35rem; font-weight: 700; }
+.admin-stat small { color: var(--muted); font-size: 0.78rem; }
+
+.admin-users-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.admin-user-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  overflow: hidden;
+}
+.admin-user-row.expanded { border-color: var(--red); }
+.admin-user-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+.admin-user-main:hover { background: #fafbfc; }
+.admin-user-name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.admin-user-name .small { font-weight: 400; font-size: 0.82rem; }
+.admin-user-meta {
+  display: flex;
+  gap: 14px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.admin-user-detail {
+  padding: 0 14px 14px 14px;
+  border-top: 1px dashed var(--border);
+  display: none;
+}
+.admin-user-row.expanded .admin-user-detail { display: block; }
+.admin-user-detail-section { margin-top: 10px; font-size: 0.9rem; }
+.admin-list { margin: 4px 0 0; padding-left: 18px; font-size: 0.88rem; }
+.admin-list li { margin: 2px 0; }
+
+.small { font-size: 0.82rem; }
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #b3b9c3;
+  display: inline-block;
+}
+.status-dot.online { background: #2fa84f; box-shadow: 0 0 0 3px rgba(47, 168, 79, 0.18); }
+
+@media (max-width: 600px) {
+  .admin-stats { gap: 6px; }
+  .admin-stat { min-width: 90px; padding: 8px 10px; }
+  .admin-stat span { font-size: 1.1rem; }
+  .admin-user-meta { gap: 8px; font-size: 0.78rem; }
+  .admin-tools { margin-left: 0; }
 }

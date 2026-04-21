@@ -19,6 +19,7 @@
         <button class="nav-btn auth-only" data-view="my-blocks">My Blocks</button>
 <button class="nav-btn" data-view="costs">Procedure Costs</button>
         <button class="nav-btn auth-only" data-view="profile">Account</button>
+        <button class="nav-btn auth-only admin-only" data-view="admin">Admin</button>
         <button class="nav-btn guest-only" id="nav-signin-btn">Sign in</button>
       </nav>
     </div>
@@ -320,6 +321,76 @@
         </div>
       </form>
     </section>
+
+    <!-- Admin view (only visible when admin unlock flag is set) -->
+    <section id="view-admin" class="view hidden">
+      <div class="view-head">
+        <h2>Admin</h2>
+        <p class="muted">
+          Unlocked on this browser only.
+          <span id="admin-status" class="small muted"></span>
+        </p>
+      </div>
+      <div class="admin-tabs">
+        <button class="admin-tab active" data-admin-tab="users" type="button">Users</button>
+        <button class="admin-tab" data-admin-tab="calendar" type="button">All blocks calendar</button>
+        <div class="admin-tools">
+          <button id="admin-refresh" class="text-btn" type="button">Refresh</button>
+          <button id="admin-forget" class="text-btn danger" type="button">Forget admin</button>
+        </div>
+      </div>
+
+      <div id="admin-pane-users" class="admin-pane">
+        <div class="admin-stats">
+          <div class="admin-stat"><span id="admin-stat-total">0</span><small>users</small></div>
+          <div class="admin-stat"><span id="admin-stat-online">0</span><small>online now</small></div>
+          <div class="admin-stat"><span id="admin-stat-blocks">0</span><small>blocks total</small></div>
+        </div>
+        <div id="admin-users-list" class="admin-users-list"></div>
+      </div>
+
+      <div id="admin-pane-calendar" class="admin-pane hidden">
+        <div class="filter-row">
+          <label>
+            Filter by type
+            <select id="admin-cal-filter-type">
+              <option value="">All types</option>
+            </select>
+          </label>
+          <label>
+            Time
+            <select id="admin-cal-filter-time">
+              <option value="">Morning &amp; Afternoon</option>
+              <option value="morning">Morning only</option>
+              <option value="afternoon">Afternoon only</option>
+            </select>
+          </label>
+          <label>
+            User
+            <select id="admin-cal-filter-user">
+              <option value="">Everyone</option>
+            </select>
+          </label>
+        </div>
+        <div class="calendar-head">
+          <button id="admin-cal-prev" class="icon-btn" aria-label="Previous month" type="button">‹</button>
+          <div id="admin-cal-label" class="cal-label"></div>
+          <button id="admin-cal-next" class="icon-btn" aria-label="Next month" type="button">›</button>
+        </div>
+        <div class="calendar-grid-head">
+          <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div>
+        </div>
+        <div id="admin-calendar" class="calendar-grid"></div>
+
+        <div id="admin-day-detail" class="day-detail hidden">
+          <div class="day-detail-head">
+            <h3 id="admin-day-detail-title">Blocks</h3>
+            <button id="admin-day-detail-close" class="text-btn" type="button">Close</button>
+          </div>
+          <div id="admin-day-detail-list" class="block-list"></div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <footer class="site-footer">
@@ -337,6 +408,7 @@
   <!-- Firebase (compat build so it works as plain scripts on GitHub Pages) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="app.js"></script>

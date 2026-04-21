@@ -50,10 +50,9 @@ You need a Firebase project to store the shared blocks. It is free for this use 
 
        // User profiles, one doc per S#.
        match /users/{sNumber} {
-         // Anyone can read a profile. The PIN is stored only as a PBKDF2
-         // hash so it isn't recoverable from a read. Still, the hash is
-         // readable — rely on App Check + a PIN of reasonable length.
-         allow read: if true;
+         // Reads require an authenticated session (anonymous auth counts).
+         // Combined with App Check this blocks direct REST scraping.
+         allow read: if request.auth != null;
 
          allow create: if sNumber.matches('^S[0-9]{5}$')
            && request.resource.data.keys().hasAll(['sNumber','name','phone','pinHash','createdAt','updatedAt'])
@@ -79,7 +78,7 @@ You need a Firebase project to store the shared blocks. It is free for this use 
 
        // Posted blocks.
        match /blocks/{blockId} {
-         allow read: if true;
+         allow read: if request.auth != null;
 
          allow create: if request.resource.data.keys().hasAll(
              ['date','time','type','name','sNumber','phone','createdAt']
@@ -109,10 +108,68 @@ You need a Firebase project to store the shared blocks. It is free for this use 
          // shows up, add Firebase Auth and tighten this.
          allow delete: if true;
        }
+
+       // Session records so the admin view can compute usage
+       // frequency, total time, and who is online right now.
+       // Reads require auth; writes are shape-checked to prevent
+       // clients from spamming arbitrary data.
+       match /sessions/{sessionId} {
+         allow read: if request.auth != null;
+         allow create: if request.resource.data.keys().hasAll(['sNumber','startedAt','lastActive'])
+           && request.resource.data.sNumber is string
+           && request.resource.data.sNumber.matches('^S[0-9]{5}$')
+           && request.resource.data.startedAt is number
+           && request.resource.data.lastActive is number;
+         // Only the lastActive timestamp may change on update.
+         allow update: if request.resource.data.sNumber == resource.data.sNumber
+           && request.resource.data.startedAt == resource.data.startedAt
+           && request.resource.data.lastActive is number;
+         allow delete: if false;
+       }
+
+       // Private site configuration (admin hash). The client reads
+       // it while bootstrapping the admin gate; only anon-signed-in
+       // users can read it so the hash isn't exposed via view-source.
+       // All writes happen manually in the Firebase console.
+       match /config/{doc} {
+         allow read: if request.auth != null;
+         allow write: if false;
+       }
+
+       // Client-side error reports so the site owner can diagnose
+       // failures without asking users to open DevTools. Read only
+       // from the Firebase console; tight schema prevents abuse.
+       match /clientErrors/{errorId} {
+         allow read, update, delete: if false;
+         allow create: if request.resource.data.keys().hasAll(
+             ['context','message','code','sNumber','userAgent','url','timestamp']
+           )
+           && request.resource.data.context is string
+           && request.resource.data.context.size() <= 60
+           && request.resource.data.message is string
+           && request.resource.data.message.size() <= 500
+           && request.resource.data.code is string
+           && request.resource.data.code.size() <= 60
+           && request.resource.data.sNumber is string
+           && request.resource.data.sNumber.size() <= 6
+           && request.resource.data.userAgent is string
+           && request.resource.data.userAgent.size() <= 300
+           && request.resource.data.url is string
+           && request.resource.data.url.size() <= 200
+           && request.resource.data.timestamp is number;
+       }
      }
    }
    ```
-6. (Optional but recommended) In **Build → Authentication → Settings → Authorized domains**, add `maxmendelson.com` and your GitHub Pages URL (e.g. `maxethis.github.io`). This isn’t strictly required for Firestore but it helps if you add auth later.
+6. **Enable Anonymous Auth.** In **Build → Authentication → Sign-in method**, enable the **Anonymous** provider. The client signs in anonymously at boot so Firestore rules can require `request.auth != null` for reads. Without this step every read will fail with `permission-denied`.
+7. **Seed the admin config.** In Firestore, create a doc at path `config/admin` with a single field:
+   - `hash` *(string)*: PBKDF2-SHA256 of your admin secret, salt `umsod-admin-v1`, 200,000 iterations, hex output.
+   To generate the hash for a new secret, run:
+   ```bash
+   python3 -c "import hashlib; print(hashlib.pbkdf2_hmac('sha256', b'YOURSECRET', b'umsod-admin-v1', 200000).hex())"
+   ```
+   Paste the resulting hex string as `config/admin.hash`.
+8. (Optional) In **Build → Authentication → Settings → Authorized domains**, add `maxmendelson.com` and your GitHub Pages URL (e.g. `maxethis.github.io`).
 
 ## 2. Run it locally
 
