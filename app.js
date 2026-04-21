@@ -681,8 +681,11 @@ async function maybeBootstrapAdmin() {
       toast('Admin unlock failed.');
     }
   }
-  state.isAdmin = localStorage.getItem(ADMIN_FLAG_KEY) === '1';
-  document.body.classList.toggle('admin', state.isAdmin);
+  // Only trust the localStorage flag when we have a valid auth session.
+  // Otherwise the admin button would show under a broken session.
+  const authed = typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser;
+  state.isAdmin = authed && localStorage.getItem(ADMIN_FLAG_KEY) === '1';
+  document.body.classList.toggle('admin', !!state.isAdmin);
 }
 
 function forgetAdmin() {
@@ -701,8 +704,10 @@ function forgetAdmin() {
  * the full client. It is NOT user-level auth (anyone can get an anon
  * token), but paired with App Check it meaningfully raises the bar.
  *
- * Graceful: if Anonymous sign-in isn't enabled in the Firebase console,
- * this no-ops so the app keeps working on older, unlocked rules. */
+ * If it fails (e.g. anon sign-in not enabled yet in the Firebase
+ * console, or reCAPTCHA blocked), we bail out to the sign-in screen
+ * via handleAuthLoss — rules will reject every read, so pretending
+ * the app is usable would just show a broken UI. */
 async function ensureAnonAuth() {
   if (typeof firebase === 'undefined' || !firebase.auth) return null;
   const auth = firebase.auth();
@@ -711,15 +716,24 @@ async function ensureAnonAuth() {
     const cred = await auth.signInAnonymously();
     return cred.user;
   } catch (err) {
-    console.warn('Anonymous sign-in failed — rules may still permit access:', err);
+    console.warn('Anonymous sign-in failed — rules will reject reads:', err);
     logClientError('anon-auth', err);
     return null;
   }
 }
 
-async function endAnonAuth() {
-  if (typeof firebase === 'undefined' || !firebase.auth) return;
-  try { await firebase.auth().signOut(); } catch (_) { /* noop */ }
+/* Called whenever Firebase auth is null when it shouldn't be. Nukes
+ * any lingering admin/profile state so non-admin UI isn't shown under
+ * a broken session, then routes back to the sign-in gate. */
+function handleAuthLoss(reason) {
+  stopHeartbeat();
+  state.sessionId = null;
+  state.isAdmin = false;
+  document.body.classList.remove('admin');
+  clearLocalProfile();
+  const el = document.getElementById('signin-gate');
+  if (el) showSignIn();
+  if (reason) toast(reason);
 }
 
 /* ----------------------------- sessions ----------------------------- */
@@ -2419,8 +2433,25 @@ async function boot() {
   loadLocalProfile();
   initFirestore();
   // Sign in anonymously BEFORE touching any data so rules that require
-  // request.auth != null are satisfied on the first read.
-  await ensureAnonAuth();
+  // request.auth != null are satisfied on the first read. If this
+  // fails, every subsequent Firestore op would fail with permission-
+  // denied, so we bail out to the sign-in screen rather than show a
+  // broken app.
+  const authUser = state.firestoreReady ? await ensureAnonAuth() : null;
+  if (state.firestoreReady && !authUser) {
+    handleAuthLoss('Sign-in unavailable — please try again in a moment.');
+    return;
+  }
+
+  // Keep an eye on auth state so a mid-session auth loss (token
+  // revoked, clock skew, etc.) also bounces the user to sign-in
+  // instead of leaving them in a "signed in but broken" state.
+  if (typeof firebase !== 'undefined' && firebase.auth) {
+    firebase.auth().onAuthStateChanged((u) => {
+      if (!u) handleAuthLoss('Session expired — please sign in again.');
+    });
+  }
+
   subscribeBlocks();
   await maybeBootstrapAdmin();
 
