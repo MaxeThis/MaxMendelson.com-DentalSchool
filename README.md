@@ -202,7 +202,7 @@ When you're ready to hook up `maxmendelson.com`:
 
 ## 4. PerioMaxer ad link
 
-Open `index.html` and search for `apps.apple.com/app/periomaxer`. Replace that URL with the real App Store URL for PerioMaxer.
+The banner and footer link to `https://apps.apple.com/app/apple-store/id6762096578?pt=120200831&ct=maxmendelson.com&mt=8` (App Store ID `6762096578`, with attribution params `pt=120200831&ct=maxmendelson.com`). The banner is currently hidden via the `hidden` class on `#periomaxer-ad` in `index.html`; remove that class to show it.
 
 ## 5. Files
 
