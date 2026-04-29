@@ -857,6 +857,10 @@ function showSetupWarning() {
 
 function setGate(which) {
   // which: 'signin' | 'pin' | 'setup' | null
+  // The loading gate is shown by default in the HTML; once any other gate or
+  // view is shown, hide it so we don't stack a spinner on top of real content.
+  const loadingGate = $('loading-gate');
+  if (loadingGate) loadingGate.classList.add('hidden');
   $('signin-gate').classList.toggle('hidden', which !== 'signin');
   $('pin-gate').classList.toggle('hidden', which !== 'pin');
   $('setup-gate').classList.toggle('hidden', which !== 'setup');
@@ -2025,8 +2029,38 @@ async function loadAdminData() {
     usersSnap.forEach((doc) => state.admin.users.push({ id: doc.id, ...doc.data() }));
     state.admin.sessions = [];
     sessionsSnap.forEach((doc) => state.admin.sessions.push({ id: doc.id, ...doc.data() }));
-    state.admin.allBlocks = [];
-    blocksSnap.forEach((doc) => state.admin.allBlocks.push({ id: doc.id, ...doc.data() }));
+    const posted = [];
+    blocksSnap.forEach((doc) => posted.push({ id: doc.id, source: 'posted', ...doc.data() }));
+    state.admin.postedCount = posted.length;
+    // Fold every user's imported schedule into the admin block list so the
+    // admin calendar shows everyone's full schedule, not just blocks posted
+    // for swap. Dedupe against posted blocks (same student + date + period)
+    // so a posted block doesn't appear twice.
+    const postedKeys = new Set(posted.map((b) => `${b.sNumber}|${b.date}|${b.time}`));
+    const scheduleBlocks = [];
+    for (const u of state.admin.users) {
+      if (!Array.isArray(u.schedule)) continue;
+      for (const e of u.schedule) {
+        const period = startTimeToPeriod(e.startTime);
+        if (!e.date || !period) continue;
+        const key = `${u.sNumber}|${e.date}|${period}`;
+        if (postedKeys.has(key)) continue;
+        const type = DESC_TO_TYPE[(e.description || '').toUpperCase()] || e.description || '—';
+        scheduleBlocks.push({
+          id: 'sched:' + u.sNumber + ':' + (e.id || `${e.date}-${e.startTime}`),
+          source: 'schedule',
+          date: e.date,
+          time: period,
+          type,
+          notes: `${e.startTime || ''}${e.endTime ? ' – ' + e.endTime : ''}`.trim(),
+          name: u.name,
+          sNumber: u.sNumber,
+          phone: u.phone,
+        });
+      }
+    }
+    state.admin.scheduleCount = scheduleBlocks.length;
+    state.admin.allBlocks = posted.concat(scheduleBlocks);
     state.admin.loaded = true;
     if (statusEl) statusEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
   } catch (err) {
@@ -2099,7 +2133,9 @@ function renderAdminUsers() {
   const onlineCount = users.filter((u) => aggregateSessions(u.sNumber).online).length;
   $('admin-stat-total').textContent = String(users.length);
   $('admin-stat-online').textContent = String(onlineCount);
-  $('admin-stat-blocks').textContent = String(state.admin.allBlocks.length);
+  $('admin-stat-blocks').textContent = String(state.admin.postedCount || 0);
+  const schedEl = $('admin-stat-schedule');
+  if (schedEl) schedEl.textContent = String(state.admin.scheduleCount || 0);
   if (users.length === 0) {
     root.innerHTML = '<div class="empty-state">No users yet.</div>';
     return;
@@ -2140,8 +2176,11 @@ function renderAdminUserDetail(user, host) {
     .filter((s) => s.sNumber === user.sNumber)
     .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
   const myBlocks = state.admin.allBlocks
-    .filter((b) => b.sNumber === user.sNumber)
+    .filter((b) => b.sNumber === user.sNumber && b.source === 'posted')
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const myScheduled = state.admin.allBlocks
+    .filter((b) => b.sNumber === user.sNumber && b.source === 'schedule')
+    .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   const parts = [];
   parts.push(
     '<div class="admin-user-detail-section">' +
@@ -2163,6 +2202,22 @@ function renderAdminUserDetail(user, host) {
       );
     }
     if (myBlocks.length > 30) parts.push('<li class="muted small">… + ' + (myBlocks.length - 30) + ' more</li>');
+    parts.push('</ul>');
+  }
+  parts.push('</div>');
+  parts.push('<div class="admin-user-detail-section"><strong>Imported schedule (' + myScheduled.length + ')</strong>');
+  if (myScheduled.length === 0) {
+    parts.push('<div class="muted small">No schedule imported.</div>');
+  } else {
+    parts.push('<ul class="admin-list">');
+    for (const b of myScheduled.slice(0, 60)) {
+      parts.push(
+        '<li>' + escapeHtml(b.date) + ' ' + escapeHtml(b.time || '') + ' — ' + escapeHtml(b.type || '') +
+        (b.notes ? ' <span class="muted small">' + escapeHtml(b.notes) + '</span>' : '') +
+        '</li>'
+      );
+    }
+    if (myScheduled.length > 60) parts.push('<li class="muted small">… + ' + (myScheduled.length - 60) + ' more</li>');
     parts.push('</ul>');
   }
   parts.push('</div>');
@@ -2308,10 +2363,15 @@ function openAdminDayDetail(dstr, opts = {}) {
   }
   for (const b of blocks) {
     const card = document.createElement('div');
-    card.className = 'block-card' + (b.urgent ? ' urgent' : '');
+    const isSched = b.source === 'schedule';
+    card.className = 'block-card' + (b.urgent ? ' urgent' : '') + (isSched ? ' schedule-only' : '');
+    const sourceBadge = isSched
+      ? ' <span class="source-badge schedule">scheduled</span>'
+      : ' <span class="source-badge posted">posted</span>';
     card.innerHTML =
       '<div class="meta">' +
         '<div class="title">' + escapeHtml(b.type || '') + ' — ' + escapeHtml(b.time === 'morning' ? 'Morning' : 'Afternoon') +
+          sourceBadge +
           (b.urgent ? ' <span class="urgent-badge">urgent</span>' : '') +
         '</div>' +
         '<div class="sub">' + escapeHtml(b.date) + ' • ' + escapeHtml(b.name || '—') + ' (' + escapeHtml(b.sNumber || '') + ')</div>' +

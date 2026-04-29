@@ -38,6 +38,14 @@
       </a>
     </aside>
 
+    <!-- Loading gate: shown on first paint until boot() decides where to send the user.
+         Without this the only thing visible during boot is the red header bar, which
+         looks broken. setGate() hides this once any other gate or view is shown. -->
+    <section id="loading-gate" class="panel loading-gate" aria-live="polite">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <p class="loading-text">Loading…</p>
+    </section>
+
     <!-- Sign-in gate: just S# -->
     <section id="signin-gate" class="panel hidden">
       <h2>Sign in</h2>
@@ -97,7 +105,7 @@
         </label>
         <label class="checkbox">
           <input type="checkbox" id="setup-agree" required />
-          I have read and agree to the <a href="privacy.html" target="_blank" rel="noopener">privacy policy</a>.
+          <span>I have read and agree to the <a href="privacy.html" target="_blank" rel="noopener">privacy policy</a>.</span>
         </label>
         <div class="row-buttons">
           <button type="submit" class="primary">Create account</button>
@@ -344,7 +352,8 @@
         <div class="admin-stats">
           <div class="admin-stat"><span id="admin-stat-total">0</span><small>users</small></div>
           <div class="admin-stat"><span id="admin-stat-online">0</span><small>online now</small></div>
-          <div class="admin-stat"><span id="admin-stat-blocks">0</span><small>blocks total</small></div>
+          <div class="admin-stat"><span id="admin-stat-blocks">0</span><small>posted for swap</small></div>
+          <div class="admin-stat"><span id="admin-stat-schedule">0</span><small>scheduled (not posted)</small></div>
         </div>
         <div id="admin-users-list" class="admin-users-list"></div>
       </div>
