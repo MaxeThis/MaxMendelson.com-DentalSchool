@@ -857,10 +857,6 @@ function showSetupWarning() {
 
 function setGate(which) {
   // which: 'signin' | 'pin' | 'setup' | null
-  // The loading gate is shown by default in the HTML; once any other gate or
-  // view is shown, hide it so we don't stack a spinner on top of real content.
-  const loadingGate = $('loading-gate');
-  if (loadingGate) loadingGate.classList.add('hidden');
   $('signin-gate').classList.toggle('hidden', which !== 'signin');
   $('pin-gate').classList.toggle('hidden', which !== 'pin');
   $('setup-gate').classList.toggle('hidden', which !== 'setup');
