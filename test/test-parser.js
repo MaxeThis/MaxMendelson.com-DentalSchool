@@ -139,6 +139,35 @@ check('BLK-ONCALL maps to ON-CALL BLOCK', oncall && oncall.description === 'ON-C
 check('CLIN-EMERG maps to EMERGENCY BLOCK', emerg && emerg.description === 'EMERGENCY BLOCK');
 check('EDU-OTHER passes through (no mapping)', edu && edu.description === 'EDU-OTHER');
 
+// --- mis-scan handling: OCR artifacts the scraper should still recognize ---
+const misScanSample = `
+@BLK-5PC&G    07/01/2026  07/01/2026  09:00 AM  12:00 PM  W   Yes
+@BLK-SPCaG    07/02/2026  07/02/2026  09:00 AM  12:00 PM  Th  Yes
+@BLK-5PCAG    07/03/2026  07/03/2026  09:00 AM  12:00 PM  F   Yes
+| @BLK-PAN    07/06/2026  07/06/2026  09:00 AM  12:00 PM  M   Yes
+|| @BLK-PAN   07/07/2026  07/07/2026  01:00 PM  04:00 PM  T   Yes
+GBLKONCALL    07/08/2026  07/08/2026  09:00 AM  12:00 PM  W   Yes
+`;
+const misScan = parseScheduleText(misScanSample);
+console.log('\nMis-scan checks:');
+console.log(`  Parsed: ${misScan.entries.length} entries, ${misScan.errors.length} errors (expected 6, 0)`);
+if (misScan.errors.length) {
+  misScan.errors.forEach((e) => console.log('  ERROR:', JSON.stringify(e)));
+}
+const ms = (d) => misScan.entries.find((e) => e.date === d);
+check('BLK-5PC&G (S→5) maps to SPECIAL CARE BLOCK',
+  ms('2026-07-01') && ms('2026-07-01').description === 'SPECIAL CARE BLOCK');
+check('BLK-SPCaG (&→a) maps to SPECIAL CARE BLOCK',
+  ms('2026-07-02') && ms('2026-07-02').description === 'SPECIAL CARE BLOCK');
+check('BLK-5PCAG (S→5, &→a) maps to SPECIAL CARE BLOCK',
+  ms('2026-07-03') && ms('2026-07-03').description === 'SPECIAL CARE BLOCK');
+check('| @BLK-PAN maps to PAN BLOCK',
+  ms('2026-07-06') && ms('2026-07-06').description === 'PAN BLOCK');
+check('|| @BLK-PAN maps to PAN BLOCK',
+  ms('2026-07-07') && ms('2026-07-07').description === 'PAN BLOCK');
+check('GBLKONCALL maps to ON-CALL BLOCK',
+  ms('2026-07-08') && ms('2026-07-08').description === 'ON-CALL BLOCK');
+
 // --- ICS generation ---
 console.log('\nICS generation:');
 const ics = generateIcs(entries, 'Max Mendelson', { enabled: true, hour: 19, minute: 0 });

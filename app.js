@@ -12,19 +12,28 @@ const BLOCK_TYPES = [
   'On-Call',
   'Screening',
   'Hospital',
+  'Pan',
 ];
 
 // axiUm / schedule code → display name. Match is case-insensitive; '@' is stripped.
+// Variants below cover OCR mis-scans we've seen in the wild — see
+// cleanDescription() for the prefix/garbage handling that runs before lookup.
 const SCHEDULE_NAME_MAP = {
   'BLK-SURGERY': 'ORAL SURGERY BLOCK',
   'BLK-ORTHO':   'ORTHO BLOCK',
   'BLK-SPC&G':   'SPECIAL CARE BLOCK',
-  'BLK-SPC3G':   'SPECIAL CARE BLOCK',
+  'BLK-SPC3G':   'SPECIAL CARE BLOCK',  // OCR: & → 3
+  'BLK-SPCAG':   'SPECIAL CARE BLOCK',  // OCR: & → a / A
+  'BLK-5PC&G':   'SPECIAL CARE BLOCK',  // OCR: S → 5
+  'BLK-5PC3G':   'SPECIAL CARE BLOCK',  // OCR: S → 5, & → 3
+  'BLK-5PCAG':   'SPECIAL CARE BLOCK',  // OCR: S → 5, & → a
   'BLK-PEDS':    'PEDS BLOCK',
   'CLIN-EMERG':  'EMERGENCY BLOCK',
   'BLK-ONCALL':  'ON-CALL BLOCK',
+  'BLKONCALL':   'ON-CALL BLOCK',       // OCR: missing dash (also matches GBLKONCALL via fuzzy includes())
   'BLK-SCR':     'SCREENING BLOCK',
   'BLK-HOSPITAL': 'HOSPITAL BLOCK',
+  'BLK-PAN':     'PAN BLOCK',
 };
 
 // Display name → swap-listing block type.
@@ -37,6 +46,7 @@ const DESC_TO_TYPE = {
   'ON-CALL BLOCK':      'On-Call',
   'SCREENING BLOCK':    'Screening',
   'HOSPITAL BLOCK':     'Hospital',
+  'PAN BLOCK':          'Pan',
 };
 
 const PROFILE_KEY = 'umsod_be_profile_v1';
@@ -1443,12 +1453,19 @@ function parseMmDdYyyy(str) {
 }
 
 function cleanDescription(raw) {
-  const stripped = (raw || '').trim().replace(/^@/, '').trim();
+  // Strip OCR junk that sometimes leaks in front of the @ marker
+  // ("| @BLK-PAN", "|| @BLK-PAN" — pipe characters from misread table borders),
+  // then drop the @ itself.
+  const stripped = (raw || '')
+    .trim()
+    .replace(/^[^A-Za-z@]+/, '')
+    .replace(/^@+/, '')
+    .trim();
   const upper = stripped.toUpperCase();
   if (SCHEDULE_NAME_MAP[upper]) return SCHEDULE_NAME_MAP[upper];
   // Fuzzy fallback: if a known code appears anywhere in the string (handles
   // OCR artifacts like extra trailing whitespace or columns that got glued
-  // onto the description).
+  // onto the description, or stray leading letters like "GBLKONCALL").
   for (const code of Object.keys(SCHEDULE_NAME_MAP)) {
     if (upper.includes(code)) return SCHEDULE_NAME_MAP[code];
   }
