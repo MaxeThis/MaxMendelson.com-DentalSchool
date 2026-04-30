@@ -708,6 +708,15 @@ function compareAssists(a, b) {
   return (a.procedure || '').localeCompare(b.procedure || '');
 }
 
+/* Board ordering inside Today / Upcoming sections: S42585 always pinned to
+ * the top of the section, then everyone else by post time (oldest first). */
+function compareAssistsForBoard(a, b) {
+  const aPinned = a.sNumber === ADMIN_SNUMBER;
+  const bPinned = b.sNumber === ADMIN_SNUMBER;
+  if (aPinned !== bPinned) return aPinned ? -1 : 1;
+  return (a.createdAt || 0) - (b.createdAt || 0);
+}
+
 /* When a post becomes visible to other students. Endo: 7 days before
  * the appointment at 8 AM. All other procedures: 8 AM the previous day.
  * Returns a Date in local time. */
@@ -2159,13 +2168,16 @@ function renderAssistBoard() {
   const todayStr = ymd(new Date());
   const now = Date.now();
   const filtered = state.assists.filter(assistMatchesFilter);
-  const todayList = filtered.filter((a) => a.date === todayStr);
+  const todayList = filtered
+    .filter((a) => a.date === todayStr)
+    .sort(compareAssistsForBoard);
   // Upcoming posts are visible to everyone once their per-procedure window
   // has opened (Endo: 7d ahead, others: 1d ahead). Posts beyond that window
   // are not yet "live" and only appear in the poster's "My posts" tab.
   const upcomingList = filtered
     .filter((a) => a.date > todayStr)
-    .filter((a) => assistIsLiveToOthers(a, now));
+    .filter((a) => assistIsLiveToOthers(a, now))
+    .sort(compareAssistsForBoard);
   renderAssistList($('assist-today-list'), todayList, {
     emptyMsg: 'No assist requests for today.',
     showContact: true,
