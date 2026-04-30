@@ -6,6 +6,7 @@ A static site for University of Maryland School of Dentistry students to swap bl
 - Mon–Fri, morning + afternoon
 - Filter the calendar by block type and/or morning/afternoon
 - Each student can see and remove their own posted blocks
+- Assist board for posting clinic appointments that need an assist (Endo / Fixed / Remo / Operative). Posts go live for everyone at 8 AM the day before — Endo opens 1 week ahead. Times are 7 AM, 9:30 AM, 1 PM (2 PM on Mondays), 4 PM
 - Privacy policy included
 - PerioMaxer ad slot at the top (linking to the App Store)
 
@@ -106,6 +107,47 @@ You need a Firebase project to store the shared blocks. It is free for this use 
 
          // Delete is open (UI only exposes it on your own blocks). If abuse
          // shows up, add Firebase Auth and tighten this.
+         allow delete: if true;
+       }
+
+       // Assist requests. Same auth-gated read pattern as blocks; tight
+       // shape check on create; updates limited to the contact fields so
+       // a profile rename can propagate without exposing identity/date
+       // fields. The query that backs this collection is a single-field
+       // range on `date`, so no composite index is needed.
+       match /assists/{assistId} {
+         allow read: if request.auth != null;
+
+         allow create: if request.resource.data.keys().hasAll(
+             ['sNumber','name','phone','date','time','procedure','chair','notes','createdAt']
+           )
+           && request.resource.data.sNumber is string
+           && request.resource.data.sNumber.matches('^S[0-9]{5}$')
+           && validDate(request.resource.data.date)
+           && request.resource.data.time in ['7am','9:30am','1pm','2pm','4pm']
+           && request.resource.data.procedure in ['Endo','Fixed','Remo','Operative']
+           && validName(request.resource.data.name)
+           && validPhone(request.resource.data.phone)
+           && (request.resource.data.chair == null
+               || (request.resource.data.chair is string
+                   && request.resource.data.chair.size() <= 10))
+           && (request.resource.data.notes == null
+               || (request.resource.data.notes is string
+                   && request.resource.data.notes.size() <= 200))
+           && request.resource.data.createdAt is number;
+
+         // Updates change only the contact fields (name + phone) so
+         // identity/date/time/procedure/createdAt cannot be tampered with.
+         allow update: if request.resource.data.sNumber == resource.data.sNumber
+           && request.resource.data.date == resource.data.date
+           && request.resource.data.time == resource.data.time
+           && request.resource.data.procedure == resource.data.procedure
+           && request.resource.data.createdAt == resource.data.createdAt
+           && validName(request.resource.data.name)
+           && validPhone(request.resource.data.phone);
+
+         // Same delete posture as /blocks: open. UI only exposes the
+         // cancel button on your own posts.
          allow delete: if true;
        }
 
@@ -235,7 +277,7 @@ Firestore's free tier (Spark plan) has **hard caps** — 50K reads, 20K writes, 
    - Back in the App Check console, open **Firestore** under APIs and switch enforcement from "Unenforced" to **Enforced**.
    - Add your domains (the GitHub Pages URL and `maxmendelson.com`) under the reCAPTCHA admin console's "Domains" list.
 2. **Tight Firestore rules** — every field is type-checked and size-bounded, so a single write can't store a MB of data. See the rules above.
-3. **Narrow read query** — the client only subscribes to blocks from today onward, so a huge historical dataset wouldn't amplify reads per user. Old blocks can also be auto-expired: in the Firestore console, open **TTL** and add a policy on `blocks.createdAt` with a long-ish TTL (e.g., 180 days of milliseconds = 180\*24\*60\*60\*1000) if you want automatic cleanup. Or delete old rows manually.
+3. **Narrow read query** — the client only subscribes to blocks from today onward, so a huge historical dataset wouldn't amplify reads per user. The Assist board uses the same `date >= today` range query and only subscribes while the Assist tab is open, so reads stay near zero when nobody is actively looking. Old blocks/assists can also be auto-expired: in the Firestore console, open **TTL** and add a policy on `blocks.createdAt` (and `assists.createdAt`) with a long-ish TTL (e.g., 180 days of milliseconds = 180\*24\*60\*60\*1000) if you want automatic cleanup. Or delete old rows manually.
 4. **Client-side rate limits** — in `app.js`, each browser tab is capped at 8 sign-in attempts/min and 6 posts/min. Doesn't stop a determined attacker but stops accidental loops.
 5. **Budget alerts** — Firebase console → **Usage and billing** → **Details & settings** → **Modify budget**. Set an alert to email you if traffic spikes unusually.
 

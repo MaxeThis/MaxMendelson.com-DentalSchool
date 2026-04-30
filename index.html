@@ -3,21 +3,22 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>UMSOD Block Exchange</title>
-  <meta name="description" content="University of Maryland School of Dentistry block exchange — post blocks you want to swap and find blocks other students are giving up." />
+  <title>ScheduleMaxer</title>
+  <meta name="description" content="Post blocks you want to swap and find blocks other students are giving up." />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="site-header">
     <div class="container header-inner">
       <div class="brand">
-        <h1>UMSOD Block Exchange</h1>
+        <h1>ScheduleMaxer</h1>
         <p class="tagline">Post a block you want to give up. Find one you want to pick up.</p>
       </div>
       <nav class="site-nav">
         <button class="nav-btn auth-only" data-view="calendar">Calendar</button>
         <button class="nav-btn auth-only" data-view="my-blocks">My Blocks</button>
-<button class="nav-btn" data-view="costs">Procedure Costs</button>
+        <button class="nav-btn auth-only" data-view="assist">Assist</button>
+        <button class="nav-btn" data-view="costs">Procedure Costs</button>
         <button class="nav-btn auth-only" data-view="profile">Account</button>
         <button class="nav-btn auth-only admin-only" data-view="admin">Admin</button>
         <button class="nav-btn guest-only" id="nav-signin-btn">Sign in</button>
@@ -259,6 +260,90 @@
         </label>
         <button type="submit" class="primary">Post Block</button>
       </form>
+    </section>
+
+    <!-- Assist view -->
+    <section id="view-assist" class="view hidden">
+      <div class="view-head">
+        <div>
+          <h2>Assist</h2>
+          <p class="muted">Need an assist? Post your appointment and others can pick it up. Posts go live for everyone <strong>at 8&nbsp;AM the day before</strong> — except <strong>Endo</strong>, which opens <strong>1 week ahead</strong>.</p>
+        </div>
+      </div>
+
+      <div class="assist-tabs">
+        <button class="assist-tab active" data-assist-tab="board" type="button">Available</button>
+        <button class="assist-tab" data-assist-tab="mine" type="button">My posts</button>
+        <button class="assist-tab" data-assist-tab="post" type="button">Post a request</button>
+      </div>
+
+      <div id="assist-pane-board" class="assist-pane">
+        <div class="filter-row assist-filter-row">
+          <label>
+            Filter by procedure
+            <select id="assist-filter-procedure">
+              <option value="">All procedures</option>
+              <option value="Endo">Endo</option>
+              <option value="Fixed">Fixed</option>
+              <option value="Remo">Remo</option>
+              <option value="Operative">Operative</option>
+            </select>
+          </label>
+        </div>
+
+        <section class="assist-section assist-section-today">
+          <h3 class="assist-section-head">Today</h3>
+          <p class="muted small assist-section-sub">Appointments happening today.</p>
+          <div id="assist-today-list" class="block-list"></div>
+        </section>
+
+        <section class="assist-section assist-section-upcoming">
+          <h3 class="assist-section-head">Upcoming</h3>
+          <p class="muted small assist-section-sub">Tomorrow's appointments (Endo: through next week). Open at 8&nbsp;AM.</p>
+          <div id="assist-upcoming-list" class="block-list"></div>
+        </section>
+      </div>
+
+      <div id="assist-pane-mine" class="assist-pane hidden">
+        <p class="muted small">Everything you've posted, including requests that aren't visible to others yet.</p>
+        <div id="assist-mine-list" class="block-list"></div>
+      </div>
+
+      <div id="assist-pane-post" class="assist-pane hidden">
+        <form id="assist-form" class="stacked-form">
+          <label>
+            Procedure
+            <select id="assist-procedure" required>
+              <option value="">Select…</option>
+              <option value="Endo">Endo</option>
+              <option value="Fixed">Fixed</option>
+              <option value="Remo">Remo</option>
+              <option value="Operative">Operative</option>
+            </select>
+          </label>
+          <label>
+            Date
+            <input type="date" id="assist-date" required />
+            <small>Weekdays only (Mon–Fri).</small>
+          </label>
+          <label>
+            Time
+            <select id="assist-time" required>
+              <option value="">Select…</option>
+            </select>
+            <small id="assist-time-hint">7&nbsp;AM, 9:30&nbsp;AM, 1&nbsp;PM (2&nbsp;PM on Mondays), or 4&nbsp;PM.</small>
+          </label>
+          <label>
+            Chair number <span class="optional-tag">(optional)</span>
+            <input type="text" id="assist-chair" maxlength="10" inputmode="numeric" autocomplete="off" placeholder="e.g. 12" />
+          </label>
+          <label>
+            Notes <span class="optional-tag">(optional)</span>
+            <textarea id="assist-notes" rows="2" maxlength="200" placeholder="Anything someone should know…"></textarea>
+          </label>
+          <button type="submit" class="primary">Post request</button>
+        </form>
+      </div>
     </section>
 
     <!-- Procedure Costs view -->

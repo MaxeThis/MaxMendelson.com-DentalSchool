@@ -1,4 +1,4 @@
-/* UMSOD Block Exchange — client logic.
+/* ScheduleMaxer — client logic.
  * Profiles live in Firestore (users/{sNumber}) so any device can sign in
  * with just an S#. Blocks live in Firestore (blocks/*) and are visible to
  * all signed-in users. A local cache of the current profile speeds things up. */
@@ -52,6 +52,25 @@ const DESC_TO_TYPE = {
 const PROFILE_KEY = 'umsod_be_profile_v1';
 const SCHEDULE_KEY_PREFIX = 'umsod_be_schedule_v1:';
 
+/* Assist board: per-procedure assist requests. Posts go live for everyone at
+ * 8 AM the day before the appointment (Endo: a full week before). The wire
+ * format and Firestore rules accept the union of legal time slots; the client
+ * is responsible for honoring the day-of-week rule (1 PM Tue–Fri, 2 PM Mon). */
+const ASSIST_PROCEDURES = ['Endo', 'Fixed', 'Remo', 'Operative'];
+const ASSIST_TIME_DEFAULT = ['7am', '9:30am', '1pm', '4pm'];
+const ASSIST_TIME_MONDAY  = ['7am', '9:30am', '2pm', '4pm'];
+const ASSIST_TIME_ALL     = ['7am', '9:30am', '1pm', '2pm', '4pm'];
+const ASSIST_TIME_LABEL = {
+  '7am':    '7:00 AM',
+  '9:30am': '9:30 AM',
+  '1pm':    '1:00 PM',
+  '2pm':    '2:00 PM',
+  '4pm':    '4:00 PM',
+};
+const ASSIST_TIME_ORDER = { '7am': 0, '9:30am': 1, '1pm': 2, '2pm': 3, '4pm': 4 };
+// Days before the appointment that a request becomes visible to others (at 8 AM that day).
+const ASSIST_VISIBILITY_DAYS = { Endo: 7, Fixed: 1, Remo: 1, Operative: 1 };
+
 /* CDT code fee reference. Fee = Maryland Healthy Smiles pays + patient pays.
  * Frequency limits and pre-auth flags below are pulled from the Maryland
  * Healthy Smiles Provider Manual V16 (effective 1/1/2025). Where adult and
@@ -65,7 +84,7 @@ const SCHEDULE_KEY_PREFIX = 'umsod_be_schedule_v1:';
  * for codes MHS does not cover (e.g. implants, fixed bridges, cast-metal
  * partials) or when the service exceeds frequency limits. Fees come from
  * the separate 2025 Dental Fee Schedule; $0 entries are either not in the
- * fee schedule or UMSOD-specific codes.
+ * fee schedule or school-specific codes.
  *
  * These numbers are a quick reference only — ALWAYS verify the current fee,
  * coverage, and frequency with MHS / the Provider Manual before quoting a
@@ -141,7 +160,7 @@ const PROCEDURE_COSTS = [
   ['D2791',   'Crown full cast predominantly base metal',     0,     0,    0, '1× / 60 mo per tooth',                             'Yes'],
   ['D2792',   'Crown full cast noble metal',                  0,     0,    0, '1× / 60 mo per tooth',                             'Yes'],
   ['D2794',   'Crown titanium',                               0,     0,    0, '1× / 60 mo per tooth',                             'Yes'],
-  ['D2799',   'Provisional crown',                          266, 0, 266, 'Bridge to definitive (UMSOD use)',                 'No'],
+  ['D2799',   'Provisional crown',                          266, 0, 266, 'Bridge to definitive',                             'No'],
   ['D2910',   'Re-cement or re-bond inlay/onlay/veneer',      0,     0,    0, 'No limit',                                         'No'],
   ['D2920',   'Re-cement or re-bond crown',                   0,     0,    0, 'Adult: 2× / lifetime per tooth, not w/in 6 mo of placement', 'No'],
   ['D2928',   'Prefab porcelain/ceramic crown - permanent',   0,     0,    0, 'Kids: 1× / 36 mo per tooth',                       'No'],
@@ -162,7 +181,7 @@ const PROCEDURE_COSTS = [
   ['D2961',   'Labial veneer (resin) - lab',                  0,     0,    0, 'Kids 6-11: 1× / 60 mo per tooth',                  'Yes'],
   ['D2962',   'Labial veneer (porcelain) - lab',              0,     0,    0, 'Kids 6-11: 1× / 60 mo per tooth',                  'Yes'],
   ['D2980',   'Crown repair, by report',                      0,     0,    0, 'No limit',                                         'No'],
-  ['D2999.1', 'Unspecified restorative (UMSOD)',             89, 0, 89, 'UMSOD reporting code',                             'Yes'],
+  ['D2999.1', 'Unspecified restorative',                     89, 0, 89, 'Reporting code',                                   'Yes'],
 
   /* Endodontics (D3xxx) */
   ['D3110',   'Pulp cap - direct',                            0,     0,    0, 'No limit',                                         'No'],
@@ -335,11 +354,11 @@ const PROCEDURE_COSTS = [
   ['D9952',   'Occlusal adjustment - complete',               0,     0,    0, '1× / 12 mo; not w/ restorative same DOS',          'No'],
   ['D9999',   'Unspecified adjunctive procedure (by report)', 0,     0,    0, 'Facility referral; narrative required',            'Yes'],
 
-  /* UMSOD-specific reporting codes (not in MHS manual) */
-  ['D9450',   'Case presentation',                            0,     0,    0, 'UMSOD reporting code',                             'No'],
-  ['D9450.2', 'Perio case presentation',                      0,     0,    0, 'UMSOD reporting code',                             'No'],
-  ['D9450.3', 'Fixed case presentation',                      0,     0,    0, 'UMSOD reporting code',                             'No'],
-  ['D9450.6', 'Treatment plan update',                        0,     0,    0, 'UMSOD reporting code',                             'No'],
+  /* School-specific reporting codes (not in MHS manual) */
+  ['D9450',   'Case presentation',                            0,     0,    0, 'Reporting code',                                   'No'],
+  ['D9450.2', 'Perio case presentation',                      0,     0,    0, 'Reporting code',                                   'No'],
+  ['D9450.3', 'Fixed case presentation',                      0,     0,    0, 'Reporting code',                                   'No'],
+  ['D9450.6', 'Treatment plan update',                        0,     0,    0, 'Reporting code',                                   'No'],
 ];
 
 const state = {
@@ -357,6 +376,10 @@ const state = {
   isAdmin: false,
   sessionId: null,      // id of the Firestore session doc for this tab
   heartbeatTimer: null,
+  assists: [],          // assist requests visible to the current view (subscribed only on Assist tab)
+  assistTab: 'board',   // 'board' | 'mine' | 'post'
+  assistFilterProcedure: '',
+  assistTickTimer: null,
   admin: {
     loaded: false,
     users: [],          // [{sNumber, name, phone, createdAt, updatedAt, ...}]
@@ -387,6 +410,7 @@ const ONLINE_WINDOW_MS = 6 * 60 * 1000;      // mark "online" if heartbeat withi
 
 let db = null;
 let blocksUnsub = null;
+let assistsUnsub = null;
 
 /* Simple per-session rate limiter. Prevents accidental rapid-fire and
  * makes casual abuse annoying. Server-side protection is Firestore rules
@@ -640,6 +664,102 @@ async function setBlockUrgent(id, urgent) {
   return true;
 }
 
+/* ----------------------------- assists ----------------------------- */
+
+/* Live subscription to upcoming assist requests. Subscribed only while the
+ * Assist tab is open so we don't burn reads when nobody is looking. The
+ * server-side filter caps the working set to today + future; client-side
+ * visibility rules (Endo: 7 days ahead, others: next-day) are applied on
+ * top of that, so the rules don't need to know about visibility. */
+function subscribeAssists() {
+  if (!state.firestoreReady) return;
+  if (assistsUnsub) return;
+  const todayStr = ymd(new Date());
+  assistsUnsub = db.collection('assists')
+    .where('date', '>=', todayStr)
+    .onSnapshot(
+      (snap) => {
+        state.assists = [];
+        snap.forEach((doc) => state.assists.push({ id: doc.id, ...doc.data() }));
+        state.assists.sort(compareAssists);
+        if (state.view === 'assist') renderAssistView();
+      },
+      (err) => {
+        console.error('Assists subscription error:', err);
+        logClientError('assists-subscribe', err);
+        toast('Could not load assist requests.');
+      }
+    );
+}
+
+function unsubscribeAssists() {
+  if (assistsUnsub) {
+    assistsUnsub();
+    assistsUnsub = null;
+  }
+  state.assists = [];
+}
+
+function compareAssists(a, b) {
+  if (a.date !== b.date) return a.date.localeCompare(b.date);
+  const ao = ASSIST_TIME_ORDER[a.time] ?? 99;
+  const bo = ASSIST_TIME_ORDER[b.time] ?? 99;
+  if (ao !== bo) return ao - bo;
+  return (a.procedure || '').localeCompare(b.procedure || '');
+}
+
+/* When a post becomes visible to other students. Endo: 7 days before
+ * the appointment at 8 AM. All other procedures: 8 AM the previous day.
+ * Returns a Date in local time. */
+function assistVisibilityStartMs(dateYmd, procedure) {
+  const days = ASSIST_VISIBILITY_DAYS[procedure];
+  if (days == null) return 0;
+  const d = parseYmd(dateYmd);
+  d.setDate(d.getDate() - days);
+  d.setHours(8, 0, 0, 0);
+  return d.getTime();
+}
+
+function assistIsLiveToOthers(a, now) {
+  const t = (now == null ? Date.now() : now);
+  return t >= assistVisibilityStartMs(a.date, a.procedure);
+}
+
+function assistAvailableTimes(dateYmd) {
+  if (!dateYmd || !/^\d{4}-\d{2}-\d{2}$/.test(dateYmd)) return ASSIST_TIME_DEFAULT;
+  return parseYmd(dateYmd).getDay() === 1 ? ASSIST_TIME_MONDAY : ASSIST_TIME_DEFAULT;
+}
+
+async function postAssistDoc(assist) {
+  if (!state.firestoreReady) { toast('Data storage is not configured yet.'); return false; }
+  await db.collection('assists').add(assist);
+  return true;
+}
+
+async function deleteAssistDoc(id) {
+  if (!state.firestoreReady) return false;
+  await db.collection('assists').doc(id).delete();
+  return true;
+}
+
+async function propagateProfileToAssists(profile) {
+  // Mirror propagateProfileToBlocks: only updates assists currently in our
+  // local cache (i.e. the user is on the Assist tab when they edit profile).
+  // Assists are short-lived (auto-drop by date), so we accept that posts
+  // outside the cache keep stale contact info until they expire.
+  if (!state.firestoreReady) return;
+  const mine = state.assists.filter((a) => a.sNumber === profile.sNumber);
+  if (mine.length === 0) return;
+  const batch = db.batch();
+  for (const a of mine) {
+    batch.update(db.collection('assists').doc(a.id), {
+      name: profile.name,
+      phone: profile.phone,
+    });
+  }
+  await batch.commit();
+}
+
 /* ----------------------------- admin gate ----------------------------- */
 
 async function pbkdf2Hex(text, salt, iterations) {
@@ -881,6 +1001,7 @@ function setView(view) {
   }
   if (view === 'admin' && !state.isAdmin) { view = 'calendar'; }
   setGate(null);
+  const prevView = state.view;
   state.view = view;
   document.querySelectorAll('.nav-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === view);
@@ -888,10 +1009,21 @@ function setView(view) {
   $('view-calendar').classList.toggle('hidden', view !== 'calendar');
   $('view-my-blocks').classList.toggle('hidden', view !== 'my-blocks');
   $('view-post').classList.toggle('hidden', view !== 'post');
+  $('view-assist').classList.toggle('hidden', view !== 'assist');
   $('view-costs').classList.toggle('hidden', view !== 'costs');
   $('view-profile').classList.toggle('hidden', view !== 'profile');
   const adminEl = $('view-admin');
   if (adminEl) adminEl.classList.toggle('hidden', view !== 'admin');
+  // Subscribe to the assists collection only while the Assist tab is open.
+  // Saves reads when nobody on the page cares.
+  if (prevView === 'assist' && view !== 'assist') {
+    unsubscribeAssists();
+    stopAssistTick();
+  }
+  if (view === 'assist') {
+    subscribeAssists();
+    startAssistTick();
+  }
   if (view === 'my-blocks') {
     // When nothing is imported yet, drop straight into edit mode so the user
     // sees the upload UI. Otherwise keep whatever mode they were last in.
@@ -905,6 +1037,7 @@ function setView(view) {
 function renderCurrentView() {
   if (state.view === 'calendar') renderCalendar();
   else if (state.view === 'my-blocks') renderMyBlocksView();
+  else if (state.view === 'assist') renderAssistView();
   else if (state.view === 'costs') renderProcedureCosts();
   else if (state.view === 'profile') fillProfileEditForm();
   else if (state.view === 'admin') enterAdminView();
@@ -939,7 +1072,7 @@ function showApp() {
   ensureAnonAuth().then(() => {
     if (!state.sessionId) startSession();
   });
-  const knownViews = new Set(['calendar', 'my-blocks', 'post', 'profile', 'admin']);
+  const knownViews = new Set(['calendar', 'my-blocks', 'post', 'assist', 'profile', 'admin']);
   setView(knownViews.has(state.view) ? state.view : 'calendar');
 }
 
@@ -947,7 +1080,7 @@ function showSignIn() {
   setAuthMode(false);
   refreshAdminState();
   setGate('signin');
-  ['view-calendar', 'view-my-blocks', 'view-post', 'view-costs', 'view-profile', 'view-admin'].forEach((id) => {
+  ['view-calendar', 'view-my-blocks', 'view-post', 'view-assist', 'view-costs', 'view-profile', 'view-admin'].forEach((id) => {
     const el = $(id);
     if (el) el.classList.add('hidden');
   });
@@ -1409,6 +1542,9 @@ async function handleProfileEditSubmit(e) {
     await propagateProfileToBlocks(profile).catch((err) => {
       console.warn('Could not propagate profile changes to existing blocks:', err);
     });
+    await propagateProfileToAssists(profile).catch((err) => {
+      console.warn('Could not propagate profile changes to existing assists:', err);
+    });
     cacheProfile(profile);
     toast('Account updated.');
   } catch (err) {
@@ -1694,7 +1830,7 @@ function generateIcs(events, personName, reminder) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//UMSOD Block Exchange//EN',
+    'PRODID:-//ScheduleMaxer//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     `X-WR-CALNAME:${icsEscape(personName)} Block Schedule`,
@@ -1974,6 +2110,263 @@ function handleDownloadIcs() {
   toast('Calendar file downloaded.');
 }
 
+/* ----------------------------- assist view ----------------------------- */
+
+function renderAssistView() {
+  setAssistTab(state.assistTab || 'board');
+}
+
+function setAssistTab(tab) {
+  if (!['board', 'mine', 'post'].includes(tab)) tab = 'board';
+  state.assistTab = tab;
+  document.querySelectorAll('#view-assist .assist-tab').forEach((b) => {
+    b.classList.toggle('active', b.dataset.assistTab === tab);
+  });
+  $('assist-pane-board').classList.toggle('hidden', tab !== 'board');
+  $('assist-pane-mine').classList.toggle('hidden', tab !== 'mine');
+  $('assist-pane-post').classList.toggle('hidden', tab !== 'post');
+  if (tab === 'board') renderAssistBoard();
+  else if (tab === 'mine') renderAssistMine();
+  else if (tab === 'post') initAssistPostForm();
+}
+
+/* Light timer that re-renders the visible board once a minute. Visibility
+ * opens at fixed wall-clock times (8 AM day-of), so a user who lingers on
+ * the page through that boundary should see new posts surface without
+ * needing to navigate away. Cheap (no extra Firestore reads). */
+function startAssistTick() {
+  stopAssistTick();
+  state.assistTickTimer = setInterval(() => {
+    if (state.view !== 'assist') return;
+    if (state.assistTab === 'board') renderAssistBoard();
+    else if (state.assistTab === 'mine') renderAssistMine();
+  }, 60 * 1000);
+}
+
+function stopAssistTick() {
+  if (state.assistTickTimer) {
+    clearInterval(state.assistTickTimer);
+    state.assistTickTimer = null;
+  }
+}
+
+function assistMatchesFilter(a) {
+  if (state.assistFilterProcedure && a.procedure !== state.assistFilterProcedure) return false;
+  return true;
+}
+
+function renderAssistBoard() {
+  const todayStr = ymd(new Date());
+  const now = Date.now();
+  const filtered = state.assists.filter(assistMatchesFilter);
+  const todayList = filtered.filter((a) => a.date === todayStr);
+  // Upcoming posts are visible to everyone once their per-procedure window
+  // has opened (Endo: 7d ahead, others: 1d ahead). Posts beyond that window
+  // are not yet "live" and only appear in the poster's "My posts" tab.
+  const upcomingList = filtered
+    .filter((a) => a.date > todayStr)
+    .filter((a) => assistIsLiveToOthers(a, now));
+  renderAssistList($('assist-today-list'), todayList, {
+    emptyMsg: 'No assist requests for today.',
+    showContact: true,
+  });
+  renderAssistList($('assist-upcoming-list'), upcomingList, {
+    emptyMsg: 'Nothing open yet \u2014 Endo opens 1 week ahead, others 1 day ahead, both at 8 AM.',
+    showContact: true,
+  });
+}
+
+function renderAssistList(host, items, opts) {
+  host.innerHTML = '';
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = opts.emptyMsg || 'Nothing here.';
+    host.appendChild(empty);
+    return;
+  }
+  for (const a of items) host.appendChild(renderAssistCard(a, opts));
+}
+
+function renderAssistMine() {
+  const host = $('assist-mine-list');
+  host.innerHTML = '';
+  if (!state.profile) return;
+  const mine = state.assists
+    .filter((a) => a.sNumber === state.profile.sNumber)
+    .sort(compareAssists);
+  if (mine.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'You haven\u2019t posted any assist requests yet.';
+    host.appendChild(empty);
+    return;
+  }
+  for (const a of mine) host.appendChild(renderAssistCard(a, { mine: true }));
+}
+
+function renderAssistCard(a, opts) {
+  const opt = opts || {};
+  const isLive = assistIsLiveToOthers(a);
+  const card = document.createElement('div');
+  card.className = 'block-card assist-card' + (opt.mine && !isLive ? ' scheduled-only' : '');
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  const title = document.createElement('div');
+  title.className = 'title';
+  const timeLabel = ASSIST_TIME_LABEL[a.time] || a.time;
+  title.appendChild(document.createTextNode(`${a.procedure} \u2014 ${timeLabel}`));
+  if (a.chair) {
+    const pill = document.createElement('span');
+    pill.className = 'chair-pill';
+    pill.textContent = `Chair ${a.chair}`;
+    title.appendChild(pill);
+  }
+  meta.appendChild(title);
+
+  const sub = document.createElement('div');
+  sub.className = 'sub';
+  sub.textContent = `${prettyDate(a.date)} \u2022 Posted by ${a.name} (${a.sNumber})`;
+  meta.appendChild(sub);
+  card.appendChild(meta);
+
+  if (opt.showContact) {
+    const contact = document.createElement('div');
+    contact.className = 'contact';
+    if (hasPhone(a.phone)) {
+      const phone = formatPhone(a.phone);
+      contact.innerHTML = `<div>Contact:</div>
+        <div><a href="${telHref(a.phone)}">${phone}</a></div>
+        <div><a href="${smsHref(a.phone)}">Send text</a></div>`;
+    } else {
+      contact.innerHTML = `<div class="small muted">No phone on file \u2014 reach out via GroupMe.</div>`;
+    }
+    card.appendChild(contact);
+  }
+
+  if (opt.mine) {
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'text-btn danger';
+    del.textContent = 'Cancel';
+    del.addEventListener('click', async () => {
+      if (!confirm('Cancel this assist request?')) return;
+      try {
+        await deleteAssistDoc(a.id);
+        toast('Request cancelled.');
+      } catch (e) {
+        console.error(e);
+        toast('Could not cancel request.');
+      }
+    });
+    actions.appendChild(del);
+    card.appendChild(actions);
+  }
+
+  if (a.notes) {
+    const n = document.createElement('div');
+    n.className = 'notes';
+    n.textContent = a.notes;
+    card.appendChild(n);
+  }
+
+  if (opt.mine && !isLive) {
+    const start = new Date(assistVisibilityStartMs(a.date, a.procedure));
+    const note = document.createElement('div');
+    note.className = 'notes visibility-note';
+    note.textContent = `Visible to others starting ${start.toLocaleString(undefined, {
+      weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    })}.`;
+    card.appendChild(note);
+  }
+
+  return card;
+}
+
+function initAssistPostForm() {
+  populateAssistTimeSelect();
+}
+
+function populateAssistTimeSelect() {
+  const sel = $('assist-time');
+  if (!sel) return;
+  const dateVal = $('assist-date').value;
+  const times = assistAvailableTimes(dateVal);
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Select\u2026</option>';
+  for (const t of times) {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = ASSIST_TIME_LABEL[t];
+    sel.appendChild(opt);
+  }
+  if (times.includes(prev)) sel.value = prev;
+}
+
+async function handleAssistPostSubmit(e) {
+  e.preventDefault();
+  if (!state.profile) { toast('Sign in first.'); return; }
+  if (!rateLimitOk('post')) { toast('Too many posts \u2014 try again in a minute.'); return; }
+
+  const procedure = $('assist-procedure').value;
+  const date = $('assist-date').value;
+  const time = $('assist-time').value;
+  const chair = $('assist-chair').value.trim().slice(0, 10);
+  const notes = $('assist-notes').value.trim().slice(0, 200);
+
+  if (!procedure || !date || !time) { toast('Please fill in every required field.'); return; }
+  if (!ASSIST_PROCEDURES.includes(procedure)) { toast('Unknown procedure type.'); return; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast('Invalid date.'); return; }
+  if (!isWeekday(date)) { toast('Pick a weekday.'); return; }
+  if (!assistAvailableTimes(date).includes(time)) {
+    toast('That time isn\u2019t offered on the chosen day.');
+    return;
+  }
+
+  const d = parseYmd(date);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  if (d < today) { toast('Pick today or a future date.'); return; }
+  const yearMs = 365 * 24 * 60 * 60 * 1000;
+  if ((d - today) > yearMs) { toast('Pick a date within a year.'); return; }
+
+  const dup = state.assists.some((a) =>
+    a.sNumber === state.profile.sNumber && a.date === date && a.time === time
+  );
+  if (dup) { toast('You already posted that slot.'); return; }
+
+  const data = {
+    procedure,
+    date,
+    time,
+    chair: chair || null,
+    notes: notes || null,
+    name: state.profile.name,
+    sNumber: state.profile.sNumber,
+    phone: state.profile.phone,
+    createdAt: Date.now(),
+  };
+
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    await postAssistDoc(data);
+    e.target.reset();
+    populateAssistTimeSelect();
+    toast('Assist request posted.');
+    setAssistTab('mine');
+  } catch (err) {
+    console.error(err);
+    logClientError('assist-post', err);
+    const codeSuffix = err && err.code ? ` (${err.code})` : '';
+    toast(`Could not post request${codeSuffix}.`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 /* ----------------------------- procedure costs ----------------------------- */
 
 function formatMoney(n) {
@@ -1982,10 +2375,10 @@ function formatMoney(n) {
 
 /* Format a cost cell. We use $0 fees as a sentinel for "fee unknown / not in
  * our reference" so students aren't misled into quoting a free service.
- * UMSOD reporting codes that really are billed at $0 keep their $0.00 display. */
+ * Reporting codes that really are billed at $0 keep their $0.00 display. */
 function formatCostCell(amount, frequency) {
   if (amount > 0) return formatMoney(amount);
-  if (/UMSOD reporting code/i.test(frequency || '')) return formatMoney(0);
+  if (/Reporting code/i.test(frequency || '')) return formatMoney(0);
   return 'Unknown';
 }
 
@@ -2490,6 +2883,17 @@ function wireEvents() {
 
   $('costs-filter').addEventListener('input', renderProcedureCosts);
   $('costs-show-unknown').addEventListener('change', renderProcedureCosts);
+
+  /* ------- assist view wiring ------- */
+  document.querySelectorAll('#view-assist .assist-tab').forEach((b) => {
+    b.addEventListener('click', () => setAssistTab(b.dataset.assistTab));
+  });
+  $('assist-form').addEventListener('submit', handleAssistPostSubmit);
+  $('assist-date').addEventListener('change', populateAssistTimeSelect);
+  $('assist-filter-procedure').addEventListener('change', (e) => {
+    state.assistFilterProcedure = e.target.value;
+    if (state.view === 'assist' && state.assistTab === 'board') renderAssistBoard();
+  });
 
   /* ------- admin view wiring ------- */
   document.querySelectorAll('#view-admin .admin-tab').forEach((b) => {

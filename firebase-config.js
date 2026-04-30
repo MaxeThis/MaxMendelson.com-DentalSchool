@@ -1,4 +1,4 @@
-// Firebase configuration for the UMSOD Block Exchange.
+// Firebase configuration for ScheduleMaxer.
 //
 // 1. Go to https://console.firebase.google.com/ and create a new project (free).
 // 2. Add a Web app (the </> icon). Copy the config snippet it shows you.
