@@ -1226,20 +1226,14 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   font-style: italic;
 }
 
-/* Holographic shimmer for pinned-admin assist cards. The angle and
- * spotlight position are CSS variables driven by JS — scroll updates them
- * on every device, deviceorientation events refine on phones that emit
- * them. Subtle by design. */
-.block-card.assist-card.holo {
+/* Holographic shimmer. The angle and spotlight position are CSS variables
+ * driven by JS — scroll updates them on every device, deviceorientation
+ * events refine on phones that emit them. Subtle by design. */
+.holo {
+  position: relative;
   isolation: isolate;
-  border-color: rgba(255, 195, 80, 0.55);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 1px 2px rgba(20, 30, 60, 0.05),
-    0 8px 22px -10px rgba(255, 170, 60, 0.35),
-    0 12px 28px -10px rgba(20, 30, 60, 0.18);
 }
-.block-card.assist-card.holo::before {
+.holo::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -1265,8 +1259,55 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   transition: background 0.06s linear;
   z-index: 0;
 }
+.block-card.assist-card.holo {
+  border-color: rgba(255, 195, 80, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 1px 2px rgba(20, 30, 60, 0.05),
+    0 8px 22px -10px rgba(255, 170, 60, 0.35),
+    0 12px 28px -10px rgba(20, 30, 60, 0.18);
+}
 @media (prefers-reduced-motion: reduce) {
-  .block-card.assist-card.holo::before { transition: none; }
+  .holo::before { transition: none; }
+}
+
+/* Admin signature banner — only on the admin view. */
+.admin-banner {
+  margin-top: 28px;
+  padding: 20px 24px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 195, 80, 0.55);
+  background: linear-gradient(180deg, rgba(255, 250, 235, 0.85), rgba(255, 245, 230, 0.78));
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 1px 2px rgba(20, 30, 60, 0.05),
+    0 10px 26px -10px rgba(255, 170, 60, 0.40),
+    0 14px 30px -10px rgba(20, 30, 60, 0.18);
+  text-align: center;
+}
+.admin-banner-line {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--text);
+}
+.admin-banner-line a {
+  color: var(--red);
+  text-decoration: none;
+}
+.admin-banner-line a:hover { text-decoration: underline; }
+.admin-banner-name {
+  margin-top: 4px;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  background: linear-gradient(110deg, #b8860b, #d4af37 30%, #f5d27a 50%, #d4af37 70%, #b8860b);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 /* Admin view */

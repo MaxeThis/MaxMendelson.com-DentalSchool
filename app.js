@@ -3011,6 +3011,9 @@ async function boot() {
   state.calMonth = new Date();
   state.calMonth.setDate(1);
 
+  const adminBanner = $('admin-banner');
+  if (adminBanner) attachHolo(adminBanner);
+
   populateBlockTypeSelects();
   wireEvents();
   loadLocalProfile();
