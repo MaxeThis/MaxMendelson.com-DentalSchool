@@ -1226,12 +1226,60 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   font-style: italic;
 }
 
-/* Holographic shimmer. The angle and spotlight position are CSS variables
- * driven by JS — scroll updates them on every device, deviceorientation
- * events refine on phones that emit them. Subtle by design. */
+/* Holo Pokémon-card system. CSS vars are driven by JS:
+ *   --holo-x / --holo-y  : light source (cursor or scroll progress) in %
+ *   --holo-angle         : prismatic-band angle
+ *   --holo-conic         : rainbow-foil rotation
+ *   --holo-rx / --holo-ry: 3D tilt (rotateY / rotateX) in deg
+ *   --holo-glare         : 0..1, intensity of cursor glare spot
+ *   --holo-foil          : 0..1, opacity boost when cursor is over the card
+ * Layers (bottom to top):
+ *   1. element background (gold gradient on the banner)
+ *   2. .holo::before      — prismatic band + soft spotlight (screen blend)
+ *   3. .holo-foil         — rainbow conic + diagonal foil stripes (hard-light)
+ *   4. .holo-foil::before — sparkle dots, masked to the cursor (screen)
+ *   5. .holo-foil::after  — bright cursor glare spot (screen)
+ *   6. content
+ *   7. .admin-banner::after — diagonal sweep (admin banner only) */
+@property --holo-x      { syntax: '<percentage>'; inherits: true; initial-value: 50%; }
+@property --holo-y      { syntax: '<percentage>'; inherits: true; initial-value: 30%; }
+@property --holo-angle  { syntax: '<angle>';      inherits: true; initial-value: 110deg; }
+@property --holo-conic  { syntax: '<angle>';      inherits: true; initial-value: 220deg; }
+@property --holo-rx     { syntax: '<angle>';      inherits: true; initial-value: 0deg; }
+@property --holo-ry     { syntax: '<angle>';      inherits: true; initial-value: 0deg; }
+@property --holo-glare  { syntax: '<number>';     inherits: true; initial-value: 0; }
+@property --holo-foil   { syntax: '<number>';     inherits: true; initial-value: 0.55; }
+
 .holo {
   position: relative;
   isolation: isolate;
+  transform-style: flat;
+  transform:
+    perspective(900px)
+    rotateY(var(--holo-rx, 0deg))
+    rotateX(var(--holo-ry, 0deg));
+  transform-origin: 50% 50%;
+  transition:
+    transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
+    --holo-glare 0.18s ease,
+    --holo-foil 0.25s ease;
+  will-change: transform;
+}
+.holo.is-pressed {
+  transition-duration: 0.08s, 0.18s, 0.25s;
+  transform:
+    perspective(900px)
+    rotateY(var(--holo-rx, 0deg))
+    rotateX(var(--holo-ry, 0deg))
+    scale(0.965);
+}
+.holo.is-pressed.is-hot {
+  --holo-glare: 1.25;
+  --holo-foil: 1;
+}
+.holo.is-hot {
+  --holo-glare: 1;
+  --holo-foil: 0.9;
 }
 .holo::before {
   content: "";
@@ -1242,22 +1290,111 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   background:
     linear-gradient(
       var(--holo-angle, 110deg),
-      transparent 30%,
-      rgba(255, 220, 130, 0.20) 44%,
-      rgba(255, 140, 200, 0.22) 50%,
-      rgba(140, 200, 255, 0.20) 56%,
-      rgba(170, 255, 210, 0.18) 70%,
-      transparent 82%
+      transparent 22%,
+      rgba(255, 220, 130, 0.45) 42%,
+      rgba(255, 130, 210, 0.50) 50%,
+      rgba(130, 200, 255, 0.45) 58%,
+      rgba(170, 255, 210, 0.40) 72%,
+      transparent 86%
     ),
     radial-gradient(
       circle at var(--holo-x, 50%) var(--holo-y, 30%),
-      rgba(255, 255, 255, 0.18),
+      rgba(255, 255, 255, 0.30),
       transparent 55%
     );
   mix-blend-mode: screen;
-  opacity: 0.85;
-  transition: background 0.06s linear;
+  opacity: 0.95;
   z-index: 0;
+}
+/* Foil layer: rainbow conic + diagonal foil stripes, masked to a
+ * spotlight that follows --holo-x/--holo-y. The mask makes the rainbow
+ * read as a real reflection instead of a flat tint, and the diagonal
+ * stripes are the foil texture. Selector bumped to .holo > .holo-foil
+ * so .admin-banner > * doesn't force it back into the flow. */
+.holo > .holo-foil {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+  background:
+    conic-gradient(
+      from var(--holo-conic, 220deg) at 50% 50%,
+      hsla(350, 100%, 60%, 0.95) 0%,
+      hsla(40,  100%, 60%, 0.95) 14%,
+      hsla(140, 100%, 55%, 0.95) 28%,
+      hsla(200, 100%, 60%, 0.95) 42%,
+      hsla(280, 100%, 65%, 0.95) 57%,
+      hsla(330, 100%, 65%, 0.95) 71%,
+      hsla(40,  100%, 60%, 0.95) 85%,
+      hsla(350, 100%, 60%, 0.95) 100%
+    ),
+    repeating-linear-gradient(
+      125deg,
+      rgba(255, 255, 255, 0.0) 0px,
+      rgba(255, 255, 255, 0.32) 2px,
+      rgba(255, 255, 255, 0.0) 4px,
+      rgba(255, 255, 255, 0.0) 9px
+    );
+  mix-blend-mode: hard-light;
+  opacity: var(--holo-foil, 0.55);
+  -webkit-mask-image: radial-gradient(
+    ellipse 75% 130% at var(--holo-x, 50%) var(--holo-y, 50%),
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 0.85) 25%,
+    rgba(0, 0, 0, 0.4) 55%,
+    rgba(0, 0, 0, 0) 95%
+  );
+  mask-image: radial-gradient(
+    ellipse 75% 130% at var(--holo-x, 50%) var(--holo-y, 50%),
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 0.85) 25%,
+    rgba(0, 0, 0, 0.4) 55%,
+    rgba(0, 0, 0, 0) 95%
+  );
+}
+.holo-foil::before {
+  content: "";
+  position: absolute;
+  inset: -10%;
+  background-image: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.95) 0.8px,
+    transparent 1.6px
+  );
+  background-size: 22px 22px;
+  mix-blend-mode: screen;
+  opacity: 0.75;
+  -webkit-mask-image: radial-gradient(
+    ellipse 60% 60% at var(--holo-x, 50%) var(--holo-y, 50%),
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 0.45) 35%,
+    rgba(0, 0, 0, 0) 70%
+  );
+  mask-image: radial-gradient(
+    ellipse 60% 60% at var(--holo-x, 50%) var(--holo-y, 50%),
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 0.45) 35%,
+    rgba(0, 0, 0, 0) 70%
+  );
+  animation: holo-sparkle-drift 7s linear infinite;
+}
+.holo-foil::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at var(--holo-x, 50%) var(--holo-y, 50%),
+    rgba(255, 255, 255, 0.7),
+    transparent 24%
+  );
+  mix-blend-mode: screen;
+  opacity: var(--holo-glare, 0);
+}
+@keyframes holo-sparkle-drift {
+  from { background-position: 0 0; }
+  to   { background-position: 22px 22px; }
 }
 .block-card.assist-card.holo {
   border-color: rgba(255, 195, 80, 0.55);
@@ -1267,25 +1404,76 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
     0 8px 22px -10px rgba(255, 170, 60, 0.35),
     0 12px 28px -10px rgba(20, 30, 60, 0.18);
 }
+.block-card.assist-card.holo.is-hot {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 2px 6px rgba(20, 30, 60, 0.06),
+    0 14px 30px -10px rgba(255, 170, 60, 0.55),
+    0 18px 36px -10px rgba(20, 30, 60, 0.22);
+}
 @media (prefers-reduced-motion: reduce) {
-  .holo::before { transition: none; }
+  .holo {
+    transform: none !important;
+    transition: none;
+  }
+  .holo-foil::before { animation: none; }
 }
 
-/* Admin signature banner — only on the admin view. */
+/* Admin signature banner — only on the admin view.
+ * Layering: .holo::before adds the scroll/tilt-driven holographic wash;
+ * .admin-banner::after adds an always-on diagonal shine sweep so the
+ * banner reads as "shiny" even on a static page. Children are bumped
+ * above both overlays so text stays crisp. */
 .admin-banner {
+  position: relative;
+  overflow: hidden;
   margin-top: 28px;
   padding: 20px 24px;
   border-radius: var(--radius);
   border: 1px solid rgba(255, 195, 80, 0.55);
-  background: linear-gradient(180deg, rgba(255, 250, 235, 0.85), rgba(255, 245, 230, 0.78));
+  background:
+    linear-gradient(110deg, #fff7e0 0%, #ffe9b8 25%, #fff2c9 50%, #ffe0b0 75%, #fff7e0 100%);
+  background-size: 220% 100%;
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65),
     0 1px 2px rgba(20, 30, 60, 0.05),
-    0 10px 26px -10px rgba(255, 170, 60, 0.40),
+    0 10px 26px -10px rgba(255, 170, 60, 0.55),
     0 14px 30px -10px rgba(20, 30, 60, 0.18);
   text-align: center;
+  animation: admin-banner-bg 8s ease-in-out infinite;
+}
+.admin-banner > * {
+  position: relative;
+  z-index: 2;
+}
+.admin-banner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.85) 49%,
+    rgba(255, 240, 200, 0.7) 51%,
+    transparent 65%
+  );
+  transform: translateX(-130%);
+  mix-blend-mode: screen;
+  animation: admin-banner-shine 4.5s ease-in-out infinite;
+  z-index: 1;
+}
+@keyframes admin-banner-shine {
+  0%   { transform: translateX(-130%); }
+  55%  { transform: translateX(130%); }
+  100% { transform: translateX(130%); }
+}
+@keyframes admin-banner-bg {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
 }
 .admin-banner-line {
   font-size: 0.95rem;
@@ -1303,11 +1491,22 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   font-size: 1.4rem;
   font-weight: 700;
   letter-spacing: 0.3px;
-  background: linear-gradient(110deg, #b8860b, #d4af37 30%, #f5d27a 50%, #d4af37 70%, #b8860b);
+  background: linear-gradient(110deg, #b8860b 0%, #d4af37 25%, #fff1b0 45%, #fff7d6 50%, #fff1b0 55%, #d4af37 75%, #b8860b 100%);
+  background-size: 220% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
+  animation: admin-banner-gold 5s ease-in-out infinite;
+}
+@keyframes admin-banner-gold {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin-banner,
+  .admin-banner::after,
+  .admin-banner-name { animation: none; }
 }
 
 /* Admin view */

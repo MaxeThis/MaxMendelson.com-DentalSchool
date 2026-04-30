@@ -717,10 +717,15 @@ function compareAssistsForBoard(a, b) {
   return (a.createdAt || 0) - (b.createdAt || 0);
 }
 
-/* Holographic shimmer controller for pinned-admin assist cards. Tracks a
- * set of card elements and updates --holo-angle / --holo-x / --holo-y on
- * each one based on scroll position (every device) plus deviceorientation
- * tilt (devices that emit those events without permission gating). */
+/* Holographic shimmer controller. Tracks a set of card elements and
+ * updates the --holo-* CSS variables that drive the multi-layer foil
+ * effect (see styles.css). Inputs:
+ *   - scroll position: baseline angle/light source on every device
+ *   - deviceorientation: phone tilt refines the light source
+ *   - mouse / touch on the card: cursor becomes the light source AND
+ *     drives a small 3D tilt, like a real foil card under a lamp
+ * The cursor takes over while the pointer is on the card; on leave we
+ * fall back to scroll-driven values so motion never freezes. */
 const holoCards = new Set();
 let holoTilt = null;
 let holoRaf = 0;
@@ -734,17 +739,35 @@ function holoUpdate() {
     if (rect.bottom < -100 || rect.top > vh + 100) continue;
     const center = rect.top + rect.height / 2;
     const progress = Math.max(0, Math.min(1, center / vh));
-    let angle = 60 + progress * 140;
-    let hx = 50 + (progress - 0.5) * 80;
-    let hy = 20 + progress * 60;
+
+    const cursor = el.__holoCursor;
+    let hx, hy, angle, conic, rx = 0, ry = 0;
+    if (cursor && cursor.active) {
+      hx = cursor.x * 100;
+      hy = cursor.y * 100;
+      angle = 80 + (cursor.x - 0.5) * 110;
+      conic = 90 + cursor.x * 360 + cursor.y * 90;
+      ry = (cursor.x - 0.5) * 14;
+      rx = -(cursor.y - 0.5) * 12;
+    } else {
+      angle = 60 + progress * 140;
+      hx = 50 + (progress - 0.5) * 80;
+      hy = 20 + progress * 60;
+      conic = 180 + progress * 220;
+    }
     if (holoTilt) {
       angle += holoTilt.x * 25;
       hx += holoTilt.x * 30;
       hy += holoTilt.y * 25;
+      ry += holoTilt.x * 6;
+      rx -= holoTilt.y * 6;
     }
     el.style.setProperty('--holo-angle', angle + 'deg');
     el.style.setProperty('--holo-x', hx + '%');
     el.style.setProperty('--holo-y', hy + '%');
+    el.style.setProperty('--holo-conic', conic + 'deg');
+    el.style.setProperty('--holo-rx', ry + 'deg');
+    el.style.setProperty('--holo-ry', rx + 'deg');
   }
 }
 function holoSchedule() {
@@ -765,8 +788,64 @@ function holoEnsureListeners() {
     holoSchedule();
   });
 }
+function holoSetCursorFromPoint(el, clientX, clientY) {
+  const r = el.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  el.__holoCursor = {
+    x: Math.max(0, Math.min(1, (clientX - r.left) / r.width)),
+    y: Math.max(0, Math.min(1, (clientY - r.top) / r.height)),
+    active: true,
+  };
+}
 function attachHolo(el) {
+  if (el.classList.contains('holo')) return;
   el.classList.add('holo');
+  if (!el.querySelector(':scope > .holo-foil')) {
+    const foil = document.createElement('span');
+    foil.className = 'holo-foil';
+    foil.setAttribute('aria-hidden', 'true');
+    el.insertBefore(foil, el.firstChild);
+  }
+  el.addEventListener('mouseenter', () => {
+    el.classList.add('is-hot');
+    holoSchedule();
+  });
+  el.addEventListener('mousemove', (e) => {
+    holoSetCursorFromPoint(el, e.clientX, e.clientY);
+    holoSchedule();
+  });
+  el.addEventListener('mouseleave', () => {
+    if (el.__holoCursor) el.__holoCursor.active = false;
+    el.classList.remove('is-hot', 'is-pressed');
+    holoSchedule();
+  });
+  el.addEventListener('mousedown', (e) => {
+    holoSetCursorFromPoint(el, e.clientX, e.clientY);
+    el.classList.add('is-pressed', 'is-hot');
+    holoSchedule();
+  });
+  el.addEventListener('mouseup', () => {
+    el.classList.remove('is-pressed');
+    holoSchedule();
+  });
+  el.addEventListener('touchstart', (e) => {
+    const t = e.touches[0]; if (!t) return;
+    holoSetCursorFromPoint(el, t.clientX, t.clientY);
+    el.classList.add('is-hot', 'is-pressed');
+    holoSchedule();
+  }, { passive: true });
+  el.addEventListener('touchmove', (e) => {
+    const t = e.touches[0]; if (!t) return;
+    holoSetCursorFromPoint(el, t.clientX, t.clientY);
+    holoSchedule();
+  }, { passive: true });
+  const endTouch = () => {
+    if (el.__holoCursor) el.__holoCursor.active = false;
+    el.classList.remove('is-hot', 'is-pressed');
+    holoSchedule();
+  };
+  el.addEventListener('touchend', endTouch, { passive: true });
+  el.addEventListener('touchcancel', endTouch, { passive: true });
   holoCards.add(el);
   holoEnsureListeners();
   holoSchedule();
