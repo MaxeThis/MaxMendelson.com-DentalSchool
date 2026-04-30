@@ -2,7 +2,7 @@
   --red: #c8102e;
   --red-dark: #9a0c23;
   --gold: #ffd200;
-  --bg: #f6f4ee;
+  --bg: #f4f5fa;
   --surface: #ffffff;
   --text: #1b1f24;
   --muted: #5b6572;
@@ -45,13 +45,36 @@ html, body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
-body {
-  background: transparent;
-  display: flex;
-  flex-direction: column;
+body { background: transparent; }
+
+/* Ambient color field that the glass surfaces refract */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -10vh -10vw;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(45% 40% at  8%  6%, rgba(255,  60, 120, 0.85), transparent 60%),
+    radial-gradient(40% 45% at 95% 12%, rgba(255, 195,  40, 0.75), transparent 60%),
+    radial-gradient(50% 45% at 22% 95%, rgba( 80, 145, 255, 0.80), transparent 60%),
+    radial-gradient(45% 40% at 97% 88%, rgba(220,  35,  85, 0.70), transparent 60%),
+    radial-gradient(40% 38% at 58% 48%, rgba(180, 105, 255, 0.55), transparent 70%),
+    radial-gradient(35% 30% at 70% 78%, rgba( 90, 220, 200, 0.45), transparent 70%),
+    var(--bg);
+  filter: saturate(125%);
+  animation: glass-drift 28s ease-in-out infinite alternate;
 }
-body > main.container { flex: 1 0 auto; }
-body > .site-footer { flex-shrink: 0; margin-top: auto; }
+
+@keyframes glass-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(-1.5%, 1%, 0) scale(1.04); }
+  100% { transform: translate3d(1.5%, -1%, 0) scale(1.02); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
+}
 
 .container {
   max-width: 1040px;
@@ -62,14 +85,21 @@ body > .site-footer { flex-shrink: 0; margin-top: auto; }
 .hidden { display: none !important; }
 .muted { color: var(--muted); }
 
-/* Header — solid Cardinal red */
+/* Header — liquid-glass tinted red */
 .site-header {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: var(--red);
+  background:
+    linear-gradient(135deg, rgba(200, 16, 46, 0.86), rgba(154, 12, 35, 0.82)),
+    radial-gradient(120% 200% at 0% 0%, rgba(255, 255, 255, 0.18), transparent 55%);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   color: #fff;
-  box-shadow: 0 2px 8px rgba(154, 12, 35, 0.18);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 8px 28px -12px rgba(154, 12, 35, 0.55);
 }
 .header-inner {
   display: flex;
@@ -97,34 +127,33 @@ body > .site-footer { flex-shrink: 0; margin-top: auto; }
   flex-wrap: wrap;
 }
 .nav-btn {
-  background: linear-gradient(180deg, #ffd84d, var(--gold));
-  color: var(--red-dark);
-  border: 1px solid rgba(154, 12, 35, 0.18);
+  background: rgba(255, 255, 255, 0.14);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.32);
   padding: 7px 14px;
   border-radius: 999px;
   font-size: 0.9rem;
-  font-weight: 600;
   cursor: pointer;
   transition: background 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease, color 0.18s ease;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    0 1px 2px rgba(0, 0, 0, 0.15);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 .nav-btn:hover {
-  background: linear-gradient(180deg, #ffe066, #ffd633);
+  background: rgba(255, 255, 255, 0.24);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    0 4px 12px -4px rgba(0, 0, 0, 0.28);
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 4px 14px -6px rgba(0, 0, 0, 0.25);
 }
 .nav-btn:active { transform: translateY(1px); }
 .nav-btn.active {
-  background: #fff;
+  background: rgba(255, 255, 255, 0.95);
   color: var(--red-dark);
-  border-color: #fff;
-  font-weight: 700;
+  border-color: rgba(255, 255, 255, 0.95);
+  font-weight: 600;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 6px 16px -6px rgba(0, 0, 0, 0.3);
+    0 6px 16px -6px rgba(0, 0, 0, 0.25);
 }
 /* Hide auth-dependent nav items by default so they don't flash on
  * first paint before JS finishes booting. Body starts without any
