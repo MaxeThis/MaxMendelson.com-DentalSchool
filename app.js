@@ -1554,6 +1554,24 @@ function scheduleKey() {
   return SCHEDULE_KEY_PREFIX + state.profile.sNumber;
 }
 
+// Re-run cleanDescription over already-imported entries so fixes added to
+// the OCR mis-scan map (e.g. "BLK-5PC&G", "GBLKONCALL") get applied to
+// schedules that were imported before the fix shipped. Idempotent:
+// canonical descriptions like "ORAL SURGERY BLOCK" pass through unchanged.
+function migrateScheduleDescriptions(entries) {
+  if (!Array.isArray(entries)) return false;
+  let changed = false;
+  for (const e of entries) {
+    if (!e || typeof e.description !== 'string') continue;
+    const cleaned = cleanDescription(e.description);
+    if (cleaned !== e.description) {
+      e.description = cleaned;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function loadSchedule() {
   const key = scheduleKey();
   if (!key) { state.schedule = []; return; }
@@ -1563,6 +1581,7 @@ function loadSchedule() {
   } catch (e) {
     state.schedule = [];
   }
+  if (migrateScheduleDescriptions(state.schedule)) saveSchedule();
   // Sync with Firestore in background. If the cloud has a schedule, pull it
   // down. Otherwise, if we have a local schedule, push it up (this handles
   // users who imported before schedule-sync existed).
@@ -1571,7 +1590,11 @@ function loadSchedule() {
       const cloud = snap.exists && Array.isArray(snap.data().schedule) ? snap.data().schedule : [];
       if (cloud.length > 0) {
         state.schedule = cloud;
-        localStorage.setItem(key, JSON.stringify(state.schedule));
+        if (migrateScheduleDescriptions(state.schedule)) {
+          saveSchedule();
+        } else {
+          localStorage.setItem(key, JSON.stringify(state.schedule));
+        }
         if (state.view === 'schedule') renderSchedule();
       } else if (state.schedule.length > 0) {
         saveSchedule();
@@ -2058,7 +2081,11 @@ async function loadAdminData() {
         if (!e.date || !period) continue;
         const key = `${u.sNumber}|${e.date}|${period}`;
         if (postedKeys.has(key)) continue;
-        const type = DESC_TO_TYPE[(e.description || '').toUpperCase()] || e.description || '—';
+        // Pass description through cleanDescription on read so admin sees
+        // fixed names for users whose stored schedule pre-dates a mis-scan
+        // map update (their data will be migrated next time they sign in).
+        const desc = cleanDescription(e.description || '');
+        const type = DESC_TO_TYPE[desc.toUpperCase()] || desc || '—';
         scheduleBlocks.push({
           id: 'sched:' + u.sNumber + ':' + (e.id || `${e.date}-${e.startTime}`),
           source: 'schedule',

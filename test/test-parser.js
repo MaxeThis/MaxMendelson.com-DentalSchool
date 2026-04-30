@@ -50,7 +50,7 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
 
-const { parseScheduleText, generateIcs } = sandbox;
+const { parseScheduleText, generateIcs, migrateScheduleDescriptions } = sandbox;
 
 // --- sample: exact rows from the user's two screenshots ---
 const sample = `
@@ -167,6 +167,30 @@ check('|| @BLK-PAN maps to PAN BLOCK',
   ms('2026-07-07') && ms('2026-07-07').description === 'PAN BLOCK');
 check('GBLKONCALL maps to ON-CALL BLOCK',
   ms('2026-07-08') && ms('2026-07-08').description === 'ON-CALL BLOCK');
+
+// --- migration of already-imported entries (descriptions stored before the
+// mis-scan map was updated) ---
+const stale = [
+  { description: 'BLK-5PC&G', date: '2026-08-01' },
+  { description: 'BLK-SPCAG', date: '2026-08-02' },
+  { description: 'GBLKONCALL', date: '2026-08-03' },
+  { description: '| @BLK-PAN', date: '2026-08-04' },
+  { description: 'ORAL SURGERY BLOCK', date: '2026-08-05' }, // already canonical
+  { description: 'EDU-OTHER', date: '2026-08-06' },          // unmapped passthrough
+];
+const migratedChanged = migrateScheduleDescriptions(stale);
+console.log('\nMigration checks:');
+check('migration reports changes', migratedChanged === true);
+check('stale BLK-5PC&G → SPECIAL CARE BLOCK', stale[0].description === 'SPECIAL CARE BLOCK');
+check('stale BLK-SPCAG → SPECIAL CARE BLOCK', stale[1].description === 'SPECIAL CARE BLOCK');
+check('stale GBLKONCALL → ON-CALL BLOCK', stale[2].description === 'ON-CALL BLOCK');
+check('stale | @BLK-PAN → PAN BLOCK', stale[3].description === 'PAN BLOCK');
+check('canonical ORAL SURGERY BLOCK is unchanged', stale[4].description === 'ORAL SURGERY BLOCK');
+check('unmapped EDU-OTHER is unchanged', stale[5].description === 'EDU-OTHER');
+
+// Idempotency: a second pass should not change anything.
+const secondPass = migrateScheduleDescriptions(stale);
+check('second migration pass is a no-op (idempotent)', secondPass === false);
 
 // --- ICS generation ---
 console.log('\nICS generation:');
