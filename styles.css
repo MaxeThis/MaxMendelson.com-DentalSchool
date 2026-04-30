@@ -1226,6 +1226,49 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   font-style: italic;
 }
 
+/* Holographic shimmer for pinned-admin assist cards. The angle and
+ * spotlight position are CSS variables driven by JS — scroll updates them
+ * on every device, deviceorientation events refine on phones that emit
+ * them. Subtle by design. */
+.block-card.assist-card.holo {
+  isolation: isolate;
+  border-color: rgba(255, 195, 80, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 1px 2px rgba(20, 30, 60, 0.05),
+    0 8px 22px -10px rgba(255, 170, 60, 0.35),
+    0 12px 28px -10px rgba(20, 30, 60, 0.18);
+}
+.block-card.assist-card.holo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      var(--holo-angle, 110deg),
+      transparent 30%,
+      rgba(255, 220, 130, 0.20) 44%,
+      rgba(255, 140, 200, 0.22) 50%,
+      rgba(140, 200, 255, 0.20) 56%,
+      rgba(170, 255, 210, 0.18) 70%,
+      transparent 82%
+    ),
+    radial-gradient(
+      circle at var(--holo-x, 50%) var(--holo-y, 30%),
+      rgba(255, 255, 255, 0.18),
+      transparent 55%
+    );
+  mix-blend-mode: screen;
+  opacity: 0.85;
+  transition: background 0.06s linear;
+  z-index: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .block-card.assist-card.holo::before { transition: none; }
+}
+
 /* Admin view */
 .admin-tabs {
   display: flex;

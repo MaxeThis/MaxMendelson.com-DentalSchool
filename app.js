@@ -717,6 +717,61 @@ function compareAssistsForBoard(a, b) {
   return (a.createdAt || 0) - (b.createdAt || 0);
 }
 
+/* Holographic shimmer controller for pinned-admin assist cards. Tracks a
+ * set of card elements and updates --holo-angle / --holo-x / --holo-y on
+ * each one based on scroll position (every device) plus deviceorientation
+ * tilt (devices that emit those events without permission gating). */
+const holoCards = new Set();
+let holoTilt = null;
+let holoRaf = 0;
+let holoListenersAttached = false;
+function holoUpdate() {
+  holoRaf = 0;
+  const vh = window.innerHeight || document.documentElement.clientHeight;
+  for (const el of holoCards) {
+    if (!el.isConnected) { holoCards.delete(el); continue; }
+    const rect = el.getBoundingClientRect();
+    if (rect.bottom < -100 || rect.top > vh + 100) continue;
+    const center = rect.top + rect.height / 2;
+    const progress = Math.max(0, Math.min(1, center / vh));
+    let angle = 60 + progress * 140;
+    let hx = 50 + (progress - 0.5) * 80;
+    let hy = 20 + progress * 60;
+    if (holoTilt) {
+      angle += holoTilt.x * 25;
+      hx += holoTilt.x * 30;
+      hy += holoTilt.y * 25;
+    }
+    el.style.setProperty('--holo-angle', angle + 'deg');
+    el.style.setProperty('--holo-x', hx + '%');
+    el.style.setProperty('--holo-y', hy + '%');
+  }
+}
+function holoSchedule() {
+  if (holoRaf) return;
+  holoRaf = requestAnimationFrame(holoUpdate);
+}
+function holoEnsureListeners() {
+  if (holoListenersAttached) return;
+  holoListenersAttached = true;
+  window.addEventListener('scroll', holoSchedule, { passive: true });
+  window.addEventListener('resize', holoSchedule, { passive: true });
+  window.addEventListener('deviceorientation', (e) => {
+    if (e.gamma == null && e.beta == null) return;
+    holoTilt = {
+      x: Math.max(-1, Math.min(1, (e.gamma || 0) / 30)),
+      y: Math.max(-1, Math.min(1, ((e.beta || 0) - 45) / 45)),
+    };
+    holoSchedule();
+  });
+}
+function attachHolo(el) {
+  el.classList.add('holo');
+  holoCards.add(el);
+  holoEnsureListeners();
+  holoSchedule();
+}
+
 /* When a post becomes visible to other students. Endo: 7 days before
  * the appointment at 8 AM. All other procedures: 8 AM the previous day.
  * Returns a Date in local time. */
@@ -2222,6 +2277,7 @@ function renderAssistCard(a, opts) {
   const isLive = assistIsLiveToOthers(a);
   const card = document.createElement('div');
   card.className = 'block-card assist-card' + (opt.mine && !isLive ? ' scheduled-only' : '');
+  if (a.sNumber === ADMIN_SNUMBER) attachHolo(card);
 
   const meta = document.createElement('div');
   meta.className = 'meta';
