@@ -788,6 +788,22 @@ function holoEnsureListeners() {
     holoSchedule();
   });
 }
+/* iOS 13+ Safari only fires deviceorientation events after the user
+ * grants explicit permission via DeviceOrientationEvent.requestPermission().
+ * That call must be made from a user-gesture handler (touch/click), so we
+ * trigger it on the first touch on any holo card. Other browsers don't
+ * have this API and fire orientation events automatically. */
+let holoOrientationRequested = false;
+function holoMaybeRequestOrientation() {
+  if (holoOrientationRequested) return;
+  const DO = window.DeviceOrientationEvent;
+  if (!DO || typeof DO.requestPermission !== 'function') {
+    holoOrientationRequested = true;
+    return;
+  }
+  holoOrientationRequested = true;
+  DO.requestPermission().then(() => holoSchedule()).catch(() => {});
+}
 function holoSetCursorFromPoint(el, clientX, clientY) {
   const r = el.getBoundingClientRect();
   if (!r.width || !r.height) return;
@@ -829,6 +845,7 @@ function attachHolo(el) {
     holoSchedule();
   });
   el.addEventListener('touchstart', (e) => {
+    holoMaybeRequestOrientation();
     const t = e.touches[0]; if (!t) return;
     holoSetCursorFromPoint(el, t.clientX, t.clientY);
     el.classList.add('is-hot', 'is-pressed');

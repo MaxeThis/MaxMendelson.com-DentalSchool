@@ -1229,14 +1229,14 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
 /* Holo Pokémon-card system. CSS vars are driven by JS:
  *   --holo-x / --holo-y  : light source (cursor or scroll progress) in %
  *   --holo-angle         : prismatic-band angle
- *   --holo-conic         : rainbow-foil rotation
+ *   --holo-conic         : rainbow-band rotation (linear, no center pinch)
  *   --holo-rx / --holo-ry: 3D tilt (rotateY / rotateX) in deg
  *   --holo-glare         : 0..1, intensity of cursor glare spot
  *   --holo-foil          : 0..1, opacity boost when cursor is over the card
  * Layers (bottom to top):
  *   1. element background (gold gradient on the banner)
  *   2. .holo::before      — prismatic band + soft spotlight (screen blend)
- *   3. .holo-foil         — rainbow conic + diagonal foil stripes (hard-light)
+ *   3. .holo-foil         — linear rainbow band + diagonal foil stripes (hard-light)
  *   4. .holo-foil::before — sparkle dots, masked to the cursor (screen)
  *   5. .holo-foil::after  — bright cursor glare spot (screen)
  *   6. content
@@ -1319,8 +1319,8 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   overflow: hidden;
   z-index: 0;
   background:
-    conic-gradient(
-      from var(--holo-conic, 220deg) at 50% 50%,
+    linear-gradient(
+      var(--holo-conic, 220deg),
       hsla(350, 100%, 60%, 0.95) 0%,
       hsla(40,  100%, 60%, 0.95) 14%,
       hsla(140, 100%, 55%, 0.95) 28%,
