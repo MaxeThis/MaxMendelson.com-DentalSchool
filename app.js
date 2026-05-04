@@ -3117,8 +3117,24 @@ async function boot() {
   // request.auth != null are satisfied on the first read. If this
   // fails, every subsequent Firestore op would fail with permission-
   // denied, so we bail out to the sign-in screen rather than show a
-  // broken app.
-  const authUser = state.firestoreReady ? await ensureAnonAuth() : null;
+  // broken app. Race against a timeout because school/captive-portal
+  // networks can block identitytoolkit.googleapis.com silently —
+  // signInAnonymously then retries forever and we'd hang on the boot
+  // loader instead of surfacing the problem.
+  let authUser = null;
+  if (state.firestoreReady) {
+    const TIMEOUT_MS = 10000;
+    const TIMED_OUT = Symbol('auth-timeout');
+    const result = await Promise.race([
+      ensureAnonAuth(),
+      new Promise((resolve) => setTimeout(() => resolve(TIMED_OUT), TIMEOUT_MS)),
+    ]);
+    if (result === TIMED_OUT) {
+      handleAuthLoss("Can't reach the server — check your connection (school Wi-Fi may be blocking it; try cellular).");
+      return;
+    }
+    authUser = result;
+  }
   if (state.firestoreReady && !authUser) {
     handleAuthLoss('Sign-in unavailable — please try again in a moment.');
     return;
