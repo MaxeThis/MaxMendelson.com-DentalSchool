@@ -1170,6 +1170,7 @@ function setView(view) {
   $('view-my-blocks').classList.toggle('hidden', view !== 'my-blocks');
   $('view-post').classList.toggle('hidden', view !== 'post');
   $('view-assist').classList.toggle('hidden', view !== 'assist');
+  $('periomaxer-ad').classList.toggle('hidden', view === 'calendar' || view === 'assist');
   $('view-costs').classList.toggle('hidden', view !== 'costs');
   $('view-profile').classList.toggle('hidden', view !== 'profile');
   const adminEl = $('view-admin');
