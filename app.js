@@ -1252,7 +1252,6 @@ function showSignIn() {
 function showSetup(sNumber) {
   state.pendingSNumber = sNumber;
   setGate('setup');
-  $('periomaxer-ad').classList.add('hidden');
   $('setup-snum-label').textContent = sNumber;
   $('setup-form').reset();
   setTimeout(() => $('setup-name').focus(), 50);
@@ -1261,7 +1260,6 @@ function showSetup(sNumber) {
 function showPinPrompt(sNumber) {
   state.pendingSNumber = sNumber;
   setGate('pin');
-  $('periomaxer-ad').classList.add('hidden');
   $('pin-snum-label').textContent = sNumber;
   $('pin-form').reset();
   setTimeout(() => $('pin-input').focus(), 50);
