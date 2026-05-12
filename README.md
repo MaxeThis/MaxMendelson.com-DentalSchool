@@ -40,7 +40,7 @@ You need a Firebase project to store the shared blocks. It is free for this use 
          return h is string && h.size() >= 32 && h.size() <= 128;
        }
        function validType(t) {
-         return t in ['Oral Surgery','Ortho','Special Care','Peds','Emergency','On-Call','Screening'];
+         return t in ['Oral Surgery','Ortho','Special Care','Peds','Emergency','On-Call','Screening','Hospital','Pan'];
        }
        function validTime(t) {
          return t == 'morning' || t == 'afternoon';
@@ -96,14 +96,20 @@ You need a Firebase project to store the shared blocks. It is free for this use 
                || (request.resource.data.notes is string
                    && request.resource.data.notes.size() <= 200));
 
-         // Updates limited to contact fields; identity + date/time/type/createdAt stay put.
+         // Updates may change contact info, the block's date/time/type/notes,
+         // and the urgent flag (used by the inline "Edit" form in My Blocks).
+         // sNumber + createdAt stay locked so an attacker can't reassign
+         // ownership or rewrite a post's age.
          allow update: if request.resource.data.sNumber == resource.data.sNumber
-           && request.resource.data.date == resource.data.date
-           && request.resource.data.time == resource.data.time
-           && request.resource.data.type == resource.data.type
            && request.resource.data.createdAt == resource.data.createdAt
+           && validDate(request.resource.data.date)
+           && validTime(request.resource.data.time)
+           && validType(request.resource.data.type)
            && validName(request.resource.data.name)
-           && validPhone(request.resource.data.phone);
+           && validPhone(request.resource.data.phone)
+           && (request.resource.data.notes == null
+               || (request.resource.data.notes is string
+                   && request.resource.data.notes.size() <= 200));
 
          // Delete is open (UI only exposes it on your own blocks). If abuse
          // shows up, add Firebase Auth and tighten this.
