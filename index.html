@@ -439,6 +439,21 @@
           <div class="admin-stat"><span id="admin-stat-blocks">0</span><small>posted for swap</small></div>
           <div class="admin-stat"><span id="admin-stat-schedule">0</span><small>scheduled (not posted)</small></div>
         </div>
+        <div class="filter-row admin-users-filter">
+          <label>
+            Sort by
+            <select id="admin-users-sort">
+              <option value="joined-desc">Date joined (newest first)</option>
+              <option value="joined-asc">Date joined (oldest first)</option>
+              <option value="online">Currently online first</option>
+              <option value="last-seen">Last seen (most recent)</option>
+              <option value="total-time">Total time on site (most)</option>
+              <option value="snumber">S number (ascending)</option>
+              <option value="first-name">First name (A → Z)</option>
+              <option value="last-name">Last name (A → Z)</option>
+            </select>
+          </label>
+        </div>
         <div id="admin-users-list" class="admin-users-list"></div>
       </div>
 

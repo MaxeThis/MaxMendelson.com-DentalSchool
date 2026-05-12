@@ -848,6 +848,34 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   font-weight: 600;
 }
 
+/* Inline edit form — used inside a schedule row or a block card when the user
+ * clicks "Edit". The host element gets the .editing class which flattens the
+ * row's grid so the form gets the full width. */
+.schedule-row.editing {
+  display: block;
+  padding: 14px 16px;
+}
+.block-card.editing {
+  display: block;
+}
+.block-edit-head {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 10px;
+  color: var(--text);
+}
+.block-edit-form {
+  max-width: 460px;
+  gap: 10px;
+}
+.block-edit-buttons {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 4px;
+}
+.block-edit-buttons .primary { padding: 8px 18px; font-size: 0.9rem; }
+
 /* Done button row in My Blocks edit mode */
 .my-blocks-done-row {
   margin-top: 22px;

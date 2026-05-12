@@ -49,6 +49,20 @@ const DESC_TO_TYPE = {
   'PAN BLOCK':          'Pan',
 };
 
+// swap-listing block type → canonical schedule description (inverse of DESC_TO_TYPE).
+// Used when editing a schedule entry to convert a picked block type back into the
+// uppercase description that DESC_TO_TYPE will resolve on the next render.
+const TYPE_TO_DESC = Object.fromEntries(
+  Object.entries(DESC_TO_TYPE).map(([desc, type]) => [type, desc])
+);
+
+// Canonical start/end times by period. Applied to a schedule entry when the user
+// changes the time half via the edit form, so the ICS export still has a valid range.
+const PERIOD_TIMES = {
+  morning:   { start: '08:00 AM', end: '12:00 PM' },
+  afternoon: { start: '01:00 PM', end: '05:00 PM' },
+};
+
 const PROFILE_KEY = 'umsod_be_profile_v1';
 const SCHEDULE_KEY_PREFIX = 'umsod_be_schedule_v1:';
 
@@ -373,6 +387,8 @@ const state = {
   firestoreReady: false,
   schedule: [],         // user's imported schedule (local-only, per-device)
   myBlocksMode: 'display', // 'display' | 'edit' — sub-mode of the My Blocks view
+  editingScheduleId: null, // id of schedule entry currently shown as an inline edit form
+  editingBlockId: null,   // id of posted block currently shown as an inline edit form
   isAdmin: false,
   sessionId: null,      // id of the Firestore session doc for this tab
   heartbeatTimer: null,
@@ -392,6 +408,7 @@ const state = {
     filterType: '',
     filterTime: '',
     filterUser: '',
+    usersSort: 'joined-desc', // sort key for the admin Users list
   },
 };
 
@@ -592,7 +609,10 @@ function subscribeBlocks() {
         });
         state.blocks.sort((a, b) => {
           if (a.date !== b.date) return a.date.localeCompare(b.date);
-          return (a.time || '').localeCompare(b.time || '');
+          const timeCmp = (a.time || '').localeCompare(b.time || '');
+          if (timeCmp !== 0) return timeCmp;
+          if (!!b.urgent !== !!a.urgent) return b.urgent ? 1 : -1;
+          return 0;
         });
         renderCurrentView();
       },
@@ -661,6 +681,12 @@ async function deleteBlockDoc(id) {
 async function setBlockUrgent(id, urgent) {
   if (!state.firestoreReady) return false;
   await db.collection('blocks').doc(id).update({ urgent });
+  return true;
+}
+
+async function updateBlockDoc(id, fields) {
+  if (!state.firestoreReady) { toast('Data storage is not configured yet.'); return false; }
+  await db.collection('blocks').doc(id).update(fields);
   return true;
 }
 
@@ -1206,6 +1232,10 @@ function renderCurrentView() {
 
 function setMyBlocksMode(mode) {
   state.myBlocksMode = mode;
+  // Clear any open inline edit form when toggling between display/edit modes
+  // — the row that owned the form is about to be detached anyway.
+  state.editingScheduleId = null;
+  state.editingBlockId = null;
   $('my-blocks-display').classList.toggle('hidden', mode !== 'display');
   $('my-blocks-edit').classList.toggle('hidden', mode !== 'edit');
   renderMyBlocksView();
@@ -1438,20 +1468,26 @@ function renderCalendar() {
     num.textContent = String(d);
     headRow.appendChild(num);
 
-    if (list.length > 0) {
-      const pill = document.createElement('span');
-      pill.className = 'count-pill';
-      pill.textContent = String(list.length);
-      pill.setAttribute('aria-label', list.length === 1 ? '1 block' : list.length + ' blocks');
-      headRow.appendChild(pill);
-    }
+    const rightGroup = document.createElement('span');
+    rightGroup.style.display = 'inline-flex';
+    rightGroup.style.alignItems = 'center';
+    rightGroup.style.gap = '4px';
     if (hasUrgent) {
       const bang = document.createElement('span');
       bang.className = 'urgent-dot';
       bang.textContent = '!';
       bang.title = 'At least one urgent block';
-      headRow.appendChild(bang);
+      bang.style.marginLeft = '0';
+      rightGroup.appendChild(bang);
     }
+    if (list.length > 0) {
+      const pill = document.createElement('span');
+      pill.className = 'count-pill';
+      pill.textContent = String(list.length);
+      pill.setAttribute('aria-label', list.length === 1 ? '1 block' : list.length + ' blocks');
+      rightGroup.appendChild(pill);
+    }
+    headRow.appendChild(rightGroup);
     btn.appendChild(headRow);
 
     if (list.length > 0) {
@@ -1476,7 +1512,12 @@ function renderCalendar() {
 function openDayDetail(dstr, opts = {}) {
   state.selectedDate = dstr;
   const list = (blocksByDate().get(dstr) || []).slice();
-  list.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  list.sort((a, b) => {
+    const timeCmp = (a.time || '').localeCompare(b.time || '');
+    if (timeCmp !== 0) return timeCmp;
+    if (!!b.urgent !== !!a.urgent) return b.urgent ? 1 : -1;
+    return 0;
+  });
 
   $('day-detail').classList.remove('hidden');
   $('day-detail-title').textContent = `Blocks on ${prettyDate(dstr)}`;
@@ -1508,6 +1549,55 @@ function closeDayDetail() {
 function renderBlockCard(b, opts = {}) {
   const card = document.createElement('div');
   card.className = 'block-card' + (b.urgent ? ' urgent' : '');
+
+  if (opts.mine && state.editingBlockId === b.id) {
+    card.classList.add('editing');
+    const head = document.createElement('div');
+    head.className = 'block-edit-head';
+    head.textContent = `Editing block — ${prettyDate(b.date)}`;
+    card.appendChild(head);
+    const form = buildBlockEditForm({
+      initial: {
+        type: b.type,
+        date: b.date,
+        period: b.time,
+        notes: b.notes || '',
+      },
+      allowCustom: false,
+      showNotes: true,
+      onCancel: () => {
+        state.editingBlockId = null;
+        renderMyBlocksView();
+      },
+      onSave: async (v) => {
+        const dup = state.blocks.some((x) =>
+          x.id !== b.id && x.sNumber === b.sNumber && x.date === v.date && x.time === v.period
+        );
+        if (dup) { toast('You already have a posted block on that date/time.'); return false; }
+        try {
+          await updateBlockDoc(b.id, {
+            type: v.type,
+            date: v.date,
+            time: v.period,
+            notes: v.notes || null,
+          });
+          state.editingBlockId = null;
+          toast('Block updated.');
+          // Snapshot listener will repaint shortly, but close the form now
+          // so the user sees their change instead of a stale edit panel.
+          renderMyBlocksView();
+          return true;
+        } catch (err) {
+          console.error(err);
+          logClientError('block-edit', err);
+          toast('Could not save changes.');
+          return false;
+        }
+      },
+    });
+    card.appendChild(form);
+    return card;
+  }
 
   const meta = document.createElement('div');
   meta.className = 'meta';
@@ -1548,6 +1638,16 @@ function renderBlockCard(b, opts = {}) {
     const actions = document.createElement('div');
     actions.className = 'actions';
     actions.appendChild(createUrgentToggleBtn(b));
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'text-btn';
+    edit.textContent = 'Edit';
+    edit.addEventListener('click', () => {
+      state.editingBlockId = b.id;
+      state.editingScheduleId = null;
+      renderMyBlocksView();
+    });
+    actions.appendChild(edit);
     const del = document.createElement('button');
     del.className = 'text-btn danger';
     del.textContent = 'Remove';
@@ -1573,6 +1673,161 @@ function renderBlockCard(b, opts = {}) {
   }
 
   return card;
+}
+
+/* ----------------------------- my blocks: edit ----------------------------- */
+
+// Convert a YYYY-MM-DD date to MM/DD/YYYY, matching the dateDisplay format that
+// the schedule parser produces. Falls back to the input on a parse failure.
+function ymdToDateDisplay(ymd) {
+  const m = (ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : (ymd || '');
+}
+
+// Inline edit form used by both schedule rows and posted-block cards. Returns a
+// form element. opts:
+//   initial     — { type, customTitle, date, period, notes }
+//   allowCustom — show a "Custom…" option in the type dropdown (schedule rows only;
+//                 posted blocks must keep a postable type)
+//   showNotes   — show the optional notes textarea (posted blocks only)
+//   onCancel    — called when the user hits Cancel
+//   onSave      — async ({ type, customTitle, date, period, notes, isCustom }) => boolean
+//                 return false to keep the form open (e.g. validation failure)
+function buildBlockEditForm(opts) {
+  const form = document.createElement('form');
+  form.className = 'block-edit-form stacked-form';
+
+  // --- Block type
+  const typeLabel = document.createElement('label');
+  typeLabel.appendChild(document.createTextNode('Block type'));
+  const typeSel = document.createElement('select');
+  typeSel.required = true;
+  const placeholder = document.createElement('option');
+  placeholder.value = ''; placeholder.textContent = 'Select…';
+  typeSel.appendChild(placeholder);
+  for (const t of BLOCK_TYPES) {
+    const o = document.createElement('option');
+    o.value = t; o.textContent = t;
+    typeSel.appendChild(o);
+  }
+  if (opts.allowCustom) {
+    const c = document.createElement('option');
+    c.value = '__custom'; c.textContent = 'Custom title…';
+    typeSel.appendChild(c);
+  }
+  if (opts.initial.type && BLOCK_TYPES.includes(opts.initial.type)) {
+    typeSel.value = opts.initial.type;
+  } else if (opts.allowCustom && opts.initial.customTitle) {
+    typeSel.value = '__custom';
+  }
+  typeLabel.appendChild(typeSel);
+  form.appendChild(typeLabel);
+
+  // --- Custom title (only when "Custom…" is picked)
+  let customLabel = null;
+  let customInput = null;
+  if (opts.allowCustom) {
+    customLabel = document.createElement('label');
+    customLabel.appendChild(document.createTextNode('Custom title'));
+    customInput = document.createElement('input');
+    customInput.type = 'text';
+    customInput.maxLength = 80;
+    customInput.placeholder = 'e.g. Lecture, Lab, Research';
+    customInput.value = opts.initial.customTitle || '';
+    customLabel.appendChild(customInput);
+    const help = document.createElement('small');
+    help.textContent = "Custom-titled blocks can't be posted for trade.";
+    customLabel.appendChild(help);
+    customLabel.classList.toggle('hidden', typeSel.value !== '__custom');
+    form.appendChild(customLabel);
+    typeSel.addEventListener('change', () => {
+      customLabel.classList.toggle('hidden', typeSel.value !== '__custom');
+      if (typeSel.value === '__custom') customInput.focus();
+    });
+  }
+
+  // --- Date
+  const dateLabel = document.createElement('label');
+  dateLabel.appendChild(document.createTextNode('Date'));
+  const dateInput = document.createElement('input');
+  dateInput.type = 'date';
+  dateInput.required = true;
+  dateInput.value = opts.initial.date || '';
+  dateLabel.appendChild(dateInput);
+  const dateHelp = document.createElement('small');
+  dateHelp.textContent = 'Weekdays only (Mon–Fri).';
+  dateLabel.appendChild(dateHelp);
+  form.appendChild(dateLabel);
+
+  // --- Time period
+  const periodLabel = document.createElement('label');
+  periodLabel.appendChild(document.createTextNode('Time'));
+  const periodSel = document.createElement('select');
+  periodSel.required = true;
+  const mOpt = document.createElement('option'); mOpt.value = 'morning'; mOpt.textContent = 'Morning';
+  const aOpt = document.createElement('option'); aOpt.value = 'afternoon'; aOpt.textContent = 'Afternoon';
+  periodSel.appendChild(mOpt);
+  periodSel.appendChild(aOpt);
+  periodSel.value = opts.initial.period === 'afternoon' ? 'afternoon' : 'morning';
+  periodLabel.appendChild(periodSel);
+  form.appendChild(periodLabel);
+
+  // --- Notes (posted blocks only)
+  let notesInput = null;
+  if (opts.showNotes) {
+    const notesLabel = document.createElement('label');
+    notesLabel.appendChild(document.createTextNode('Notes (optional)'));
+    notesInput = document.createElement('textarea');
+    notesInput.rows = 2;
+    notesInput.maxLength = 200;
+    notesInput.value = opts.initial.notes || '';
+    notesLabel.appendChild(notesInput);
+    form.appendChild(notesLabel);
+  }
+
+  // --- Buttons
+  const btnRow = document.createElement('div');
+  btnRow.className = 'block-edit-buttons';
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'submit'; saveBtn.className = 'primary'; saveBtn.textContent = 'Save';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button'; cancelBtn.className = 'text-btn'; cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => opts.onCancel && opts.onCancel());
+  btnRow.appendChild(saveBtn);
+  btnRow.appendChild(cancelBtn);
+  form.appendChild(btnRow);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const isCustom = typeSel.value === '__custom';
+    const type = isCustom ? null : typeSel.value;
+    const customTitle = customInput ? (customInput.value || '').trim() : '';
+    const date = dateInput.value;
+    const period = periodSel.value;
+    const notes = notesInput ? (notesInput.value || '').trim().slice(0, 200) : '';
+
+    if (!isCustom && !type) { toast('Pick a block type.'); return; }
+    if (isCustom && !customTitle) { toast('Enter a custom title.'); return; }
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast('Invalid date.'); return; }
+    if (!isWeekday(date)) { toast('Blocks are Monday–Friday only.'); return; }
+    if (period !== 'morning' && period !== 'afternoon') { toast('Pick a time.'); return; }
+
+    saveBtn.disabled = true;
+    cancelBtn.disabled = true;
+    try {
+      const ok = await opts.onSave({ type, customTitle, date, period, notes, isCustom });
+      if (ok === false) {
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+      }
+    } catch (err) {
+      console.error(err);
+      saveBtn.disabled = false;
+      cancelBtn.disabled = false;
+    }
+  });
+
+  return form;
 }
 
 /* ----------------------------- my blocks ----------------------------- */
@@ -2085,6 +2340,85 @@ function renderScheduleRow(entry) {
   );
   if (postedBlock) row.classList.add('posted');
 
+  if (state.editingScheduleId === entry.id) {
+    row.classList.add('editing');
+    const head = document.createElement('div');
+    head.className = 'block-edit-head';
+    head.textContent = `Editing block — ${prettyDate(entry.date)}`;
+    row.appendChild(head);
+    const form = buildBlockEditForm({
+      initial: {
+        type: type,
+        customTitle: type ? '' : entry.description,
+        date: entry.date,
+        period: period || 'morning',
+      },
+      allowCustom: true,
+      showNotes: false,
+      onCancel: () => {
+        state.editingScheduleId = null;
+        renderMyBlocksView();
+      },
+      onSave: async (v) => {
+        const dup = state.schedule.some((x) =>
+          x.id !== entry.id && x.date === v.date && startTimeToPeriod(x.startTime) === v.period
+        );
+        if (dup) { toast('Another block in your schedule already covers that date/time.'); return false; }
+
+        const newDesc = v.isCustom
+          ? v.customTitle
+          : (TYPE_TO_DESC[v.type] || v.type.toUpperCase());
+
+        // Only overwrite startTime/endTime when the period changed — otherwise
+        // keep whatever the OCR or user originally entered, so the ICS export
+        // preserves real block ranges that aren't 8–12 / 1–5.
+        let startTime = entry.startTime;
+        let endTime = entry.endTime;
+        if (period !== v.period) {
+          const pt = PERIOD_TIMES[v.period];
+          startTime = pt.start;
+          endTime = pt.end;
+        }
+
+        // If the block is currently posted, sync the listing to match — or unpost
+        // it if the new title is custom (custom titles can't trade).
+        if (postedBlock) {
+          try {
+            if (v.isCustom) {
+              await deleteBlockDoc(postedBlock.id);
+            } else {
+              await updateBlockDoc(postedBlock.id, {
+                type: v.type,
+                date: v.date,
+                time: v.period,
+              });
+            }
+          } catch (err) {
+            console.error(err);
+            logClientError('schedule-edit-post-sync', err);
+            toast('Saved locally, but couldn\'t update the posted listing.');
+          }
+        }
+
+        entry.description = newDesc;
+        entry.date = v.date;
+        entry.dateDisplay = ymdToDateDisplay(v.date);
+        entry.startTime = startTime;
+        entry.endTime = endTime;
+        saveSchedule();
+
+        state.editingScheduleId = null;
+        toast(v.isCustom && postedBlock
+          ? 'Block updated and unposted.'
+          : 'Block updated.');
+        renderMyBlocksView();
+        return true;
+      },
+    });
+    row.appendChild(form);
+    return row;
+  }
+
   const dateEl = document.createElement('div');
   dateEl.className = 'sched-date';
   dateEl.textContent = prettyDate(entry.date).split(',').slice(0, 2).join(',');
@@ -2153,6 +2487,18 @@ function renderScheduleRow(entry) {
     actions.appendChild(note);
   }
 
+  const edit = document.createElement('button');
+  edit.type = 'button';
+  edit.className = 'text-btn';
+  edit.textContent = 'Edit';
+  edit.title = 'Edit the block type, date, or time (useful if the screenshot scanner misread it)';
+  edit.addEventListener('click', () => {
+    state.editingScheduleId = entry.id;
+    state.editingBlockId = null;
+    renderMyBlocksView();
+  });
+  actions.appendChild(edit);
+
   const remove = document.createElement('button');
   remove.type = 'button';
   remove.className = 'text-btn';
@@ -2161,7 +2507,7 @@ function renderScheduleRow(entry) {
   remove.addEventListener('click', () => {
     state.schedule = state.schedule.filter((x) => x.id !== entry.id);
     saveSchedule();
-    renderSchedule();
+    renderMyBlocksView();
   });
   actions.appendChild(remove);
 
@@ -2722,10 +3068,62 @@ function formatRelative(ts) {
   return new Date(ts).toLocaleDateString();
 }
 
+function nameTokens(name) {
+  return (name || '').trim().split(/\s+/).filter(Boolean);
+}
+function firstNameOf(name) { const t = nameTokens(name); return t[0] || ''; }
+function lastNameOf(name) { const t = nameTokens(name); return t.length ? t[t.length - 1] : ''; }
+
+function sortAdminUsers(users, sort) {
+  const copy = users.slice();
+  const cmpStr = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
+  switch (sort) {
+    case 'joined-asc':
+      copy.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      break;
+    case 'online':
+      copy.sort((a, b) => {
+        const aa = aggregateSessions(a.sNumber);
+        const bb = aggregateSessions(b.sNumber);
+        if (aa.online !== bb.online) return aa.online ? -1 : 1;
+        return (bb.lastSeenAt || 0) - (aa.lastSeenAt || 0);
+      });
+      break;
+    case 'last-seen':
+      copy.sort((a, b) => {
+        const aa = aggregateSessions(a.sNumber);
+        const bb = aggregateSessions(b.sNumber);
+        return (bb.lastSeenAt || 0) - (aa.lastSeenAt || 0);
+      });
+      break;
+    case 'total-time':
+      copy.sort((a, b) => {
+        const aa = aggregateSessions(a.sNumber);
+        const bb = aggregateSessions(b.sNumber);
+        return (bb.totalMs || 0) - (aa.totalMs || 0);
+      });
+      break;
+    case 'snumber':
+      copy.sort((a, b) => (a.sNumber || '').localeCompare(b.sNumber || '', undefined, { numeric: true, sensitivity: 'base' }));
+      break;
+    case 'first-name':
+      copy.sort((a, b) => cmpStr(firstNameOf(a.name), firstNameOf(b.name)));
+      break;
+    case 'last-name':
+      copy.sort((a, b) => cmpStr(lastNameOf(a.name), lastNameOf(b.name)));
+      break;
+    case 'joined-desc':
+    default:
+      copy.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      break;
+  }
+  return copy;
+}
+
 function renderAdminUsers() {
   const root = $('admin-users-list');
   root.innerHTML = '';
-  const users = [...state.admin.users].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const users = sortAdminUsers(state.admin.users, state.admin.usersSort);
   const onlineCount = users.filter((u) => aggregateSessions(u.sNumber).online).length;
   $('admin-stat-total').textContent = String(users.length);
   $('admin-stat-online').textContent = String(onlineCount);
@@ -2909,19 +3307,25 @@ function renderAdminCalendar() {
     num.className = 'date-num';
     num.textContent = String(d);
     headRow.appendChild(num);
+    const rightGroup = document.createElement('span');
+    rightGroup.style.display = 'inline-flex';
+    rightGroup.style.alignItems = 'center';
+    rightGroup.style.gap = '4px';
+    if (hasUrgent) {
+      const bang = document.createElement('span');
+      bang.className = 'urgent-dot';
+      bang.textContent = '!';
+      bang.style.marginLeft = '0';
+      rightGroup.appendChild(bang);
+    }
     if (list.length > 0) {
       const pill = document.createElement('span');
       pill.className = 'count-pill';
       pill.textContent = String(list.length);
       pill.setAttribute('aria-label', list.length + ' block' + (list.length === 1 ? '' : 's'));
-      headRow.appendChild(pill);
+      rightGroup.appendChild(pill);
     }
-    if (hasUrgent) {
-      const bang = document.createElement('span');
-      bang.className = 'urgent-dot';
-      bang.textContent = '!';
-      headRow.appendChild(bang);
-    }
+    headRow.appendChild(rightGroup);
     btn.appendChild(headRow);
     if (list.length > 0) {
       const tagRow = document.createElement('div');
@@ -2944,7 +3348,12 @@ function openAdminDayDetail(dstr, opts = {}) {
   state.admin.selectedDate = dstr;
   const blocks = state.admin.allBlocks
     .filter((b) => b.date === dstr && adminMatchesFilters(b))
-    .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+    .sort((a, b) => {
+      const timeCmp = (a.time || '').localeCompare(b.time || '');
+      if (timeCmp !== 0) return timeCmp;
+      if (!!b.urgent !== !!a.urgent) return b.urgent ? 1 : -1;
+      return 0;
+    });
   const host = $('admin-day-detail');
   host.classList.remove('hidden');
   const title = new Date(dstr + 'T00:00:00').toLocaleDateString(undefined, {
@@ -3089,6 +3498,14 @@ function wireEvents() {
   if (adFilterType) adFilterType.addEventListener('change', (e) => { state.admin.filterType = e.target.value; renderAdminCalendar(); });
   if (adFilterTime) adFilterTime.addEventListener('change', (e) => { state.admin.filterTime = e.target.value; renderAdminCalendar(); });
   if (adFilterUser) adFilterUser.addEventListener('change', (e) => { state.admin.filterUser = e.target.value; renderAdminCalendar(); });
+  const adUsersSort = $('admin-users-sort');
+  if (adUsersSort) {
+    adUsersSort.value = state.admin.usersSort || 'joined-desc';
+    adUsersSort.addEventListener('change', (e) => {
+      state.admin.usersSort = e.target.value;
+      renderAdminUsers();
+    });
+  }
   const adClose = $('admin-day-detail-close');
   if (adClose) adClose.addEventListener('click', closeAdminDayDetail);
 
