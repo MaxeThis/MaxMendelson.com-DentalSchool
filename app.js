@@ -1888,9 +1888,11 @@ function renderMyBlocks() {
     return;
   }
 
-  // Schedule entries with post/unpost controls
+  // Schedule entries with post/unpost controls. showManage:false hides Edit
+  // and Remove here — they live in the "Edit schedule" view instead, so this
+  // list stays focused on the primary swap actions.
   for (const entry of state.schedule) {
-    listEl.appendChild(renderScheduleRow(entry));
+    listEl.appendChild(renderScheduleRow(entry, { showManage: false }));
   }
 
   // Manually posted blocks not tied to an imported schedule entry
@@ -2371,7 +2373,12 @@ function renderSchedule() {
   }
 }
 
-function renderScheduleRow(entry) {
+function renderScheduleRow(entry, opts = {}) {
+  // showManage gates the Edit + Remove buttons. Display mode in My Blocks
+  // passes false so the row stays focused on the primary action (post for
+  // swap / unpost / mark urgent). Edit mode keeps the default so the user
+  // can fix OCR misreads and remove imported entries.
+  const showManage = opts.showManage !== false;
   const row = document.createElement('div');
   row.className = 'schedule-row';
 
@@ -2530,29 +2537,31 @@ function renderScheduleRow(entry) {
     actions.appendChild(note);
   }
 
-  const edit = document.createElement('button');
-  edit.type = 'button';
-  edit.className = 'text-btn';
-  edit.textContent = 'Edit';
-  edit.title = 'Edit the block type, date, or time (useful if the screenshot scanner misread it)';
-  edit.addEventListener('click', () => {
-    state.editingScheduleId = entry.id;
-    state.editingBlockId = null;
-    renderMyBlocksView();
-  });
-  actions.appendChild(edit);
+  if (showManage) {
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'text-btn';
+    edit.textContent = 'Edit';
+    edit.title = 'Edit the block type, date, or time (useful if the screenshot scanner misread it)';
+    edit.addEventListener('click', () => {
+      state.editingScheduleId = entry.id;
+      state.editingBlockId = null;
+      renderMyBlocksView();
+    });
+    actions.appendChild(edit);
 
-  const remove = document.createElement('button');
-  remove.type = 'button';
-  remove.className = 'text-btn';
-  remove.textContent = 'Remove';
-  remove.title = 'Remove from your schedule (doesn’t affect anything on the calendar)';
-  remove.addEventListener('click', () => {
-    state.schedule = state.schedule.filter((x) => x.id !== entry.id);
-    saveSchedule();
-    renderMyBlocksView();
-  });
-  actions.appendChild(remove);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'text-btn';
+    remove.textContent = 'Remove';
+    remove.title = 'Remove from your schedule (doesn’t affect anything on the calendar)';
+    remove.addEventListener('click', () => {
+      state.schedule = state.schedule.filter((x) => x.id !== entry.id);
+      saveSchedule();
+      renderMyBlocksView();
+    });
+    actions.appendChild(remove);
+  }
 
   row.appendChild(actions);
   return row;
