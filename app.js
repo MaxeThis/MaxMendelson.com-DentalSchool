@@ -618,6 +618,12 @@ function subscribeBlocks() {
       },
       (err) => {
         console.error('Firestore subscription error:', err);
+        // permission-denied here means anon auth was lost mid-session.
+        // onAuthStateChanged already bounces the user to sign-in, so this
+        // error is noise — the listener can keep firing it repeatedly and
+        // each fire would burn a Firestore write. Skip both the log and
+        // the toast (the auth-loss toast already covers it).
+        if (err && err.code === 'permission-denied') return;
         logClientError('blocks-subscribe', err);
         toast('Could not load blocks. Check Firestore rules.');
       }
@@ -1042,7 +1048,12 @@ async function ensureAnonAuth() {
     return cred.user;
   } catch (err) {
     console.warn('Anonymous sign-in failed — rules will reject reads:', err);
-    logClientError('anon-auth', err);
+    // Pure network failures here are already surfaced to the user via the
+    // boot timeout's "Can't reach the server" toast. Logging them just
+    // burns Firestore writes (which also fail on the same dead network).
+    if (!err || err.code !== 'auth/network-request-failed') {
+      logClientError('anon-auth', err);
+    }
     return null;
   }
 }
@@ -1055,6 +1066,11 @@ function handleAuthLoss(reason) {
   state.sessionId = null;
   state.isAdmin = false;
   document.body.classList.remove('admin');
+  // Drop any live Firestore subscriptions — without an auth token they
+  // would otherwise keep firing permission-denied callbacks (each one a
+  // wasted error log) until the page is reloaded.
+  if (blocksUnsub) { try { blocksUnsub(); } catch (_) {} blocksUnsub = null; }
+  unsubscribeAssists();
   clearLocalProfile();
   const el = document.getElementById('signin-gate');
   if (el) showSignIn();
@@ -1070,16 +1086,27 @@ function handleAuthLoss(reason) {
  * beating so an idle browser costs nothing. */
 async function startSession() {
   if (!state.firestoreReady || !state.profile) return;
+  // Pre-generate the doc ID so a retried write that fires after the original
+  // succeeded server-side (flaky network) doesn't strand the session: the
+  // SDK would otherwise retry with the same ID and fail with already-exists,
+  // and we'd lose the heartbeat handle. Pre-generating keeps the ID we need.
+  const ref = db.collection('sessions').doc();
+  state.sessionId = ref.id;
   try {
-    const ref = await db.collection('sessions').add({
+    await ref.set({
       sNumber: state.profile.sNumber,
       startedAt: Date.now(),
       lastActive: Date.now(),
     });
-    state.sessionId = ref.id;
   } catch (err) {
-    logClientError('session-start', err);
-    return;
+    if (err && err.code === 'already-exists') {
+      // Original write reached the server; SDK retry collided. The doc
+      // exists with our ID, so heartbeats still work — proceed.
+    } else {
+      state.sessionId = null;
+      logClientError('session-start', err);
+      return;
+    }
   }
   stopHeartbeat();
   state.heartbeatTimer = setInterval(() => {
@@ -1313,6 +1340,17 @@ async function handleSignInSubmit(e) {
   const btn = $('signin-submit');
   btn.disabled = true;
   try {
+    // If boot's anon-auth attempt failed (captive portal, flaky network),
+    // currentUser is null and the lookup below would fail with
+    // permission-denied. Retry once before reading so a recovered network
+    // can succeed without making the user reload.
+    if (firebase.auth && !firebase.auth().currentUser) {
+      const u = await ensureAnonAuth();
+      if (!u) {
+        toast("Can't reach the server. Try again, or switch off school Wi-Fi.");
+        return;
+      }
+    }
     const user = await fetchUserDoc(sNumber);
     if (user && validName(user.name) && validPhoneOrEmpty(user.phone) && user.pinHash) {
       showPinPrompt(sNumber);
@@ -1321,7 +1359,12 @@ async function handleSignInSubmit(e) {
     }
   } catch (err) {
     console.error(err);
-    logClientError('sign-in-lookup', err);
+    // permission-denied here means the anon-auth retry above silently
+    // dropped its token between then and now. Don't log — we already
+    // toast a clear message and the loop would burn writes on retries.
+    if (!err || err.code !== 'permission-denied') {
+      logClientError('sign-in-lookup', err);
+    }
     toast('Sign in failed. Check your connection.');
   } finally {
     btn.disabled = false;
