@@ -1659,7 +1659,7 @@ function renderBlockCard(b, opts = {}) {
 
   const sub = document.createElement('div');
   sub.className = 'sub';
-  sub.textContent = `${prettyDate(b.date)} • Posted by ${b.name} (${b.sNumber})`;
+  sub.textContent = `${prettyDate(b.date)} • Posted by ${b.name}`;
   meta.appendChild(sub);
   card.appendChild(meta);
 
@@ -2788,7 +2788,7 @@ function renderAssistCard(a, opts) {
 
   const sub = document.createElement('div');
   sub.className = 'sub';
-  sub.textContent = `${prettyDate(a.date)} \u2022 Posted by ${a.name} (${a.sNumber})`;
+  sub.textContent = `${prettyDate(a.date)} \u2022 Posted by ${a.name}`;
   meta.appendChild(sub);
   card.appendChild(meta);
 
