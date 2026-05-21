@@ -679,7 +679,7 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   width: 52px;
   height: 52px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.1);
+  background: #dbeafe;
   display: flex;
   align-items: center;
   justify-content: center;
