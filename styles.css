@@ -628,6 +628,13 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
+}
+.ad-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 .ad-kicker {
   font-size: 0.72rem;
@@ -637,6 +644,57 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
 }
 .ad-title { font-size: 1.1rem; font-weight: 700; }
 .ad-sub { font-size: 0.88rem; opacity: 0.9; }
+
+/* Apps view */
+.apps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+.app-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  text-decoration: none;
+  color: #fff;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(135deg, rgba(27, 31, 36, 0.92), rgba(42, 51, 64, 0.88)),
+    radial-gradient(120% 200% at 0% 0%, rgba(255, 255, 255, 0.12), transparent 55%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 12px 30px -12px rgba(20, 30, 60, 0.35);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.app-card:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 16px 36px -12px rgba(20, 30, 60, 0.45);
+}
+.app-icon {
+  font-size: 2rem;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.app-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.app-title { font-size: 1.1rem; font-weight: 700; }
+.app-byline { font-weight: 400; opacity: 0.55; margin-left: 4px; }
+.app-sub { font-size: 0.88rem; opacity: 0.9; margin-top: 2px; }
 
 /* Schedule view */
 .subpanel {

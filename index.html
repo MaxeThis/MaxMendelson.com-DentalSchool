@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ScheduleMaxer</title>
   <meta name="description" content="Post blocks you want to swap and find blocks other students are giving up." />
-  <link rel="stylesheet" href="styles.css?v=20260512c" />
+  <link rel="stylesheet" href="styles.css?v=20260520c" />
 </head>
 <body>
   <div id="boot-loader" class="boot-loader" aria-hidden="true">
@@ -25,7 +25,8 @@
         <button class="nav-btn auth-only" data-view="assist">Assist</button>
         <button class="nav-btn auth-only" data-view="calendar">Calendar</button>
         <button class="nav-btn auth-only" data-view="my-blocks">My Blocks</button>
-        <button class="nav-btn" data-view="costs">Procedure Costs</button>
+        <button class="nav-btn auth-only" data-view="costs">Procedure Costs</button>
+        <button class="nav-btn" data-view="apps">Apps</button>
         <button class="nav-btn auth-only" data-view="profile">Account</button>
         <button class="nav-btn auth-only admin-only" data-view="admin">Admin</button>
         <button class="nav-btn guest-only" id="nav-signin-btn">Sign in</button>
@@ -37,7 +38,7 @@
     <!-- PerioMaxer ad -->
     <aside id="periomaxer-ad" class="ad-card">
       <a href="https://apps.apple.com/app/apple-store/id6762096578?pt=120200831&amp;ct=maxmendelson.com&amp;mt=8" target="_blank" rel="noopener" class="ad-link">
-        <div class="ad-icon" aria-hidden="true">🦷</div>
+        <div class="ad-icon" aria-hidden="true"><img src="assets/periomaxer-icon.png?v=20260520c" alt="" /></div>
         <div class="ad-copy">
           <div class="ad-kicker">This site is sponsored by</div>
           <div class="ad-title">PerioMaxer</div>
@@ -392,6 +393,30 @@
       </div>
     </section>
 
+    <!-- Apps view -->
+    <section id="view-apps" class="view hidden">
+      <div class="view-head">
+        <h2>Apps</h2>
+        <p class="muted">Tools built by Maryland dental students and clinicians.</p>
+      </div>
+      <div class="apps-grid">
+        <a href="https://apps.apple.com/app/apple-store/id6762096578?pt=120200831&amp;ct=maxmendelson.com&amp;mt=8" target="_blank" rel="noopener" class="app-card">
+          <div class="app-icon" aria-hidden="true"><img src="assets/periomaxer-icon.png?v=20260520c" alt="" /></div>
+          <div class="app-copy">
+            <div class="app-title">PerioMaxer <span class="app-byline">| Dr. Mendelson</span></div>
+            <div class="app-sub">Fast voice perio charting &amp; more. On the App Store.</div>
+          </div>
+        </a>
+        <a href="https://DentDx.app" target="_blank" rel="noopener" class="app-card">
+          <div class="app-icon" aria-hidden="true">🩺</div>
+          <div class="app-copy">
+            <div class="app-title">DentDx <span class="app-byline">| Dr. Hubert</span></div>
+            <div class="app-sub">Endo diagnostic tool. Open DentDx.app →</div>
+          </div>
+        </a>
+      </div>
+    </section>
+
     <!-- Account view -->
     <section id="view-profile" class="view hidden">
       <div class="view-head">
@@ -525,7 +550,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="firebase-config.js?v=20260512c"></script>
-  <script src="app.js?v=20260512c"></script>
+  <script src="firebase-config.js?v=20260520c"></script>
+  <script src="app.js?v=20260520c"></script>
 </body>
 </html>

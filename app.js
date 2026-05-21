@@ -1207,7 +1207,7 @@ function setGate(which) {
 
 function setView(view) {
   // Guest-only views available without sign-in.
-  const publicViews = new Set(['costs']);
+  const publicViews = new Set(['apps']);
   if (!profileValid(state.profile) && !publicViews.has(view)) {
     showSignIn();
     return;
@@ -1223,8 +1223,9 @@ function setView(view) {
   $('view-my-blocks').classList.toggle('hidden', view !== 'my-blocks');
   $('view-post').classList.toggle('hidden', view !== 'post');
   $('view-assist').classList.toggle('hidden', view !== 'assist');
-  $('periomaxer-ad').classList.toggle('hidden', view === 'calendar' || view === 'assist');
+  $('periomaxer-ad').classList.toggle('hidden', view === 'calendar' || view === 'assist' || view === 'apps');
   $('view-costs').classList.toggle('hidden', view !== 'costs');
+  $('view-apps').classList.toggle('hidden', view !== 'apps');
   $('view-profile').classList.toggle('hidden', view !== 'profile');
   const adminEl = $('view-admin');
   if (adminEl) adminEl.classList.toggle('hidden', view !== 'admin');
@@ -1298,7 +1299,7 @@ function showSignIn() {
   setAuthMode(false);
   refreshAdminState();
   setGate('signin');
-  ['view-calendar', 'view-my-blocks', 'view-post', 'view-assist', 'view-costs', 'view-profile', 'view-admin'].forEach((id) => {
+  ['view-calendar', 'view-my-blocks', 'view-post', 'view-assist', 'view-costs', 'view-apps', 'view-profile', 'view-admin'].forEach((id) => {
     const el = $(id);
     if (el) el.classList.add('hidden');
   });
