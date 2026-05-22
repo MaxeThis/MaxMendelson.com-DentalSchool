@@ -62,6 +62,7 @@ const PERIOD_TIMES = {
   morning:   { start: '08:00 AM', end: '12:00 PM' },
   afternoon: { start: '01:00 PM', end: '05:00 PM' },
 };
+const BLOCK_TIME_ORDER = { morning: 0, afternoon: 1 };
 
 const PROFILE_KEY = 'umsod_be_profile_v1';
 const SCHEDULE_KEY_PREFIX = 'umsod_be_schedule_v1:';
@@ -609,8 +610,9 @@ function subscribeBlocks() {
         });
         state.blocks.sort((a, b) => {
           if (a.date !== b.date) return a.date.localeCompare(b.date);
-          const timeCmp = (a.time || '').localeCompare(b.time || '');
-          if (timeCmp !== 0) return timeCmp;
+          const ao = BLOCK_TIME_ORDER[a.time] ?? 99;
+          const bo = BLOCK_TIME_ORDER[b.time] ?? 99;
+          if (ao !== bo) return ao - bo;
           if (!!b.urgent !== !!a.urgent) return b.urgent ? 1 : -1;
           return 0;
         });
@@ -1557,8 +1559,9 @@ function openDayDetail(dstr, opts = {}) {
   state.selectedDate = dstr;
   const list = (blocksByDate().get(dstr) || []).slice();
   list.sort((a, b) => {
-    const timeCmp = (a.time || '').localeCompare(b.time || '');
-    if (timeCmp !== 0) return timeCmp;
+    const ao = BLOCK_TIME_ORDER[a.time] ?? 99;
+    const bo = BLOCK_TIME_ORDER[b.time] ?? 99;
+    if (ao !== bo) return ao - bo;
     if (!!b.urgent !== !!a.urgent) return b.urgent ? 1 : -1;
     return 0;
   });
@@ -1576,7 +1579,15 @@ function openDayDetail(dstr, opts = {}) {
     return;
   }
 
+  let lastPeriod = null;
   for (const b of list) {
+    if (b.time !== lastPeriod && (b.time === 'morning' || b.time === 'afternoon')) {
+      const divider = document.createElement('div');
+      divider.className = 'period-divider period-divider--' + b.time;
+      divider.textContent = b.time === 'morning' ? 'Morning' : 'Afternoon';
+      listEl.appendChild(divider);
+      lastPeriod = b.time;
+    }
     listEl.appendChild(renderBlockCard(b, { showContact: true }));
   }
 
@@ -3402,8 +3413,9 @@ function openAdminDayDetail(dstr, opts = {}) {
   const blocks = state.admin.allBlocks
     .filter((b) => b.date === dstr && adminMatchesFilters(b))
     .sort((a, b) => {
-      const timeCmp = (a.time || '').localeCompare(b.time || '');
-      if (timeCmp !== 0) return timeCmp;
+      const ao = BLOCK_TIME_ORDER[a.time] ?? 99;
+      const bo = BLOCK_TIME_ORDER[b.time] ?? 99;
+      if (ao !== bo) return ao - bo;
       if (!!b.urgent !== !!a.urgent) return b.urgent ? 1 : -1;
       return 0;
     });
@@ -3419,7 +3431,15 @@ function openAdminDayDetail(dstr, opts = {}) {
     list.innerHTML = '<div class="empty-state">No matching blocks.</div>';
     return;
   }
+  let lastPeriod = null;
   for (const b of blocks) {
+    if (b.time !== lastPeriod && (b.time === 'morning' || b.time === 'afternoon')) {
+      const divider = document.createElement('div');
+      divider.className = 'period-divider period-divider--' + b.time;
+      divider.textContent = b.time === 'morning' ? 'Morning' : 'Afternoon';
+      list.appendChild(divider);
+      lastPeriod = b.time;
+    }
     const card = document.createElement('div');
     const isSched = b.source === 'schedule';
     card.className = 'block-card' + (b.urgent ? ' urgent' : '') + (isSched ? ' schedule-only' : '');

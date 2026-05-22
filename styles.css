@@ -537,6 +537,28 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   display: grid;
   gap: 10px;
 }
+.period-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.period-divider:first-child { margin-top: 0; }
+.period-divider::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  border-radius: 2px;
+}
+.period-divider--morning { color: #8a6d1f; }
+.period-divider--morning::after { background: #f1e3a3; }
+.period-divider--afternoon { color: #3b5fa3; }
+.period-divider--afternoon::after { background: #c4d4ef; }
 .block-card {
   border: 1px solid var(--glass-border);
   border-radius: 14px;
