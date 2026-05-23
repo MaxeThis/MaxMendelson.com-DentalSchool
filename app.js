@@ -411,6 +411,12 @@ const state = {
     filterUser: '',
     usersSort: 'joined-desc', // sort key for the admin Users list
   },
+  requirements: {
+    subView: 'd4',      // 'd4' | 'd3'
+    loaded: false,
+    entries: [],        // [{ id, year, key, datePerformed, session, doctor, createdAt }]
+    openFormKey: null,  // key of requirement whose log form is open
+  },
 };
 
 /* Admin gate: the expected hash lives in Firestore at config/admin.hash
@@ -1026,7 +1032,7 @@ function forgetAdmin() {
   state.isAdmin = false;
   document.body.classList.remove('admin');
   toast('Admin access removed from this browser.');
-  if (state.view === 'admin') setView('calendar');
+  if (state.view === 'admin' || state.view === 'requirements') setView('calendar');
 }
 
 /* ----------------------------- anon auth ----------------------------- */
@@ -1215,6 +1221,7 @@ function setView(view) {
     return;
   }
   if (view === 'admin' && !state.isAdmin) { view = 'calendar'; }
+  if (view === 'requirements' && !state.isAdmin) { view = 'calendar'; }
   setGate(null);
   const prevView = state.view;
   state.view = view;
@@ -1231,6 +1238,8 @@ function setView(view) {
   $('view-profile').classList.toggle('hidden', view !== 'profile');
   const adminEl = $('view-admin');
   if (adminEl) adminEl.classList.toggle('hidden', view !== 'admin');
+  const reqEl = $('view-requirements');
+  if (reqEl) reqEl.classList.toggle('hidden', view !== 'requirements');
   // Subscribe to the assists collection only while the Assist tab is open.
   // Saves reads when nobody on the page cares.
   if (prevView === 'assist' && view !== 'assist') {
@@ -1258,6 +1267,7 @@ function renderCurrentView() {
   else if (state.view === 'costs') renderProcedureCosts();
   else if (state.view === 'profile') fillProfileEditForm();
   else if (state.view === 'admin') enterAdminView();
+  else if (state.view === 'requirements') enterRequirementsView();
 }
 
 function setMyBlocksMode(mode) {
@@ -1293,7 +1303,7 @@ function showApp() {
   ensureAnonAuth().then(() => {
     if (!state.sessionId) startSession();
   });
-  const knownViews = new Set(['calendar', 'my-blocks', 'post', 'assist', 'profile', 'admin']);
+  const knownViews = new Set(['calendar', 'my-blocks', 'post', 'assist', 'profile', 'admin', 'requirements']);
   setView(knownViews.has(state.view) ? state.view : 'calendar');
 }
 
@@ -1301,7 +1311,7 @@ function showSignIn() {
   setAuthMode(false);
   refreshAdminState();
   setGate('signin');
-  ['view-calendar', 'view-my-blocks', 'view-post', 'view-assist', 'view-costs', 'view-apps', 'view-profile', 'view-admin'].forEach((id) => {
+  ['view-calendar', 'view-my-blocks', 'view-post', 'view-assist', 'view-costs', 'view-apps', 'view-profile', 'view-admin', 'view-requirements'].forEach((id) => {
     const el = $(id);
     if (el) el.classList.add('hidden');
   });
@@ -3465,6 +3475,443 @@ function closeAdminDayDetail() {
   $('admin-day-detail').classList.add('hidden');
 }
 
+/* ----------------------------- requirements view ----------------------------- */
+
+/* D4 requirements table, transcribed from D4 Requirements.xlsx. Each class
+ * lists comps (graded check-offs) and "other" experience requirements that
+ * are pre-reqs or counted toward graduation. Items appear where the source
+ * spreadsheet places them, even where that placement looks unusual. */
+const D4_REQUIREMENTS = [
+  {
+    className: 'ENDO',
+    comps: [
+      'informed consent comp (due by end of D4)',
+      'single canal treatment comp (due by end of D4)',
+      'recall comp',
+    ],
+    other: [
+      'informed consent experience (pre-req for comp)',
+      'single canal treatment experience (pre-req for comp)',
+      'recall experience (pre-req to comp)',
+      'multi-root experience (option to co-therapy with a resident)',
+    ],
+    points: 'N/A',
+  },
+  {
+    className: 'FIXED',
+    comps: [
+      'Complete crown — patient-based comp (due by end of D4)',
+      'Mock boards — block scheduled',
+      'Implant clinical simulation / OSCE examination (scheduled by block)',
+    ],
+    other: [
+      'bridge',
+      '1 implant planning',
+      '1 implant restoration',
+    ],
+    points: 'min pts — 1100 (?)',
+  },
+  {
+    className: 'REMO',
+    comps: [
+      'Complete denture comps [5 total] (1. Dx + Txp; 2. Custom tray and border molding; 3. Jaw relationship; 4. Teeth try-in; 5. Delivery)',
+      'RPD comp [3 total] (1. survey and design; 2. tooth mods; 3. metal framework try-in)',
+    ],
+    other: [],
+    points: '2050 pts — A, 1450 pts — B, 850 pts — C',
+  },
+  {
+    className: 'PERIO',
+    comps: [
+      'Diagnosis comp (self-scheduled; due by end of D4 fall)',
+      'Qualifying scaling comp (scheduled for you — D4 summer)',
+      'Treatment plan comp 2 (computer-based comp)',
+    ],
+    other: [
+      '2 surgical assists',
+      'minimum 3 EITs (1 must be periodontitis case)',
+      'minimum 1 APE',
+    ],
+    points: 'min points = 100 (?)',
+  },
+  {
+    className: 'ORTHO',
+    comps: [
+      'exam and dx comp (due by end of D4; self-scheduled when on block)',
+    ],
+    other: [
+      '1 screening D4 year (2 total, including from D3 year — pre-req to challenge comp)',
+      '6 assists D4 year (?)',
+    ],
+    points: '12 pts min (?)',
+  },
+  {
+    className: 'PEDS',
+    comps: [
+      'Comp care comprehensive exam (computer-based)',
+      'Comp care clinical competency (pre-req = 2 recall / new pt exams during D4 year; due end of D4)',
+    ],
+    other: [
+      '2 exams (recall or new patient) — pre-req for comp',
+      '1 assist with resident (sedation or SHCN)',
+      '1 assist with resident (procedures other than prevention)',
+      '1 co-treat with resident (SSC w/ or w/o N2O) — need to write visit note',
+      '1 co-treat with resident (child < 6 yo) — need to write visit note',
+    ],
+    points: 'N/A',
+  },
+  {
+    className: 'RADIO',
+    comps: [
+      'clinical interpretation comp exam (computer-based)',
+    ],
+    other: [],
+    points: 'N/A',
+  },
+  {
+    className: 'OPERATIVE',
+    comps: [
+      'deep caries comp (self-scheduled; due end of D4)',
+      'Mock board (scheduled for us)',
+    ],
+    other: [],
+    points: 'N/A',
+  },
+  {
+    className: 'TREATMENT PLANNING',
+    comps: [
+      'Comprehensive care treatment plan comp (due by end of D4; clinic self-scheduled)',
+      'Comp care outcome assessment (due by end of D4; clinic self-scheduled)',
+    ],
+    other: [
+      'capstone!',
+      '25 POEs',
+    ],
+    points: 'n/a',
+  },
+  {
+    className: 'OS',
+    comps: [
+      'biopsy comp (due by end of D4; self-scheduled)',
+      'UC comp (due by end of D4; pre-req = 10 UCs on blue card; clinic self-scheduled)',
+      'multi-tooth ext and alveoloplasty comp (due by end of D4; pre-reqs = 10 ungraded ext cases, 5 graded ext cases, 4 f/u cases; clinic self-scheduled)',
+      'NO comp (due by end of D4; pre-req = NO experience — does not have to be in OS, but comp does!)',
+      'OS Case Presentation comp exam (due by end of D4; clinic self-scheduled)',
+    ],
+    other: [
+      '10 UCs',
+      '10 ungraded EXTs',
+      '4 follow-ups',
+      '1 nitrous experience',
+    ],
+    points: 'A — 3035, B — 2285, C — 1535 (MIN)',
+  },
+  {
+    className: 'CCPM',
+    comps: [
+      'global practice assessment 3 (we don’t need to do anything)',
+      'global practice assessment 4 (we don’t need to do anything)',
+      'OSCE Exam (computer-based)',
+      'SPCG patient-centered / clinical comp exam (due by end of D4)',
+    ],
+    other: [],
+    points: 'DPE / Attendance: 90% attendance; 55% DPE (?)',
+  },
+  {
+    className: 'CSLX',
+    comps: [
+      '2 week externship — self-scheduled',
+    ],
+    other: [],
+    points: 'N/A',
+  },
+  {
+    className: 'OTHER',
+    comps: [
+      '2 weeks at Shady Grove — in the fall; 1 week in the spring',
+    ],
+    other: [],
+    points: 'N/A',
+  },
+];
+
+const REQ_SESSIONS = [
+  { value: 'early-morning',  label: 'Early morning' },
+  { value: 'morning',        label: 'Morning' },
+  { value: 'afternoon',      label: 'Afternoon' },
+  { value: 'late-afternoon', label: 'Late afternoon' },
+];
+
+let requirementsUnsub = null;
+
+function requirementKey(year, className, section, index) {
+  return `${year}|${className}|${section}|${index}`;
+}
+
+async function enterRequirementsView() {
+  if (!state.isAdmin) { setView('calendar'); return; }
+  setRequirementsSubView(state.requirements.subView || 'd4');
+  if (!state.requirements.loaded) await loadRequirements();
+  else renderRequirementsActive();
+}
+
+function setRequirementsSubView(sub) {
+  if (!['d3', 'd4'].includes(sub)) sub = 'd4';
+  state.requirements.subView = sub;
+  document.querySelectorAll('#view-requirements .req-tab').forEach((b) => {
+    b.classList.toggle('active', b.dataset.reqTab === sub);
+  });
+  $('req-pane-d4').classList.toggle('hidden', sub !== 'd4');
+  $('req-pane-d3').classList.toggle('hidden', sub !== 'd3');
+  renderRequirementsActive();
+}
+
+function renderRequirementsActive() {
+  if (state.requirements.subView === 'd4') renderRequirementsList('d4', D4_REQUIREMENTS, $('req-d4-list'));
+  // D3 pane is a static empty-state placeholder until that table is provided.
+}
+
+async function loadRequirements() {
+  if (!state.firestoreReady || !state.profile) return;
+  if (requirementsUnsub) { requirementsUnsub(); requirementsUnsub = null; }
+  try {
+    requirementsUnsub = db.collection('requirements')
+      .where('sNumber', '==', state.profile.sNumber)
+      .onSnapshot(
+        (snap) => {
+          state.requirements.entries = [];
+          snap.forEach((doc) => state.requirements.entries.push({ id: doc.id, ...doc.data() }));
+          state.requirements.loaded = true;
+          if (state.view === 'requirements') renderRequirementsActive();
+        },
+        (err) => {
+          console.error('Requirements subscription error:', err);
+          logClientError('requirements-subscribe', err);
+          toast('Could not load requirements.');
+        }
+      );
+  } catch (err) {
+    console.error(err);
+    logClientError('requirements-load', err);
+    toast('Could not load requirements.');
+  }
+}
+
+function entriesForKey(key) {
+  return state.requirements.entries
+    .filter((e) => e.key === key)
+    .sort((a, b) => (a.datePerformed || '').localeCompare(b.datePerformed || ''));
+}
+
+function renderRequirementsList(year, classes, host) {
+  if (!host) return;
+  const entries = state.requirements.entries.filter((e) => e.year === year);
+  let comps = 0, other = 0;
+  for (const e of entries) {
+    if (e.section === 'comps') comps++;
+    else if (e.section === 'other') other++;
+  }
+  $('req-stat-comps-done').textContent = String(comps);
+  $('req-stat-other-done').textContent = String(other);
+  $('req-stat-total').textContent = String(entries.length);
+
+  host.innerHTML = '';
+  for (const cls of classes) {
+    host.appendChild(renderClassCard(year, cls));
+  }
+}
+
+function renderClassCard(year, cls) {
+  const card = document.createElement('div');
+  card.className = 'req-class';
+
+  const head = document.createElement('div');
+  head.className = 'req-class-head';
+  head.innerHTML =
+    '<h3>' + escapeHtml(cls.className) + '</h3>' +
+    (cls.points ? '<span class="req-points">Points: ' + escapeHtml(cls.points) + '</span>' : '');
+  card.appendChild(head);
+
+  if (cls.comps.length) {
+    card.appendChild(renderSectionBlock(year, cls.className, 'comps', 'Comps', cls.comps));
+  }
+  if (cls.other.length) {
+    card.appendChild(renderSectionBlock(year, cls.className, 'other', 'Other requirements', cls.other));
+  }
+  return card;
+}
+
+function renderSectionBlock(year, className, section, label, items) {
+  const wrap = document.createElement('div');
+  wrap.className = 'req-class-section';
+  const heading = document.createElement('div');
+  heading.className = 'req-section-label';
+  heading.textContent = label;
+  wrap.appendChild(heading);
+  items.forEach((text, idx) => {
+    wrap.appendChild(renderRequirementItem(year, className, section, idx, text));
+  });
+  return wrap;
+}
+
+function renderRequirementItem(year, className, section, index, text) {
+  const key = requirementKey(year, className, section, index);
+  const entries = entriesForKey(key);
+  const isOpen = state.requirements.openFormKey === key;
+
+  const item = document.createElement('div');
+  item.className = 'req-item' + (entries.length ? ' has-entries' : '');
+
+  const headRow = document.createElement('div');
+  headRow.className = 'req-item-head';
+  headRow.innerHTML =
+    '<div class="req-item-text">' + escapeHtml(text) + '</div>' +
+    '<div class="req-item-count' + (entries.length ? ' has' : '') + '">' +
+      escapeHtml(entries.length + ' logged') +
+    '</div>' +
+    '<div class="req-item-actions"></div>';
+  const actions = headRow.querySelector('.req-item-actions');
+  const logBtn = document.createElement('button');
+  logBtn.type = 'button';
+  logBtn.className = 'req-log-btn' + (isOpen ? ' is-open' : '');
+  logBtn.textContent = isOpen ? 'Cancel' : 'Log';
+  logBtn.addEventListener('click', () => {
+    state.requirements.openFormKey = isOpen ? null : key;
+    renderRequirementsActive();
+  });
+  actions.appendChild(logBtn);
+  item.appendChild(headRow);
+
+  if (isOpen) {
+    item.appendChild(renderRequirementForm(year, className, section, index, text));
+  }
+
+  if (entries.length) {
+    const entriesWrap = document.createElement('div');
+    entriesWrap.className = 'req-entries';
+    for (const e of entries) entriesWrap.appendChild(renderEntryRow(e));
+    item.appendChild(entriesWrap);
+  }
+  return item;
+}
+
+function renderRequirementForm(year, className, section, index, text) {
+  const form = document.createElement('form');
+  form.className = 'req-form';
+  const todayStr = ymd(new Date());
+  form.innerHTML =
+    '<label>Date performed' +
+      '<input type="date" name="date" value="' + escapeHtml(todayStr) + '" required />' +
+    '</label>' +
+    '<label>Dr. approving' +
+      '<input type="text" name="doctor" placeholder="e.g. Dr. Smith" autocomplete="off" required />' +
+    '</label>' +
+    '<label>Session' +
+      '<select name="session" required>' +
+        REQ_SESSIONS.map((s) => '<option value="' + s.value + '">' + s.label + '</option>').join('') +
+      '</select>' +
+    '</label>' +
+    '<div class="req-form-actions">' +
+      '<button type="button" class="text-btn" data-cancel>Cancel</button>' +
+      '<button type="submit" class="primary">Save entry</button>' +
+    '</div>';
+  form.querySelector('[data-cancel]').addEventListener('click', () => {
+    state.requirements.openFormKey = null;
+    renderRequirementsActive();
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const date = String(fd.get('date') || '').trim();
+    const doctor = String(fd.get('doctor') || '').trim();
+    const session = String(fd.get('session') || '').trim();
+    if (!date) { toast('Pick a date.'); return; }
+    if (!doctor) { toast('Enter the doctor approving.'); return; }
+    if (!REQ_SESSIONS.some((s) => s.value === session)) { toast('Pick a session.'); return; }
+    const saveBtn = form.querySelector('button[type="submit"]');
+    if (saveBtn) saveBtn.disabled = true;
+    const ok = await saveRequirementEntry({
+      year, className, section, index,
+      requirementText: text,
+      datePerformed: date,
+      doctor, session,
+    });
+    if (ok) {
+      state.requirements.openFormKey = null;
+      toast('Logged.');
+    } else if (saveBtn) {
+      saveBtn.disabled = false;
+    }
+  });
+  // Focus the doctor field — date already has a sensible default.
+  setTimeout(() => {
+    const d = form.querySelector('input[name="doctor"]');
+    if (d) d.focus();
+  }, 30);
+  return form;
+}
+
+function renderEntryRow(e) {
+  const row = document.createElement('div');
+  row.className = 'req-entry';
+  const session = REQ_SESSIONS.find((s) => s.value === e.session);
+  row.innerHTML =
+    '<span class="req-entry-date">' + escapeHtml(prettyShortDate(e.datePerformed)) + '</span>' +
+    '<span class="req-entry-session">' + escapeHtml(session ? session.label : (e.session || '—')) + '</span>' +
+    '<span class="req-entry-doctor">' + escapeHtml(e.doctor || '—') + '</span>';
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'req-entry-del';
+  del.textContent = 'Delete';
+  del.addEventListener('click', async () => {
+    if (!confirm('Delete this entry?')) return;
+    await deleteRequirementEntry(e.id);
+  });
+  row.appendChild(del);
+  return row;
+}
+
+function prettyShortDate(str) {
+  if (!str) return '—';
+  const d = parseYmd(str);
+  if (isNaN(d.getTime())) return str;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+async function saveRequirementEntry({ year, className, section, index, requirementText, datePerformed, doctor, session }) {
+  if (!state.firestoreReady) { toast('Data storage is not configured yet.'); return false; }
+  if (!state.profile) { toast('Sign in first.'); return false; }
+  try {
+    await db.collection('requirements').add({
+      sNumber: state.profile.sNumber,
+      year, className, section, index,
+      key: requirementKey(year, className, section, index),
+      requirementText,
+      datePerformed, doctor, session,
+      createdAt: Date.now(),
+    });
+    return true;
+  } catch (err) {
+    console.error(err);
+    logClientError('requirement-save', err);
+    toast('Could not save entry.');
+    return false;
+  }
+}
+
+async function deleteRequirementEntry(id) {
+  if (!state.firestoreReady) return false;
+  try {
+    await db.collection('requirements').doc(id).delete();
+    return true;
+  } catch (err) {
+    console.error(err);
+    logClientError('requirement-delete', err);
+    toast('Could not delete entry.');
+    return false;
+  }
+}
+
 /* ----------------------------- wiring ----------------------------- */
 
 function wireEvents() {
@@ -3581,6 +4028,16 @@ function wireEvents() {
   }
   const adClose = $('admin-day-detail-close');
   if (adClose) adClose.addEventListener('click', closeAdminDayDetail);
+
+  /* ------- requirements view wiring ------- */
+  document.querySelectorAll('#view-requirements .req-tab').forEach((b) => {
+    b.addEventListener('click', () => setRequirementsSubView(b.dataset.reqTab));
+  });
+  const reqRefresh = $('req-refresh');
+  if (reqRefresh) reqRefresh.addEventListener('click', async () => {
+    state.requirements.loaded = false;
+    await loadRequirements();
+  });
 
   /* ------- session lifecycle ------- */
   document.addEventListener('visibilitychange', () => {
