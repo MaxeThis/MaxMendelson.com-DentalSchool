@@ -2130,13 +2130,49 @@ function cleanDescription(raw) {
   return stripped;
 }
 
+// Letter↔digit swaps Tesseract makes inside numeric fields. Applied ONLY to the
+// digit groups of a date or time (never to AM/PM or the description), so e.g.
+// "ON-CALL" is never touched — only the "OO" in a mis-scanned "09:OO" is.
+function fixOcrDigits(s) {
+  return s
+    .replace(/[OoQ]/g, '0')
+    .replace(/[lI|!]/g, '1')
+    .replace(/Z/g, '2')
+    .replace(/[Ss]/g, '5')
+    .replace(/B/g, '8')
+    .replace(/D/g, '0');
+}
+
+// Repair OCR mis-scans in a schedule line so the strict date/time regexes can
+// read it. axiUm rows are crisp UI captures, but Tesseract still confuses a
+// colon for a period, a 0 for an O, or a 1 for an l — and a single garbled
+// time drops the whole row (each row only has two times). We rewrite anything
+// shaped like a time → "H:MM AM/PM" and anything shaped like a date → "M/D/YYYY",
+// requiring the AM/PM anchor (times) or two slashes (dates) so plain text and
+// the block code are left alone.
+const OCR_DIGIT = '0-9OoQlI|!ZSsBD';
+const OCR_TIME_RE = new RegExp(
+  `([${OCR_DIGIT}]{1,2})\\s*[:;.,]?\\s*([${OCR_DIGIT}]{2})\\s*([AaPp])\\s*\\.?\\s*[MmNnHh]\\.?`,
+  'g'
+);
+const OCR_DATE_RE = new RegExp(
+  `([${OCR_DIGIT}]{1,2})\\s*/\\s*([${OCR_DIGIT}]{1,2})\\s*/\\s*([${OCR_DIGIT}]{2,4})`,
+  'g'
+);
+function repairOcrLine(line) {
+  return line
+    .replace(OCR_TIME_RE, (_m, h, mm, ap) => `${fixOcrDigits(h)}:${fixOcrDigits(mm)} ${ap.toUpperCase()}M`)
+    .replace(OCR_DATE_RE, (_m, a, b, c) => `${fixOcrDigits(a)}/${fixOcrDigits(b)}/${fixOcrDigits(c)}`);
+}
+
 /* Parse a chunk of schedule text. Accepts:
  *   - Short CSV:   desc, MM/DD/YYYY, H:MM AM, H:MM PM
  *   - axiUm table: desc  start_date  end_date  from  to  weekdays  recur
  *   - OCR-style whitespace output with extra trailing columns.
- * Strategy: for each line, find the first MM/DD/YYYY pattern and the first
- * two H:MM AM/PM patterns. Everything before the first date is the
- * description; extra trailing columns (weekdays, recur) are ignored. */
+ * Strategy: repair OCR digit/time mis-scans, then for each line find the first
+ * MM/DD/YYYY pattern and the first two H:MM AM/PM patterns. Everything before
+ * the first date is the description; extra trailing columns (weekdays, recur)
+ * are ignored. The original (un-repaired) line is what's reported as an error. */
 function parseScheduleText(text) {
   const entries = [];
   const errors = [];
@@ -2146,8 +2182,9 @@ function parseScheduleText(text) {
   const TIME_RE = /\b(\d{1,2}:\d{2}\s*[APap][Mm])\b/g;
   const HEADER_RE = /^(description|desc|block|name|event|start|end|from|to|weekdays?|recur)\b/i;
 
-  for (const line of lines) {
-    if (HEADER_RE.test(line)) continue;
+  for (const rawLine of lines) {
+    if (HEADER_RE.test(rawLine)) continue;
+    const line = repairOcrLine(rawLine);
 
     DATE_RE.lastIndex = 0;
     TIME_RE.lastIndex = 0;
@@ -2169,7 +2206,7 @@ function parseScheduleText(text) {
           continue;
         }
       }
-      errors.push(line);
+      errors.push(rawLine);
       continue;
     }
 
@@ -2178,8 +2215,8 @@ function parseScheduleText(text) {
     const end = parseTime12(times[1].str);
     const descRaw = line.slice(0, dates[0].index).replace(/[,\s]+$/, '').trim();
 
-    if (!date || !start || !end || !descRaw) { errors.push(line); continue; }
-    if ((end.h * 60 + end.min) <= (start.h * 60 + start.min)) { errors.push(line); continue; }
+    if (!date || !start || !end || !descRaw) { errors.push(rawLine); continue; }
+    if ((end.h * 60 + end.min) <= (start.h * 60 + start.min)) { errors.push(rawLine); continue; }
 
     entries.push(buildEntry(descRaw, date, start, end));
   }

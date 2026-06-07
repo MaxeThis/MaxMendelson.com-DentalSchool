@@ -168,6 +168,37 @@ check('|| @BLK-PAN maps to PAN BLOCK',
 check('GBLKONCALL maps to ON-CALL BLOCK',
   ms('2026-07-08') && ms('2026-07-08').description === 'ON-CALL BLOCK');
 
+// --- OCR repair: garbled date/time columns, modeled on the exact rows from
+// the user's screenshot. A single mangled time used to drop the whole row;
+// repairOcrLine() should recover them. ---
+const ocrGarbled = `
+@CLIN-EMERG   06/10/2026  06/10/2026  01.00 PM   04:00 PM  W   Yes
+@BLK-ONCALL   06/11/2026  06/11/2026  01:00 PM   04:OO PM  Th  Yes
+@BLK-OS       O7/O9/2O26  O7/O9/2O26  01:00 PM   04:00 PM  Th  Yes
+@BLK-PEDS     06/25/2026  06/25/2026  09:00 AM   l2:00 PM  Th  Yes
+@EDU-OTHER    06/26/2026  06/26/2026  08:00 AM   10:00 AN  F   No
+@CLIN-MOCKBDS 06/23/2026  06/23/2026  08:00 A.M. 12:00 P.M. T  No
+`;
+const og = parseScheduleText(ocrGarbled);
+const find = (d) => og.entries.find((e) => e.date === d);
+console.log('\nOCR repair checks:');
+console.log(`  Parsed: ${og.entries.length} entries, ${og.errors.length} errors (expected 6, 0)`);
+og.errors.forEach((e) => console.log('  ERROR:', JSON.stringify(e)));
+check('colon→period time repaired (01.00 PM → 01:00 PM)',
+  find('2026-06-10') && find('2026-06-10').startTime === '01:00 PM' && find('2026-06-10').endTime === '04:00 PM');
+check('0→O in minutes repaired (04:OO PM → 04:00 PM)',
+  find('2026-06-11') && find('2026-06-11').endTime === '04:00 PM');
+check('O-garbled date repaired (O7/O9/2O26 → 2026-07-09)',
+  !!find('2026-07-09'));
+check('1→l in time repaired (l2:00 PM → 12:00 PM)',
+  find('2026-06-25') && find('2026-06-25').endTime === '12:00 PM');
+check('AM/PM letter confusion repaired (10:00 AN → 10:00 AM)',
+  find('2026-06-26') && find('2026-06-26').endTime === '10:00 AM');
+check('dotted A.M./P.M. repaired (08:00 A.M. → 08:00 AM, 12:00 P.M. → 12:00 PM)',
+  find('2026-06-23') && find('2026-06-23').startTime === '08:00 AM' && find('2026-06-23').endTime === '12:00 PM');
+check('repair leaves the block code intact (ONCALL still maps)',
+  find('2026-06-11') && find('2026-06-11').description === 'ON-CALL BLOCK');
+
 // --- new block types: OS + Urgent Care fold into Oral Surgery, plus Mock
 // Boards and Education/Other ---
 const newCodesSample = `
