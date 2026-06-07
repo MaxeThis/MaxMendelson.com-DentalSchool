@@ -658,6 +658,7 @@ function subscribeBlocks() {
           return 0;
         });
         renderCurrentView();
+        healOwnBlockTypes();
       },
       (err) => {
         console.error('Firestore subscription error:', err);
@@ -715,9 +716,49 @@ async function propagateProfileToBlocks(profile) {
   await batch.commit();
 }
 
+// Self-healing for block labels. Rewrites any block whose stored `type` is a
+// legacy/aliased value (e.g. a pre-merge "Oral Surgery") to its canonical form
+// so the database matches what's displayed and filtered. This is the durable
+// fix for "small relabelings" like the Oral Surgery / OS / Urgent Care merge:
+// add one entry to TYPE_ALIASES and existing records get rewritten the next
+// time their owner (or the admin) loads the app — no manual data surgery.
+// Firestore batches cap at 500 writes, so we chunk. Returns the count fixed.
+async function canonicalizeBlockTypes(blocks) {
+  if (!state.firestoreReady || !Array.isArray(blocks)) return 0;
+  const stale = blocks.filter((b) => b && b.id && b.type && canonicalType(b.type) !== b.type);
+  for (let i = 0; i < stale.length; i += 450) {
+    const batch = db.batch();
+    for (const b of stale.slice(i, i + 450)) {
+      batch.update(db.collection('blocks').doc(b.id), { type: canonicalType(b.type) });
+    }
+    await batch.commit();
+  }
+  return stale.length;
+}
+
+// Heal the signed-in user's own upcoming blocks (the set the board subscription
+// loads). Scoped to their own posts so clients don't race to rewrite the whole
+// collection; the admin path below sweeps everything at once. Guarded against
+// re-entry because each commit re-fires the blocks snapshot that calls this.
+let _healingBlocks = false;
+async function healOwnBlockTypes() {
+  if (_healingBlocks || !state.profile) return;
+  _healingBlocks = true;
+  try {
+    const n = await canonicalizeBlockTypes(
+      state.blocks.filter((b) => b.sNumber === state.profile.sNumber)
+    );
+    if (n) console.log(`[blocks] canonicalized ${n} of your block type(s).`);
+  } catch (err) {
+    logClientError('blocks-self-heal', err);
+  } finally {
+    _healingBlocks = false;
+  }
+}
+
 async function postBlockDoc(block) {
   if (!state.firestoreReady) { toast('Data storage is not configured yet.'); return false; }
-  await db.collection('blocks').add(block);
+  await db.collection('blocks').add({ ...block, type: canonicalType(block.type) });
   return true;
 }
 
@@ -735,7 +776,8 @@ async function setBlockUrgent(id, urgent) {
 
 async function updateBlockDoc(id, fields) {
   if (!state.firestoreReady) { toast('Data storage is not configured yet.'); return false; }
-  await db.collection('blocks').doc(id).update(fields);
+  const safe = fields.type ? { ...fields, type: canonicalType(fields.type) } : fields;
+  await db.collection('blocks').doc(id).update(safe);
   return true;
 }
 
@@ -3161,6 +3203,11 @@ async function loadAdminData() {
     const posted = [];
     blocksSnap.forEach((doc) => posted.push({ id: doc.id, source: 'posted', ...doc.data() }));
     state.admin.postedCount = posted.length;
+    // Admin sees the whole collection, so heal every mislabeled block at once
+    // (past blocks included — the owner-scoped pass only covers upcoming ones).
+    canonicalizeBlockTypes(posted)
+      .then((n) => { if (n) console.log(`[admin] canonicalized ${n} block type(s) in the database.`); })
+      .catch((err) => logClientError('blocks-admin-heal', err));
     // Fold every user's imported schedule into the admin block list so the
     // admin calendar shows everyone's full schedule, not just blocks posted
     // for swap. Dedupe against posted blocks (same student + date + period)
