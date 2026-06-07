@@ -2121,6 +2121,17 @@ function cleanDescription(raw) {
   for (const code of Object.keys(SCHEDULE_NAME_MAP)) {
     if (upper.includes(code)) return SCHEDULE_NAME_MAP[code];
   }
+  // Hyphen/space-insensitive fallback: OCR often drops the dash in a code
+  // ("BLK-OS" → "BLKOS", "BLK OS", "BLK.OS"). Compare with every non-alphanumeric
+  // removed so these still resolve. No code's squashed form is a substring of
+  // another's, so this can't mis-route between block types.
+  const squashed = upper.replace(/[^A-Z0-9]/g, '');
+  if (squashed) {
+    for (const code of Object.keys(SCHEDULE_NAME_MAP)) {
+      const codeSquashed = code.replace(/[^A-Z0-9]/g, '');
+      if (codeSquashed && squashed.includes(codeSquashed)) return SCHEDULE_NAME_MAP[code];
+    }
+  }
   if (upper.includes('HOSP')) return 'HOSPITAL BLOCK';
   // Normalize an already-cleaned description (e.g. one imported before a label
   // change) to the current canonical description for its type. This migrates

@@ -221,6 +221,24 @@ check('CLIN-MOCKBDS maps to MOCK BOARDS BLOCK',
 check('EDU-OTHER maps to EDUCATION/OTHER BLOCK',
   nc('2026-08-13') && nc('2026-08-13').description === 'EDUCATION/OTHER BLOCK');
 
+// Hyphen/space dropped by OCR — the code should still resolve.
+const dashDropped = `
+@BLKOS    09/01/2026  09/01/2026  09:00 AM  12:00 PM  T   Yes
+@BLK OS   09/02/2026  09/02/2026  09:00 AM  12:00 PM  W   Yes
+@BLKUCARE 09/03/2026  09/03/2026  09:00 AM  12:00 PM  Th  Yes
+`;
+const dd = parseScheduleText(dashDropped);
+const ddFind = (d) => dd.entries.find((e) => e.date === d);
+console.log('\nHyphen-drop checks:');
+console.log(`  Parsed: ${dd.entries.length} entries, ${dd.errors.length} errors (expected 3, 0)`);
+dd.errors.forEach((e) => console.log('  ERROR:', JSON.stringify(e)));
+check('BLKOS (no dash) folds into ORAL SURGERY/URG CARE BLOCK',
+  ddFind('2026-09-01') && ddFind('2026-09-01').description === 'ORAL SURGERY/URG CARE BLOCK');
+check('BLK OS (space) folds into ORAL SURGERY/URG CARE BLOCK',
+  ddFind('2026-09-02') && ddFind('2026-09-02').description === 'ORAL SURGERY/URG CARE BLOCK');
+check('BLKUCARE (no dash) folds into ORAL SURGERY/URG CARE BLOCK',
+  ddFind('2026-09-03') && ddFind('2026-09-03').description === 'ORAL SURGERY/URG CARE BLOCK');
+
 // canonicalType folds legacy posted-block type strings into the merged type so
 // they still match the combined "Oral Surgery/Urg Care" calendar filter.
 console.log('\ncanonicalType checks:');
