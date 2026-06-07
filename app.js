@@ -2931,6 +2931,7 @@ function calendarFeedUrls(token) {
 }
 
 async function renderCalendarSubscription() {
+  const panel = $('calendar-sub-panel');
   const box = $('calendar-sub');
   if (!box) return;
   box.replaceChildren();
@@ -2941,10 +2942,13 @@ async function renderCalendarSubscription() {
     return p;
   };
 
+  // Hide the whole panel until an admin deploys the feed Worker and sets
+  // CALENDAR_FEED_BASE — no point advertising it otherwise.
   if (!CALENDAR_FEED_BASE) {
-    box.appendChild(note('Live subscription isn’t set up yet. (Admin: deploy the calendar Worker and set CALENDAR_FEED_BASE — see worker/README.md.)'));
+    if (panel) panel.classList.add('hidden');
     return;
   }
+  if (panel) panel.classList.remove('hidden');
   if (!state.profile || !state.firestoreReady) {
     box.appendChild(note('Sign in to get your live calendar link.'));
     return;
