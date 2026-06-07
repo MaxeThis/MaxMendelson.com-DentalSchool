@@ -2,7 +2,7 @@
 
 A static site for University of Maryland School of Dentistry students to swap blocks. Students register with their name, S# (5 digits, the `S` is added automatically), and phone number, then post blocks they want to give up. Other students can filter and view the calendar and reach out by phone or text.
 
-- Block types: Oral Surgery/Urg Care (BLK-SURGERY, BLK-OS, and BLK-UCARE are treated as one), Ortho, Special Care, Peds, Emergency, On-Call, Screening, Hospital, Pan, Mock Boards, Education/Other. Hospital, Mock Boards, and Education/Other are display/filter-only — they can't be posted for swap
+- Block types: Oral Surgery/Urg Care (BLK-SURGERY, BLK-OS, and BLK-UCARE are treated as one), Ortho, Special Care, Peds, Emergency, On-Call, Screening, Hospital, Pan, Mock Boards, Education/Other, Shady Grove. Hospital, Mock Boards, and Education/Other are display/filter-only (can't be posted for swap); Shady Grove is admin-filter-only (kept out of the swap-calendar filter and post form since it's never posted)
 - Labels are self-healing: each axiUm code maps to a canonical name (`SCHEDULE_NAME_MAP`, with hyphen-insensitive + OCR-digit repair so `BLKOS`/`09:OO` still resolve) and each block type folds through `TYPE_ALIASES` to its canonical label. To rename or merge a type, edit those maps in one place — existing posted blocks and imported schedules are rewritten to match the next time their owner (or the admin) loads the app, so no manual database edits are needed
 - Mon–Fri, morning + afternoon
 - Download an `.ics` of your schedule (deterministic event IDs, so re-importing updates events in place instead of duplicating), or subscribe to a **live** auto-updating calendar feed (optional — deploy the Cloudflare Worker in [`worker/`](worker/README.md))
@@ -42,7 +42,7 @@ You need a Firebase project to store the shared blocks. It is free for this use 
          return h is string && h.size() >= 32 && h.size() <= 128;
        }
        function validType(t) {
-         return t in ['Oral Surgery/Urg Care','Oral Surgery','Urgent Care','Ortho','Special Care','Peds','Emergency','On-Call','Screening','Hospital','Pan','Mock Boards','Education/Other'];
+         return t in ['Oral Surgery/Urg Care','Oral Surgery','Urgent Care','Ortho','Special Care','Peds','Emergency','On-Call','Screening','Hospital','Pan','Mock Boards','Education/Other','Shady Grove'];
        }
        function validTime(t) {
          return t == 'morning' || t == 'afternoon';

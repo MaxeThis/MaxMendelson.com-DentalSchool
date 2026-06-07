@@ -15,12 +15,18 @@ const BLOCK_TYPES = [
   'Pan',
   'Mock Boards',
   'Education/Other',
+  'Shady Grove',
 ];
 
 // Block types that exist for schedule display + calendar filtering only. They
 // have no option in the Post form and are rejected on submit — students can't
 // list them for swap (same treatment Hospital has always had).
-const NON_POSTABLE_TYPES = new Set(['Hospital', 'Mock Boards', 'Education/Other']);
+const NON_POSTABLE_TYPES = new Set(['Hospital', 'Mock Boards', 'Education/Other', 'Shady Grove']);
+
+// Types that only make sense in the admin calendar (schedule-derived, never
+// posted for swap). They're left out of BOTH the swap-calendar filter and the
+// post form, but still appear in the admin filter so the admin can slice by them.
+const ADMIN_ONLY_FILTER = new Set(['Shady Grove']);
 
 // Base URL of the live calendar-feed Worker (see worker/README.md). Empty string
 // = feature disabled (the subscription panel shows a "not set up yet" note).
@@ -62,12 +68,17 @@ const SCHEDULE_NAME_MAP = {
   'BLK-ONCALL':  'ON-CALL BLOCK',
   'BLKONCALL':   'ON-CALL BLOCK',       // OCR: missing dash (also matches GBLKONCALL via fuzzy includes())
   'BLK-SCR':     'SCREENING BLOCK',
+  'BLK-5CR':     'SCREENING BLOCK',     // OCR: S → 5
   'BLK-HOSPITAL': 'HOSPITAL BLOCK',
   'BLK-PAN':     'PAN BLOCK',
   'CLIN-MOCKBDS': 'MOCK BOARDS BLOCK',
   'CLINMOCKBDS':  'MOCK BOARDS BLOCK',  // OCR: missing dash
+  'CLINMOCKEBDS': 'MOCK BOARDS BLOCK',  // OCR: stray E
   'EDU-OTHER':    'EDUCATION/OTHER BLOCK',
   'EDUOTHER':     'EDUCATION/OTHER BLOCK', // OCR: missing dash
+  'EDUQOTHER':    'EDUCATION/OTHER BLOCK', // OCR: dash → Q
+  'EDUQTHER':     'EDUCATION/OTHER BLOCK', // OCR: dash → Q, dropped O
+  'BLK-SHADYGROVE': 'SHADY GROVE BLOCK',
 };
 
 // swap-listing block type → canonical schedule description.
@@ -83,6 +94,7 @@ const TYPE_TO_DESC = {
   'Pan':                   'PAN BLOCK',
   'Mock Boards':           'MOCK BOARDS BLOCK',
   'Education/Other':       'EDUCATION/OTHER BLOCK',
+  'Shady Grove':           'SHADY GROVE BLOCK',
 };
 
 // Display name → swap-listing block type (inverse of TYPE_TO_DESC), plus the
@@ -2047,10 +2059,13 @@ function populateBlockTypeSelects() {
   const adminFilterSel = $('admin-cal-filter-type');
   const postSel = $('post-type');
   for (const t of BLOCK_TYPES) {
-    const o1 = document.createElement('option'); o1.value = t; o1.textContent = t; filterSel.appendChild(o1);
+    const adminOnly = ADMIN_ONLY_FILTER.has(t);
+    // Admin filter gets every type; the swap-calendar filter skips admin-only ones.
     if (adminFilterSel) {
       const oA = document.createElement('option'); oA.value = t; oA.textContent = t; adminFilterSel.appendChild(oA);
     }
+    if (adminOnly) continue;
+    const o1 = document.createElement('option'); o1.value = t; o1.textContent = t; filterSel.appendChild(o1);
     if (NON_POSTABLE_TYPES.has(t)) continue;
     const o2 = document.createElement('option'); o2.value = t; o2.textContent = t; postSel.appendChild(o2);
   }
@@ -2208,6 +2223,9 @@ function cleanDescription(raw) {
     }
   }
   if (upper.includes('HOSP')) return 'HOSPITAL BLOCK';
+  // Special Care & Geriatrics: the "&" gets OCR'd as 3/A/a/8/s/4 or dropped, and
+  // the leading S read as 5. Anything shaped like BLK-?PC-?G is this block.
+  if (/^BLK[5S]PC.{0,2}G$/.test(squashed)) return 'SPECIAL CARE BLOCK';
   // Normalize an already-cleaned description (e.g. one imported before a label
   // change) to the current canonical description for its type. This migrates
   // legacy "ORAL SURGERY BLOCK" / "URGENT CARE BLOCK" entries to the merged

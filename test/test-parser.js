@@ -239,6 +239,27 @@ check('BLK OS (space) folds into ORAL SURGERY/URG CARE BLOCK',
 check('BLKUCARE (no dash) folds into ORAL SURGERY/URG CARE BLOCK',
   ddFind('2026-09-03') && ddFind('2026-09-03').description === 'ORAL SURGERY/URG CARE BLOCK');
 
+// --- variants seen in real imported schedules (live DB audit) ---
+const liveVariants = `
+@BLK-SPC8G    10/01/2026  10/01/2026  09:00 AM  12:00 PM  T   Yes
+@BLK-SPCsG    10/02/2026  10/02/2026  09:00 AM  12:00 PM  W   Yes
+@BLK-5CR      10/05/2026  10/05/2026  09:00 AM  12:00 PM  M   Yes
+@EDUQOTHER    10/06/2026  10/06/2026  09:00 AM  12:00 PM  T   Yes
+@CLINMOCKEBDS 10/07/2026  10/07/2026  08:00 AM  12:00 PM  W   No
+@BLK-ShadyGrove ~~  10/08/2026  10/08/2026  09:00 AM  12:00 PM  Th  Yes
+`;
+const lv = parseScheduleText(liveVariants);
+const lvFind = (d) => lv.entries.find((e) => e.date === d);
+console.log('\nReal-schedule variant checks:');
+console.log(`  Parsed: ${lv.entries.length} entries, ${lv.errors.length} errors (expected 6, 0)`);
+lv.errors.forEach((e) => console.log('  ERROR:', JSON.stringify(e)));
+check('BLK-SPC8G (&→8) → SPECIAL CARE BLOCK', lvFind('2026-10-01') && lvFind('2026-10-01').description === 'SPECIAL CARE BLOCK');
+check('BLK-SPCsG (&→s) → SPECIAL CARE BLOCK', lvFind('2026-10-02') && lvFind('2026-10-02').description === 'SPECIAL CARE BLOCK');
+check('BLK-5CR (S→5) → SCREENING BLOCK', lvFind('2026-10-05') && lvFind('2026-10-05').description === 'SCREENING BLOCK');
+check('EDUQOTHER → EDUCATION/OTHER BLOCK', lvFind('2026-10-06') && lvFind('2026-10-06').description === 'EDUCATION/OTHER BLOCK');
+check('CLINMOCKEBDS → MOCK BOARDS BLOCK', lvFind('2026-10-07') && lvFind('2026-10-07').description === 'MOCK BOARDS BLOCK');
+check('BLK-ShadyGrove ~~ → SHADY GROVE BLOCK', lvFind('2026-10-08') && lvFind('2026-10-08').description === 'SHADY GROVE BLOCK');
+
 // canonicalType folds legacy posted-block type strings into the merged type so
 // they still match the combined "Oral Surgery/Urg Care" calendar filter.
 console.log('\ncanonicalType checks:');
