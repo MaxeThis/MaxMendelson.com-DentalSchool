@@ -7,11 +7,13 @@
 //
 // Zero dependencies — uses Node's built-in crypto + fetch (Node 18+).
 //
-// Credentials: set GOOGLE_APPLICATION_CREDENTIALS to your key file, or drop it
-// at ./secrets/firebase-admin.json (gitignored). Create one in the Firebase
-// console → Project settings → Service accounts → Generate new private key.
-// A read-only "Cloud Datastore Viewer" role is enough for `audit`; `--fix`
-// needs write ("Cloud Datastore User").
+// Credentials (tried in order):
+//   1. gcloud sign-in (recommended — no key file):
+//        gcloud auth application-default login
+//   2. A service-account key at secrets/firebase-admin.json (gitignored), or
+//      GOOGLE_APPLICATION_CREDENTIALS. For read-only access use the "Cloud
+//      Datastore Viewer" role; `--fix` needs write ("Cloud Datastore User").
+// `audit`, `blocks`, and `schedules` are read-only; only `--fix` writes.
 //
 // Usage:
 //   node tools/firestore-admin.mjs audit          # report block types + unknowns (read-only)
@@ -22,6 +24,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 /* ---- canonical maps (mirror of app.js — keep in sync) ---- */
 const BLOCK_TYPES = [
@@ -50,15 +53,53 @@ function resolveType(t) {
   return d || null;
 }
 
-/* ---- auth ---- */
-function loadCreds() {
-  const p = process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+/* ---- auth ----
+ * Two ways in, tried in order:
+ *   1. gcloud CLI sign-in (recommended): `gcloud auth application-default login`.
+ *      Uses YOUR Google account + short-lived tokens — no key file on disk.
+ *   2. A service-account key file (GOOGLE_APPLICATION_CREDENTIALS or
+ *      secrets/firebase-admin.json).
+ */
+const DEFAULT_PROJECT = 'maxmendelson-com-dental-school';
+
+function gcloud(args) {
+  const r = spawnSync('gcloud', args, { encoding: 'utf8' });
+  if (r.error || r.status !== 0) throw new Error(((r.stderr || (r.error && r.error.message)) || 'gcloud failed').trim());
+  return (r.stdout || '').trim();
+}
+
+function gcloudProjectId() {
+  if (process.env.GOOGLE_CLOUD_PROJECT) return process.env.GOOGLE_CLOUD_PROJECT;
+  try {
+    const p = gcloud(['config', 'get-value', 'project']);
+    if (p && p !== '(unset)') return p;
+  } catch { /* fall through */ }
+  return DEFAULT_PROJECT;
+}
+
+async function resolveAuth() {
+  // 1. gcloud Application Default Credentials (interactive sign-in).
+  try {
+    const token = gcloud(['auth', 'application-default', 'print-access-token']);
+    if (token) return { token, pid: gcloudProjectId(), mode: 'gcloud sign-in (your Google account)' };
+  } catch { /* not signed in / gcloud not installed — try a key file */ }
+
+  // 2. Service-account key file.
+  const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS ||
     path.join(process.cwd(), 'secrets', 'firebase-admin.json');
-  if (!fs.existsSync(p)) {
-    console.error(`No service-account key found.\n  Looked at: ${p}\n  Set GOOGLE_APPLICATION_CREDENTIALS or drop the key at secrets/firebase-admin.json`);
-    process.exit(1);
+  if (fs.existsSync(keyPath)) {
+    const creds = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+    const token = await getAccessToken(creds);
+    return { token, pid: creds.project_id, mode: `service-account key (${path.basename(keyPath)})` };
   }
-  return JSON.parse(fs.readFileSync(p, 'utf8'));
+
+  console.error(
+    'No credentials found. Pick one:\n' +
+    '  • Sign in with the gcloud CLI (recommended):\n' +
+    '        gcloud auth application-default login\n' +
+    '  • Or drop a service-account key at secrets/firebase-admin.json\n'
+  );
+  process.exit(1);
 }
 
 function signJwt(claim, privateKey) {
@@ -186,10 +227,8 @@ async function cmdAudit(pid, token, doFix) {
 /* ---- main ---- */
 const cmd = process.argv[2] || 'audit';
 const doFix = process.argv.includes('--fix');
-const creds = loadCreds();
-const token = await getAccessToken(creds);
-const pid = creds.project_id;
-console.log(`Project: ${pid}\n`);
+const { token, pid, mode } = await resolveAuth();
+console.log(`Project: ${pid}   (auth: ${mode})\n`);
 if (cmd === 'blocks') await cmdBlocks(pid, token);
 else if (cmd === 'schedules') await cmdSchedules(pid, token);
 else if (cmd === 'audit') await cmdAudit(pid, token, doFix);
