@@ -849,6 +849,18 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   pointer-events: auto;
 }
 
+.calendar-sub-url {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg, #fff);
+  margin-bottom: 8px;
+  box-sizing: border-box;
+}
+
 .my-blocks-download-row {
   margin-top: 18px;
   padding-top: 16px;

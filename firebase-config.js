@@ -31,3 +31,10 @@ window.FIREBASE_CONFIG = {
 //      case) and switch enforcement to "Enforced".
 // Leaving this blank disables App Check (site still works).
 window.RECAPTCHA_V3_SITE_KEY = "6LchQr4sAAAAAL34gOfS1b-kr2tPPb7GlK5wJ6Ap";
+
+// OPTIONAL: live calendar subscription feed (Cloudflare Worker — see
+// worker/README.md). Set this to your deployed Worker's base URL to enable the
+// "Live calendar subscription" panel under My Blocks → Edit schedule. Leave it
+// blank to hide that panel and keep only the .ics download.
+//   e.g. "https://umsod-calendar.your-subdomain.workers.dev"
+window.CALENDAR_FEED_BASE = "";

@@ -22,6 +22,10 @@ const BLOCK_TYPES = [
 // list them for swap (same treatment Hospital has always had).
 const NON_POSTABLE_TYPES = new Set(['Hospital', 'Mock Boards', 'Education/Other']);
 
+// Base URL of the live calendar-feed Worker (see worker/README.md). Empty string
+// = feature disabled (the subscription panel shows a "not set up yet" note).
+const CALENDAR_FEED_BASE = ((window.CALENDAR_FEED_BASE || '').trim()).replace(/\/+$/, '');
+
 // Legacy / equivalent block-type strings → the canonical type they fold into.
 // Oral Surgery (BLK-SURGERY), OS (BLK-OS), and Urgent Care (BLK-UCARE) are all
 // the same block, so blocks posted under the old strings still match the
@@ -597,11 +601,13 @@ function loadLocalProfile() {
 
 function cacheProfile(p) {
   state.profile = p;
+  state.calendarToken = undefined; // re-fetch the live-feed token for this profile
   localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
 }
 
 function clearLocalProfile() {
   state.profile = null;
+  state.calendarToken = undefined;
   localStorage.removeItem(PROFILE_KEY);
 }
 
@@ -1383,6 +1389,7 @@ function setMyBlocksMode(mode) {
 function renderMyBlocksView() {
   if (state.myBlocksMode === 'edit') {
     renderSchedule();
+    renderCalendarSubscription();
   } else {
     renderMyBlocks();
   }
@@ -2883,6 +2890,141 @@ function handleDownloadIcs() {
   const safeName = state.profile.name.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'blocks';
   downloadBlob(`${safeName}_Blocks.ics`, ics, 'text/calendar');
   toast('Calendar file downloaded.');
+}
+
+/* ----------------------------- live calendar feed ----------------------------- */
+
+function newCalendarToken() {
+  const a = new Uint8Array(16);
+  (window.crypto || crypto).getRandomValues(a);
+  return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function calendarFeedUrls(token) {
+  const sNum = state.profile ? state.profile.sNumber : '';
+  const reminderOn = $('reminder-enabled') && $('reminder-enabled').checked;
+  const rt = ($('reminder-time') && $('reminder-time').value) || '';
+  let q = `u=${encodeURIComponent(sNum)}&k=${encodeURIComponent(token)}`;
+  if (reminderOn && /^\d{1,2}:\d{2}$/.test(rt)) q += `&reminder=${encodeURIComponent(rt)}`;
+  const httpsUrl = `${CALENDAR_FEED_BASE}/calendar?${q}`;
+  const webcalUrl = httpsUrl.replace(/^https?:\/\//, 'webcal://');
+  const googleUrl = `https://calendar.google.com/calendar/u/0/r/settings/addbyurl?url=${encodeURIComponent(httpsUrl)}`;
+  return { httpsUrl, webcalUrl, googleUrl };
+}
+
+async function renderCalendarSubscription() {
+  const box = $('calendar-sub');
+  if (!box) return;
+  box.replaceChildren();
+  const note = (text) => {
+    const p = document.createElement('p');
+    p.className = 'muted small';
+    p.textContent = text;
+    return p;
+  };
+
+  if (!CALENDAR_FEED_BASE) {
+    box.appendChild(note('Live subscription isn’t set up yet. (Admin: deploy the calendar Worker and set CALENDAR_FEED_BASE — see worker/README.md.)'));
+    return;
+  }
+  if (!state.profile || !state.firestoreReady) {
+    box.appendChild(note('Sign in to get your live calendar link.'));
+    return;
+  }
+
+  // Fetch the saved token once per profile; cached on state thereafter.
+  if (state.calendarToken === undefined) {
+    box.appendChild(note('Loading…'));
+    try {
+      const snap = await db.collection('users').doc(state.profile.sNumber).get();
+      state.calendarToken = (snap.exists && snap.data().calendarToken) || null;
+    } catch (e) {
+      state.calendarToken = null;
+    }
+    box.replaceChildren();
+  }
+
+  if (!state.calendarToken) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'primary';
+    btn.textContent = 'Enable live calendar link';
+    btn.addEventListener('click', () => enableCalendarFeed(false));
+    box.appendChild(btn);
+    box.appendChild(note('Creates a private link you can subscribe to in Apple Calendar, Google Calendar, or Outlook.'));
+    return;
+  }
+
+  const { webcalUrl, googleUrl } = calendarFeedUrls(state.calendarToken);
+
+  const field = document.createElement('input');
+  field.type = 'text';
+  field.readOnly = true;
+  field.value = webcalUrl;
+  field.className = 'calendar-sub-url';
+  field.addEventListener('focus', () => field.select());
+  box.appendChild(field);
+
+  const row = document.createElement('div');
+  row.className = 'row-buttons';
+
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.className = 'text-btn';
+  copyBtn.textContent = 'Copy link';
+  copyBtn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(webcalUrl); toast('Link copied.'); }
+    catch (e) { field.focus(); toast('Press ⌘/Ctrl-C to copy.'); }
+  });
+  row.appendChild(copyBtn);
+
+  const apple = document.createElement('a');
+  apple.href = webcalUrl;
+  apple.className = 'text-btn';
+  apple.textContent = 'Add to Apple Calendar';
+  row.appendChild(apple);
+
+  const google = document.createElement('a');
+  google.href = googleUrl;
+  google.target = '_blank';
+  google.rel = 'noopener';
+  google.className = 'text-btn';
+  google.textContent = 'Add to Google Calendar';
+  row.appendChild(google);
+
+  box.appendChild(row);
+
+  const resetBtn = document.createElement('button');
+  resetBtn.type = 'button';
+  resetBtn.className = 'text-btn danger';
+  resetBtn.textContent = 'Reset link';
+  resetBtn.addEventListener('click', () => {
+    if (confirm('Reset your calendar link? The old link stops working and you’ll need to re-subscribe with the new one.')) {
+      enableCalendarFeed(true);
+    }
+  });
+  box.appendChild(resetBtn);
+
+  box.appendChild(note('Anyone with this link can see your block schedule, so keep it private. Your reminder setting above is baked into the link — re-copy it after changing the reminder.'));
+}
+
+async function enableCalendarFeed(isReset) {
+  if (!CALENDAR_FEED_BASE) return;
+  if (!state.profile || !state.firestoreReady) { toast('Sign in first.'); return; }
+  const token = newCalendarToken();
+  try {
+    await db.collection('users').doc(state.profile.sNumber).update({
+      calendarToken: token,
+      updatedAt: Date.now(),
+    });
+    state.calendarToken = token;
+    renderCalendarSubscription();
+    toast(isReset ? 'New link generated.' : 'Live calendar enabled.');
+  } catch (err) {
+    console.error(err);
+    logClientError('calendar-feed-enable', err);
+    toast('Could not update your calendar link.');
+  }
 }
 
 /* ----------------------------- assist view ----------------------------- */

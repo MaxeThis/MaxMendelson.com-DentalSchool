@@ -5,6 +5,7 @@ A static site for University of Maryland School of Dentistry students to swap bl
 - Block types: Oral Surgery/Urg Care (BLK-SURGERY, BLK-OS, and BLK-UCARE are treated as one), Ortho, Special Care, Peds, Emergency, On-Call, Screening, Hospital, Pan, Mock Boards, Education/Other. Hospital, Mock Boards, and Education/Other are display/filter-only — they can't be posted for swap
 - Labels are self-healing: each axiUm code maps to a canonical name (`SCHEDULE_NAME_MAP`, with hyphen-insensitive + OCR-digit repair so `BLKOS`/`09:OO` still resolve) and each block type folds through `TYPE_ALIASES` to its canonical label. To rename or merge a type, edit those maps in one place — existing posted blocks and imported schedules are rewritten to match the next time their owner (or the admin) loads the app, so no manual database edits are needed
 - Mon–Fri, morning + afternoon
+- Download an `.ics` of your schedule (deterministic event IDs, so re-importing updates events in place instead of duplicating), or subscribe to a **live** auto-updating calendar feed (optional — deploy the Cloudflare Worker in [`worker/`](worker/README.md))
 - Filter the calendar by block type and/or morning/afternoon
 - Each student can see and remove their own posted blocks
 - Assist board for posting clinic appointments that need an assist (Endo / Fixed / Remo / Operative). Posts go live for everyone at 8 AM the day before — Endo opens 1 week ahead. Times are 7 AM, 9:30 AM, 1 PM (2 PM on Mondays), 4 PM

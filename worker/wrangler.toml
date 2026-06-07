@@ -1,0 +1,8 @@
+name = "umsod-calendar"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# Public project id — safe to commit. The sensitive service-account values are
+# set as encrypted secrets (see worker/README.md), NOT here.
+[vars]
+GCP_PROJECT_ID = "maxmendelson-com-dental-school"
