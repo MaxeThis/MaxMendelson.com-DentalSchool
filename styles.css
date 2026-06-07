@@ -849,6 +849,28 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   pointer-events: auto;
 }
 
+.import-failed {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--red);
+  border-radius: 6px;
+}
+.import-failed p {
+  margin: 0 0 6px;
+}
+.import-failed-list {
+  margin: 0;
+  padding-left: 18px;
+}
+.import-failed-list li {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 2px 0;
+}
+
 .example-screenshot {
   margin: 4px 0 12px;
   border: 1px solid var(--border);

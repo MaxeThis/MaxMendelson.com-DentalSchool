@@ -2669,9 +2669,10 @@ async function handleScreenshotUpload(e) {
 async function processScreenshotFiles(files) {
   if (files.length === 0) return;
   const status = $('import-status');
+  renderImportErrors([]);
   status.textContent = 'Loading OCR engine (first time only, ~10 MB)…';
   let totalAdded = 0;
-  let totalErrors = 0;
+  const failedLines = [];
   for (let i = 0; i < files.length; i++) {
     if (files.length > 1) status.textContent = `Processing image ${i + 1} of ${files.length}…`;
     let text;
@@ -2687,12 +2688,40 @@ async function processScreenshotFiles(files) {
     console.log(`[Schedule parser] Image ${i + 1}:`, entries, errors.length ? errors : '(no errors)');
     const added = mergeScheduleEntries(entries);
     totalAdded += added;
-    totalErrors += errors.length;
+    for (const line of errors) failedLines.push(line);
     renderSchedule();
   }
   const parts = [`Added ${totalAdded} block${totalAdded === 1 ? '' : 's'}.`];
-  if (totalErrors) parts.push(`${totalErrors} line${totalErrors === 1 ? '' : 's'} couldn’t be parsed.`);
+  if (failedLines.length) parts.push(`${failedLines.length} line${failedLines.length === 1 ? '' : 's'} couldn’t be parsed.`);
   status.textContent = parts.join(' ');
+  renderImportErrors(failedLines);
+}
+
+// Show the raw OCR lines the parser couldn't read (usually a date or time the
+// scan garbled) so the user can see exactly what to re-screenshot — and so the
+// text is recoverable without opening the browser console.
+function renderImportErrors(lines) {
+  const box = $('import-failed');
+  if (!box) return;
+  box.replaceChildren();
+  if (!lines || lines.length === 0) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+
+  const intro = document.createElement('p');
+  intro.className = 'muted small';
+  intro.textContent = lines.length === 1
+    ? 'Couldn’t read this line — OCR garbled the date or a time. Re-upload a sharper, closer screenshot of that row:'
+    : `Couldn’t read these ${lines.length} lines — OCR garbled the date or a time. Re-upload a sharper, closer screenshot of those rows:`;
+  box.appendChild(intro);
+
+  const ul = document.createElement('ul');
+  ul.className = 'import-failed-list';
+  for (const line of lines) {
+    const li = document.createElement('li');
+    li.textContent = line;
+    ul.appendChild(li);
+  }
+  box.appendChild(ul);
 }
 
 function handleScheduleClear() {
