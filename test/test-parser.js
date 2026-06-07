@@ -50,7 +50,7 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
 
-const { parseScheduleText, generateIcs, migrateScheduleDescriptions, canonicalType, resolveBlockType } = sandbox;
+const { parseScheduleText, generateIcs, migrateScheduleDescriptions, migrateScheduleTimes, alignStartTime, canonicalType, resolveBlockType } = sandbox;
 
 // --- sample: exact rows from the user's two screenshots ---
 const sample = `
@@ -198,6 +198,39 @@ check('dotted A.M./P.M. repaired (08:00 A.M. → 08:00 AM, 12:00 P.M. → 12:00 
   find('2026-06-23') && find('2026-06-23').startTime === '08:00 AM' && find('2026-06-23').endTime === '12:00 PM');
 check('repair leaves the block code intact (ONCALL still maps)',
   find('2026-06-11') && find('2026-06-11').description === 'ON-CALL BLOCK');
+
+// --- bad start times: "09:00 AM" mis-scanned as "03:00 AM"/"05:00 AM", end is
+// reliable (12:00 PM) so the start is realigned to the 9–12 morning slot ---
+const badTimes = `
+@BLK-ONCALL   07/16/2026  07/16/2026  03:00 AM  12:00 PM  Th  Yes
+@BLK-SURGERY  07/17/2026  07/17/2026  05:00 AM  12:00 PM  F   Yes
+@CLIN-MOCKBDS 07/20/2026  07/20/2026  08:00 AM  12:00 PM  M   No
+@EDU-OTHER    07/21/2026  07/21/2026  10:00 AM  12:00 PM  T   Yes
+@BLK-PEDS     07/22/2026  07/22/2026  09:00 AM  12:00 PM  W   Yes
+`;
+const bt = parseScheduleText(badTimes);
+const btFind = (d) => bt.entries.find((e) => e.date === d);
+console.log('\nBad start-time realignment:');
+check('03:00 AM end-12:00 PM realigned to 09:00 AM', btFind('2026-07-16') && btFind('2026-07-16').startTime === '09:00 AM');
+check('05:00 AM end-12:00 PM realigned to 09:00 AM', btFind('2026-07-17') && btFind('2026-07-17').startTime === '09:00 AM');
+check('legit 08:00 AM (Mock Boards) left alone', btFind('2026-07-20') && btFind('2026-07-20').startTime === '08:00 AM');
+check('legit 10:00 AM left alone', btFind('2026-07-21') && btFind('2026-07-21').startTime === '10:00 AM');
+check('legit 09:00 AM left alone', btFind('2026-07-22') && btFind('2026-07-22').startTime === '09:00 AM');
+check('end stays 12:00 PM (only the start moved)', btFind('2026-07-16') && btFind('2026-07-16').endTime === '12:00 PM');
+
+// migrate already-imported entries with bad starts
+const staleTimes = [
+  { description: 'ON-CALL BLOCK', date: '2026-08-10', startTime: '03:00 AM', endTime: '12:00 PM' },
+  { description: 'ORAL SURGERY/URG CARE BLOCK', date: '2026-08-11', startTime: '05:00 AM', endTime: '12:00 PM' },
+  { description: 'ON-CALL BLOCK', date: '2026-08-12', startTime: '01:00 PM', endTime: '04:00 PM' }, // fine
+];
+const timesChanged = migrateScheduleTimes(staleTimes);
+check('migrateScheduleTimes reports changes', timesChanged === true);
+check('stale 03:00 AM -> 09:00 AM', staleTimes[0].startTime === '09:00 AM');
+check('stale 05:00 AM -> 09:00 AM', staleTimes[1].startTime === '09:00 AM');
+check('good 01:00 PM unchanged', staleTimes[2].startTime === '01:00 PM');
+check('migrateScheduleTimes idempotent (2nd pass no-op)', migrateScheduleTimes(staleTimes) === false);
+check('alignStartTime leaves ambiguous 05:00 PM end alone', alignStartTime('04:00 AM', '05:00 PM') === '04:00 AM');
 
 // --- new block types: OS + Urgent Care fold into Oral Surgery, plus Mock
 // Boards and Education/Other ---

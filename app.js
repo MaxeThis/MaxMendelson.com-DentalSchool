@@ -130,6 +130,22 @@ const PERIOD_TIMES = {
 };
 const BLOCK_TIME_ORDER = { morning: 0, afternoon: 1 };
 
+// Real block start times. Anything else is an OCR mis-scan of the start column
+// (e.g. "09:00 AM" read as "03:00 AM" or "05:00 AM" — the 9 misread as 3/5).
+const VALID_SCHEDULE_STARTS = new Set(['08:00 AM', '09:00 AM', '10:00 AM', '01:00 PM', '02:00 PM']);
+// When the start is garbled, recover it from the (reliable) end by aligning to
+// the matching slot. Only unambiguous ends are listed — a 05:00 PM end could be
+// a 1–5 or 2–5 block, so we leave those alone.
+const END_TO_START = {
+  '12:00 PM': '09:00 AM',
+  '10:00 AM': '08:00 AM',
+  '04:00 PM': '01:00 PM',
+};
+function alignStartTime(startTime, endTime) {
+  if (VALID_SCHEDULE_STARTS.has(startTime)) return startTime;
+  return END_TO_START[endTime] || startTime;
+}
+
 const PROFILE_KEY = 'umsod_be_profile_v1';
 const SCHEDULE_KEY_PREFIX = 'umsod_be_schedule_v1:';
 
@@ -2334,7 +2350,7 @@ function buildEntry(descRaw, date, start, end) {
     description: cleanDescription(descRaw),
     date: date.ymd,
     dateDisplay: date.display,
-    startTime: start.display,
+    startTime: alignStartTime(start.display, end.display),
     endTime: end.display,
   };
 }
@@ -2370,6 +2386,26 @@ function migrateScheduleDescriptions(entries) {
   return changed;
 }
 
+// Repair start times the scanner garbled (e.g. "03:00 AM"/"05:00 AM" that should
+// be "09:00 AM"), inferring the real start from the end. Idempotent.
+function migrateScheduleTimes(entries) {
+  if (!Array.isArray(entries)) return false;
+  let changed = false;
+  for (const e of entries) {
+    if (!e || typeof e.startTime !== 'string' || typeof e.endTime !== 'string') continue;
+    const fixed = alignStartTime(e.startTime, e.endTime);
+    if (fixed !== e.startTime) { e.startTime = fixed; changed = true; }
+  }
+  return changed;
+}
+
+// Run all schedule migrations over a set of entries; returns true if anything changed.
+function migrateScheduleEntries(entries) {
+  const descChanged = migrateScheduleDescriptions(entries);
+  const timeChanged = migrateScheduleTimes(entries);
+  return descChanged || timeChanged;
+}
+
 function loadSchedule() {
   const key = scheduleKey();
   if (!key) { state.schedule = []; return; }
@@ -2379,7 +2415,7 @@ function loadSchedule() {
   } catch (e) {
     state.schedule = [];
   }
-  if (migrateScheduleDescriptions(state.schedule)) saveSchedule();
+  if (migrateScheduleEntries(state.schedule)) saveSchedule();
   // Sync with Firestore in background. If the cloud has a schedule, pull it
   // down. Otherwise, if we have a local schedule, push it up (this handles
   // users who imported before schedule-sync existed).
@@ -2388,7 +2424,7 @@ function loadSchedule() {
       const cloud = snap.exists && Array.isArray(snap.data().schedule) ? snap.data().schedule : [];
       if (cloud.length > 0) {
         state.schedule = cloud;
-        if (migrateScheduleDescriptions(state.schedule)) {
+        if (migrateScheduleEntries(state.schedule)) {
           saveSchedule();
         } else {
           localStorage.setItem(key, JSON.stringify(state.schedule));
