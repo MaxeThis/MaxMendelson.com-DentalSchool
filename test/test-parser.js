@@ -50,7 +50,7 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
 
-const { parseScheduleText, generateIcs, migrateScheduleDescriptions, canonicalType } = sandbox;
+const { parseScheduleText, generateIcs, migrateScheduleDescriptions, canonicalType, resolveBlockType } = sandbox;
 
 // --- sample: exact rows from the user's two screenshots ---
 const sample = `
@@ -250,6 +250,18 @@ check('merged type passes through unchanged',
   canonicalType('Oral Surgery/Urg Care') === 'Oral Surgery/Urg Care');
 check('unrelated type passes through unchanged',
   canonicalType('Ortho') === 'Ortho');
+
+// resolveBlockType: the DB audit's recognizer. Recoverable values resolve to a
+// canonical type; genuinely unknown values resolve to null (flagged, not guessed).
+console.log('\nresolveBlockType (DB audit) checks:');
+check('canonical type passes through', resolveBlockType('Oral Surgery/Urg Care') === 'Oral Surgery/Urg Care');
+check('valid non-postable type passes through', resolveBlockType('Hospital') === 'Hospital');
+check('legacy alias resolves', resolveBlockType('Oral Surgery') === 'Oral Surgery/Urg Care');
+check('description-form type resolves', resolveBlockType('ORAL SURGERY/URG CARE BLOCK') === 'Oral Surgery/Urg Care');
+check('raw code resolves', resolveBlockType('BLK-OS') === 'Oral Surgery/Urg Care');
+check('hyphen-dropped code resolves', resolveBlockType('BLKOS') === 'Oral Surgery/Urg Care');
+check('unknown value flagged as null', resolveBlockType('Lecture') === null);
+check('empty value flagged as null', resolveBlockType('') === null);
 
 // --- migration of already-imported entries (descriptions stored before the
 // mis-scan map / block-type merge was updated) ---

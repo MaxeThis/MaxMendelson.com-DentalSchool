@@ -91,6 +91,21 @@ const DESC_TO_TYPE = Object.fromEntries(
 DESC_TO_TYPE['ORAL SURGERY BLOCK'] = 'Oral Surgery/Urg Care'; // legacy
 DESC_TO_TYPE['URGENT CARE BLOCK']  = 'Oral Surgery/Urg Care'; // legacy
 
+// Resolve any stored block-type string to a canonical BLOCK_TYPES value, or null
+// if it can't be recognized. Handles canonical types (pass through), legacy
+// aliases (TYPE_ALIASES), and values that are really a schedule description or
+// raw axiUm code ("ORAL SURGERY/URG CARE BLOCK", "BLK-OS", "BLKOS") by routing
+// them through cleanDescription + DESC_TO_TYPE. The DB audit uses this to
+// auto-fix recoverable types and flag the genuinely-unknown ones for review.
+function resolveBlockType(t) {
+  if (!t || typeof t !== 'string') return null;
+  const aliased = canonicalType(t.trim());
+  if (BLOCK_TYPES.includes(aliased)) return aliased;
+  const desc = cleanDescription(t).toUpperCase();
+  if (DESC_TO_TYPE[desc]) return DESC_TO_TYPE[desc];
+  return null;
+}
+
 // Canonical start/end times by period. Applied to a schedule entry when the user
 // changes the time half via the edit form, so the ICS export still has a valid range.
 const PERIOD_TIMES = {
@@ -724,16 +739,23 @@ async function propagateProfileToBlocks(profile) {
 // time their owner (or the admin) loads the app — no manual data surgery.
 // Firestore batches cap at 500 writes, so we chunk. Returns the count fixed.
 async function canonicalizeBlockTypes(blocks) {
-  if (!state.firestoreReady || !Array.isArray(blocks)) return 0;
-  const stale = blocks.filter((b) => b && b.id && b.type && canonicalType(b.type) !== b.type);
-  for (let i = 0; i < stale.length; i += 450) {
+  if (!state.firestoreReady || !Array.isArray(blocks)) return { fixed: 0, unknown: [] };
+  const toFix = [];
+  const unknown = [];
+  for (const b of blocks) {
+    if (!b || !b.id || !b.type) continue;
+    const resolved = resolveBlockType(b.type);
+    if (resolved === null) { unknown.push(b); continue; }  // genuinely unrecognized — leave for review
+    if (resolved !== b.type) toFix.push({ id: b.id, type: resolved });
+  }
+  for (let i = 0; i < toFix.length; i += 450) {
     const batch = db.batch();
-    for (const b of stale.slice(i, i + 450)) {
-      batch.update(db.collection('blocks').doc(b.id), { type: canonicalType(b.type) });
+    for (const f of toFix.slice(i, i + 450)) {
+      batch.update(db.collection('blocks').doc(f.id), { type: f.type });
     }
     await batch.commit();
   }
-  return stale.length;
+  return { fixed: toFix.length, unknown };
 }
 
 // Heal the signed-in user's own upcoming blocks (the set the board subscription
@@ -745,10 +767,10 @@ async function healOwnBlockTypes() {
   if (_healingBlocks || !state.profile) return;
   _healingBlocks = true;
   try {
-    const n = await canonicalizeBlockTypes(
+    const { fixed } = await canonicalizeBlockTypes(
       state.blocks.filter((b) => b.sNumber === state.profile.sNumber)
     );
-    if (n) console.log(`[blocks] canonicalized ${n} of your block type(s).`);
+    if (fixed) console.log(`[blocks] canonicalized ${fixed} of your block type(s).`);
   } catch (err) {
     logClientError('blocks-self-heal', err);
   } finally {
@@ -3203,10 +3225,25 @@ async function loadAdminData() {
     const posted = [];
     blocksSnap.forEach((doc) => posted.push({ id: doc.id, source: 'posted', ...doc.data() }));
     state.admin.postedCount = posted.length;
-    // Admin sees the whole collection, so heal every mislabeled block at once
+    // Admin sees the whole collection, so audit + heal every block at once
     // (past blocks included — the owner-scoped pass only covers upcoming ones).
+    // Recoverable types are auto-corrected; genuinely unknown ones are flagged
+    // for manual review rather than guessed.
     canonicalizeBlockTypes(posted)
-      .then((n) => { if (n) console.log(`[admin] canonicalized ${n} block type(s) in the database.`); })
+      .then(({ fixed, unknown }) => {
+        if (fixed) console.log(`[admin] corrected ${fixed} mislabeled block type(s) in the database.`);
+        state.admin.unknownTypes = unknown;
+        if (unknown.length) {
+          console.warn(
+            `[admin] ${unknown.length} posted block(s) have an unrecognized type — review manually:`,
+            unknown.map((b) => ({ id: b.id, sNumber: b.sNumber, date: b.date, type: b.type }))
+          );
+          if (statusEl) {
+            statusEl.textContent =
+              `Updated ${new Date().toLocaleTimeString()} — ⚠ ${unknown.length} block(s) with unknown type (see console)`;
+          }
+        }
+      })
       .catch((err) => logClientError('blocks-admin-heal', err));
     // Fold every user's imported schedule into the admin block list so the
     // admin calendar shows everyone's full schedule, not just blocks posted
