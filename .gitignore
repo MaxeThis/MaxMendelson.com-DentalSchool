@@ -4,3 +4,10 @@ node_modules/
 .vscode/
 .idea/
 test/sample.ics
+
+# Secrets — never commit. Drop your Firebase service-account key here.
+secrets/
+*.serviceaccount.json
+service-account*.json
+firebase-admin*.json
+*-private-key.json
