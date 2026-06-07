@@ -1999,6 +1999,10 @@ function buildBlockEditForm(opts) {
 function renderMyBlocks() {
   const listEl = $('my-blocks-list');
   listEl.innerHTML = '';
+  // Show the download button below the list whenever there's a schedule, so
+  // grabbing the .ics doesn't require entering "Edit schedule" mode.
+  const dlRow = $('my-blocks-download-row');
+  if (dlRow) dlRow.classList.toggle('hidden', !state.profile || state.schedule.length === 0);
   if (!state.profile) return;
 
   if (state.schedule.length === 0) {
@@ -2459,6 +2463,17 @@ function uuidLike() {
   });
 }
 
+// Stable per-block UID so re-importing an updated .ics UPDATES the existing
+// calendar events instead of creating duplicates. Derived from the person + the
+// block's date and times (NOT its label), so a renamed block keeps the same UID.
+function icsUid(ev, personName) {
+  const seed = `${personName || ''}|${ev.date}|${ev.startTime}|${ev.endTime}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `${seed}@umsod-block-exchange`;
+}
+
 function generateIcs(events, personName, reminder) {
   const lines = [
     'BEGIN:VCALENDAR',
@@ -2482,7 +2497,7 @@ function generateIcs(events, personName, reminder) {
     if (!dtstart || !dtend) continue;
 
     lines.push('BEGIN:VEVENT');
-    lines.push(`UID:${uuidLike()}@umsod-block-exchange`);
+    lines.push(`UID:${icsUid(ev, personName)}`);
     lines.push(`DTSTAMP:${dtstamp}`);
     lines.push(`DTSTART:${icsDateTime(dtstart)}`);
     lines.push(`DTEND:${icsDateTime(dtend)}`);
@@ -4170,6 +4185,8 @@ function wireEvents() {
   $('schedule-clear').addEventListener('click', handleScheduleClear);
   $('reminder-enabled').addEventListener('change', handleReminderToggle);
   $('download-ics').addEventListener('click', handleDownloadIcs);
+  const dlDisplayBtn = $('download-ics-display');
+  if (dlDisplayBtn) dlDisplayBtn.addEventListener('click', handleDownloadIcs);
 
   $('my-blocks-edit-btn').addEventListener('click', () => setMyBlocksMode('edit'));
   $('my-blocks-done-btn').addEventListener('click', () => setMyBlocksMode('display'));

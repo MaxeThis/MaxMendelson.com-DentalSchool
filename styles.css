@@ -849,6 +849,19 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   pointer-events: auto;
 }
 
+.my-blocks-download-row {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.my-blocks-download-row p {
+  margin: 0;
+}
+
 .import-failed {
   margin-top: 8px;
   padding: 8px 10px;

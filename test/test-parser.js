@@ -309,5 +309,21 @@ const icsNoReminder = generateIcs(entries, 'Max', null);
 check('no-reminder ICS has no VALARM',
   !icsNoReminder.split('\r\n').includes('BEGIN:VALARM'));
 
+// --- ICS UID stability (re-import updates events in place, no duplicates) ---
+const uidEvents = [
+  { date: '2026-06-10', startTime: '09:00 AM', endTime: '12:00 PM', description: 'EMERGENCY BLOCK' },
+  { date: '2026-06-10', startTime: '01:00 PM', endTime: '04:00 PM', description: 'ON-CALL BLOCK' },
+];
+const uids = (name, evs) => generateIcs(evs, name, null).split('\r\n').filter((l) => l.startsWith('UID:'));
+const u1 = uids('Max Mendelson', uidEvents);
+const u2 = uids('Max Mendelson', uidEvents);
+console.log('\nICS UID stability:');
+check('UID is stable across re-downloads (same input → same UIDs)',
+  u1.length === 2 && JSON.stringify(u1) === JSON.stringify(u2));
+check('UID is unique per block', new Set(u1).size === u1.length);
+check('UID is deterministic from content (contains the date)', u1[0].includes('2026-06-10'));
+check('UID is independent of the block label (rename keeps it)',
+  JSON.stringify(uids('Max Mendelson', uidEvents.map((e) => ({ ...e, description: 'RENAMED' })))) === JSON.stringify(u1));
+
 console.log(`\n${fail.length === 0 ? 'ALL PASS' : 'FAILURES: ' + fail.length}`);
 process.exit(fail.length === 0 ? 0 : 1);
