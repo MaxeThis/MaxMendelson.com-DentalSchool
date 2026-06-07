@@ -50,7 +50,7 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
 
-const { parseScheduleText, generateIcs, migrateScheduleDescriptions } = sandbox;
+const { parseScheduleText, generateIcs, migrateScheduleDescriptions, canonicalType } = sandbox;
 
 // --- sample: exact rows from the user's two screenshots ---
 const sample = `
@@ -130,14 +130,14 @@ function check(label, cond) {
 
 console.log('\nSpot checks:');
 check('first row: SURGERY  04/15/2026  09:00 AM → 12:00 PM',
-  first && first.description === 'ORAL SURGERY BLOCK' && first.date === '2026-04-15'
+  first && first.description === 'ORAL SURGERY/URG CARE BLOCK' && first.date === '2026-04-15'
   && first.startTime === '09:00 AM' && first.endTime === '12:00 PM');
 check('BLK-SPC&G maps to SPECIAL CARE BLOCK', spcg && spcg.description === 'SPECIAL CARE BLOCK');
 check('BLK-PEDS maps to PEDS BLOCK', peds && peds.description === 'PEDS BLOCK');
 check('BLK-ORTHO maps to ORTHO BLOCK', ortho && ortho.description === 'ORTHO BLOCK');
 check('BLK-ONCALL maps to ON-CALL BLOCK', oncall && oncall.description === 'ON-CALL BLOCK');
 check('CLIN-EMERG maps to EMERGENCY BLOCK', emerg && emerg.description === 'EMERGENCY BLOCK');
-check('EDU-OTHER passes through (no mapping)', edu && edu.description === 'EDU-OTHER');
+check('EDU-OTHER maps to EDUCATION/OTHER BLOCK', edu && edu.description === 'EDUCATION/OTHER BLOCK');
 
 // --- mis-scan handling: OCR artifacts the scraper should still recognize ---
 const misScanSample = `
@@ -168,15 +168,49 @@ check('|| @BLK-PAN maps to PAN BLOCK',
 check('GBLKONCALL maps to ON-CALL BLOCK',
   ms('2026-07-08') && ms('2026-07-08').description === 'ON-CALL BLOCK');
 
+// --- new block types: OS + Urgent Care fold into Oral Surgery, plus Mock
+// Boards and Education/Other ---
+const newCodesSample = `
+@BLK-OS       08/10/2026  08/10/2026  09:00 AM  12:00 PM  M   Yes
+@BLK-UCARE    08/11/2026  08/11/2026  01:00 PM  04:00 PM  T   Yes
+@CLIN-MOCKBDS 08/12/2026  08/12/2026  08:00 AM  12:00 PM  W   No
+@EDU-OTHER    08/13/2026  08/13/2026  09:00 AM  12:00 PM  Th  No
+`;
+const newCodes = parseScheduleText(newCodesSample);
+const nc = (d) => newCodes.entries.find((e) => e.date === d);
+console.log('\nNew block-type checks:');
+console.log(`  Parsed: ${newCodes.entries.length} entries, ${newCodes.errors.length} errors (expected 4, 0)`);
+newCodes.errors.forEach((e) => console.log('  ERROR:', JSON.stringify(e)));
+check('BLK-OS folds into ORAL SURGERY/URG CARE BLOCK',
+  nc('2026-08-10') && nc('2026-08-10').description === 'ORAL SURGERY/URG CARE BLOCK');
+check('BLK-UCARE folds into ORAL SURGERY/URG CARE BLOCK',
+  nc('2026-08-11') && nc('2026-08-11').description === 'ORAL SURGERY/URG CARE BLOCK');
+check('CLIN-MOCKBDS maps to MOCK BOARDS BLOCK',
+  nc('2026-08-12') && nc('2026-08-12').description === 'MOCK BOARDS BLOCK');
+check('EDU-OTHER maps to EDUCATION/OTHER BLOCK',
+  nc('2026-08-13') && nc('2026-08-13').description === 'EDUCATION/OTHER BLOCK');
+
+// canonicalType folds legacy posted-block type strings into the merged type so
+// they still match the combined "Oral Surgery/Urg Care" calendar filter.
+console.log('\ncanonicalType checks:');
+check('legacy "Oral Surgery" → "Oral Surgery/Urg Care"',
+  canonicalType('Oral Surgery') === 'Oral Surgery/Urg Care');
+check('legacy "Urgent Care" → "Oral Surgery/Urg Care"',
+  canonicalType('Urgent Care') === 'Oral Surgery/Urg Care');
+check('merged type passes through unchanged',
+  canonicalType('Oral Surgery/Urg Care') === 'Oral Surgery/Urg Care');
+check('unrelated type passes through unchanged',
+  canonicalType('Ortho') === 'Ortho');
+
 // --- migration of already-imported entries (descriptions stored before the
-// mis-scan map was updated) ---
+// mis-scan map / block-type merge was updated) ---
 const stale = [
   { description: 'BLK-5PC&G', date: '2026-08-01' },
   { description: 'BLK-SPCAG', date: '2026-08-02' },
   { description: 'GBLKONCALL', date: '2026-08-03' },
   { description: '| @BLK-PAN', date: '2026-08-04' },
-  { description: 'ORAL SURGERY BLOCK', date: '2026-08-05' }, // already canonical
-  { description: 'EDU-OTHER', date: '2026-08-06' },          // unmapped passthrough
+  { description: 'ORAL SURGERY BLOCK', date: '2026-08-05' }, // pre-merge canonical
+  { description: 'EDU-OTHER', date: '2026-08-06' },          // old passthrough, now mapped
 ];
 const migratedChanged = migrateScheduleDescriptions(stale);
 console.log('\nMigration checks:');
@@ -185,8 +219,9 @@ check('stale BLK-5PC&G → SPECIAL CARE BLOCK', stale[0].description === 'SPECIA
 check('stale BLK-SPCAG → SPECIAL CARE BLOCK', stale[1].description === 'SPECIAL CARE BLOCK');
 check('stale GBLKONCALL → ON-CALL BLOCK', stale[2].description === 'ON-CALL BLOCK');
 check('stale | @BLK-PAN → PAN BLOCK', stale[3].description === 'PAN BLOCK');
-check('canonical ORAL SURGERY BLOCK is unchanged', stale[4].description === 'ORAL SURGERY BLOCK');
-check('unmapped EDU-OTHER is unchanged', stale[5].description === 'EDU-OTHER');
+check('pre-merge ORAL SURGERY BLOCK → ORAL SURGERY/URG CARE BLOCK',
+  stale[4].description === 'ORAL SURGERY/URG CARE BLOCK');
+check('stale EDU-OTHER → EDUCATION/OTHER BLOCK', stale[5].description === 'EDUCATION/OTHER BLOCK');
 
 // Idempotency: a second pass should not change anything.
 const secondPass = migrateScheduleDescriptions(stale);

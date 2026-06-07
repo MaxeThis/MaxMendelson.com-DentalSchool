@@ -4,7 +4,7 @@
  * all signed-in users. A local cache of the current profile speeds things up. */
 
 const BLOCK_TYPES = [
-  'Oral Surgery',
+  'Oral Surgery/Urg Care',
   'Ortho',
   'Special Care',
   'Peds',
@@ -13,13 +13,39 @@ const BLOCK_TYPES = [
   'Screening',
   'Hospital',
   'Pan',
+  'Mock Boards',
+  'Education/Other',
 ];
+
+// Block types that exist for schedule display + calendar filtering only. They
+// have no option in the Post form and are rejected on submit — students can't
+// list them for swap (same treatment Hospital has always had).
+const NON_POSTABLE_TYPES = new Set(['Hospital', 'Mock Boards', 'Education/Other']);
+
+// Legacy / equivalent block-type strings → the canonical type they fold into.
+// Oral Surgery (BLK-SURGERY), OS (BLK-OS), and Urgent Care (BLK-UCARE) are all
+// the same block, so blocks posted under the old strings still match the
+// combined "Oral Surgery/Urg Care" filter and render under the merged label.
+const TYPE_ALIASES = {
+  'Oral Surgery':      'Oral Surgery/Urg Care',
+  'Oral Surgery (OS)': 'Oral Surgery/Urg Care',
+  'Urgent Care':       'Oral Surgery/Urg Care',
+};
+function canonicalType(t) {
+  return TYPE_ALIASES[t] || t;
+}
 
 // axiUm / schedule code → display name. Match is case-insensitive; '@' is stripped.
 // Variants below cover OCR mis-scans we've seen in the wild — see
 // cleanDescription() for the prefix/garbage handling that runs before lookup.
+// BLK-SURGERY, BLK-OS, and BLK-UCARE all fold into one "ORAL SURGERY/URG CARE
+// BLOCK" — they're treated as the same block for swapping and filtering.
 const SCHEDULE_NAME_MAP = {
-  'BLK-SURGERY': 'ORAL SURGERY BLOCK',
+  'BLK-SURGERY': 'ORAL SURGERY/URG CARE BLOCK',
+  'BLK-OS':      'ORAL SURGERY/URG CARE BLOCK',
+  'BLK-0S':      'ORAL SURGERY/URG CARE BLOCK',  // OCR: O → 0
+  'BLK-UCARE':   'ORAL SURGERY/URG CARE BLOCK',
+  'BLKUCARE':    'ORAL SURGERY/URG CARE BLOCK',  // OCR: missing dash
   'BLK-ORTHO':   'ORTHO BLOCK',
   'BLK-SPC&G':   'SPECIAL CARE BLOCK',
   'BLK-SPC3G':   'SPECIAL CARE BLOCK',  // OCR: & → 3
@@ -34,27 +60,36 @@ const SCHEDULE_NAME_MAP = {
   'BLK-SCR':     'SCREENING BLOCK',
   'BLK-HOSPITAL': 'HOSPITAL BLOCK',
   'BLK-PAN':     'PAN BLOCK',
+  'CLIN-MOCKBDS': 'MOCK BOARDS BLOCK',
+  'CLINMOCKBDS':  'MOCK BOARDS BLOCK',  // OCR: missing dash
+  'EDU-OTHER':    'EDUCATION/OTHER BLOCK',
+  'EDUOTHER':     'EDUCATION/OTHER BLOCK', // OCR: missing dash
 };
 
-// Display name → swap-listing block type.
-const DESC_TO_TYPE = {
-  'ORAL SURGERY BLOCK': 'Oral Surgery',
-  'ORTHO BLOCK':        'Ortho',
-  'SPECIAL CARE BLOCK': 'Special Care',
-  'PEDS BLOCK':         'Peds',
-  'EMERGENCY BLOCK':    'Emergency',
-  'ON-CALL BLOCK':      'On-Call',
-  'SCREENING BLOCK':    'Screening',
-  'HOSPITAL BLOCK':     'Hospital',
-  'PAN BLOCK':          'Pan',
+// swap-listing block type → canonical schedule description.
+const TYPE_TO_DESC = {
+  'Oral Surgery/Urg Care': 'ORAL SURGERY/URG CARE BLOCK',
+  'Ortho':                 'ORTHO BLOCK',
+  'Special Care':          'SPECIAL CARE BLOCK',
+  'Peds':                  'PEDS BLOCK',
+  'Emergency':             'EMERGENCY BLOCK',
+  'On-Call':               'ON-CALL BLOCK',
+  'Screening':             'SCREENING BLOCK',
+  'Hospital':              'HOSPITAL BLOCK',
+  'Pan':                   'PAN BLOCK',
+  'Mock Boards':           'MOCK BOARDS BLOCK',
+  'Education/Other':       'EDUCATION/OTHER BLOCK',
 };
 
-// swap-listing block type → canonical schedule description (inverse of DESC_TO_TYPE).
-// Used when editing a schedule entry to convert a picked block type back into the
-// uppercase description that DESC_TO_TYPE will resolve on the next render.
-const TYPE_TO_DESC = Object.fromEntries(
-  Object.entries(DESC_TO_TYPE).map(([desc, type]) => [type, desc])
+// Display name → swap-listing block type (inverse of TYPE_TO_DESC), plus the
+// pre-merge descriptions so schedules imported before the Oral Surgery / OS /
+// Urgent Care merge still resolve to a type. cleanDescription() normalizes
+// these legacy strings to the canonical description on the next load.
+const DESC_TO_TYPE = Object.fromEntries(
+  Object.entries(TYPE_TO_DESC).map(([type, desc]) => [desc, type])
 );
+DESC_TO_TYPE['ORAL SURGERY BLOCK'] = 'Oral Surgery/Urg Care'; // legacy
+DESC_TO_TYPE['URGENT CARE BLOCK']  = 'Oral Surgery/Urg Care'; // legacy
 
 // Canonical start/end times by period. Applied to a schedule entry when the user
 // changes the time half via the edit form, so the ICS export still has a valid range.
@@ -1463,7 +1498,7 @@ function handleSetupBack() {
 /* ----------------------------- calendar ----------------------------- */
 
 function matchesFilters(block) {
-  if (state.filterType && block.type !== state.filterType) return false;
+  if (state.filterType && canonicalType(block.type) !== state.filterType) return false;
   if (state.filterTime && block.time !== state.filterTime) return false;
   return true;
 }
@@ -1623,7 +1658,7 @@ function renderBlockCard(b, opts = {}) {
     card.appendChild(head);
     const form = buildBlockEditForm({
       initial: {
-        type: b.type,
+        type: canonicalType(b.type),
         date: b.date,
         period: b.time,
         notes: b.notes || '',
@@ -1668,7 +1703,7 @@ function renderBlockCard(b, opts = {}) {
   meta.className = 'meta';
   const title = document.createElement('div');
   title.className = 'title';
-  title.textContent = `${b.type} — ${b.time === 'morning' ? 'Morning' : 'Afternoon'}`;
+  title.textContent = `${canonicalType(b.type)} — ${b.time === 'morning' ? 'Morning' : 'Afternoon'}`;
   if (b.urgent) {
     const badge = document.createElement('span');
     badge.className = 'urgent-badge';
@@ -1941,7 +1976,7 @@ function populateBlockTypeSelects() {
     if (adminFilterSel) {
       const oA = document.createElement('option'); oA.value = t; oA.textContent = t; adminFilterSel.appendChild(oA);
     }
-    if (t === 'Hospital') continue;
+    if (NON_POSTABLE_TYPES.has(t)) continue;
     const o2 = document.createElement('option'); o2.value = t; o2.textContent = t; postSel.appendChild(o2);
   }
 }
@@ -1958,7 +1993,7 @@ async function handlePostBlock(e) {
   if (!date || !time || !type) { toast('Please fill in every field.'); return; }
   if (!isWeekday(date)) { toast('Blocks are Monday–Friday only.'); return; }
   if (!BLOCK_TYPES.includes(type)) { toast('Unknown block type.'); return; }
-  if (type === 'Hospital') { toast('Hospital blocks cannot be posted for swap.'); return; }
+  if (NON_POSTABLE_TYPES.has(type)) { toast(`${type} blocks cannot be posted for swap.`); return; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast('Invalid date.'); return; }
 
   // Reject posts more than 1 year in the past or 1 year in the future.
@@ -2087,6 +2122,11 @@ function cleanDescription(raw) {
     if (upper.includes(code)) return SCHEDULE_NAME_MAP[code];
   }
   if (upper.includes('HOSP')) return 'HOSPITAL BLOCK';
+  // Normalize an already-cleaned description (e.g. one imported before a label
+  // change) to the current canonical description for its type. This migrates
+  // legacy "ORAL SURGERY BLOCK" / "URGENT CARE BLOCK" entries to the merged
+  // "ORAL SURGERY/URG CARE BLOCK"; canonical descriptions map to themselves.
+  if (DESC_TO_TYPE[upper]) return TYPE_TO_DESC[DESC_TO_TYPE[upper]];
   return stripped;
 }
 
@@ -3264,7 +3304,7 @@ function renderAdminUserDetail(user, host) {
     parts.push('<ul class="admin-list">');
     for (const b of myBlocks.slice(0, 30)) {
       parts.push(
-        '<li>' + escapeHtml(b.date) + ' ' + escapeHtml(b.time || '') + ' — ' + escapeHtml(b.type || '') +
+        '<li>' + escapeHtml(b.date) + ' ' + escapeHtml(b.time || '') + ' — ' + escapeHtml(canonicalType(b.type) || '') +
         (b.urgent ? ' <span class="urgent-badge">urgent</span>' : '') +
         '</li>'
       );
@@ -3329,7 +3369,7 @@ function populateAdminUserFilter() {
 }
 
 function adminMatchesFilters(block) {
-  if (state.admin.filterType && block.type !== state.admin.filterType) return false;
+  if (state.admin.filterType && canonicalType(block.type) !== state.admin.filterType) return false;
   if (state.admin.filterTime && block.time !== state.admin.filterTime) return false;
   if (state.admin.filterUser && block.sNumber !== state.admin.filterUser) return false;
   return true;
@@ -3458,7 +3498,7 @@ function openAdminDayDetail(dstr, opts = {}) {
       : ' <span class="source-badge posted">posted</span>';
     card.innerHTML =
       '<div class="meta">' +
-        '<div class="title">' + escapeHtml(b.type || '') + ' — ' + escapeHtml(b.time === 'morning' ? 'Morning' : 'Afternoon') +
+        '<div class="title">' + escapeHtml(canonicalType(b.type) || '') + ' — ' + escapeHtml(b.time === 'morning' ? 'Morning' : 'Afternoon') +
           sourceBadge +
           (b.urgent ? ' <span class="urgent-badge">urgent</span>' : '') +
         '</div>' +

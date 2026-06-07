@@ -2,7 +2,7 @@
 
 A static site for University of Maryland School of Dentistry students to swap blocks. Students register with their name, S# (5 digits, the `S` is added automatically), and phone number, then post blocks they want to give up. Other students can filter and view the calendar and reach out by phone or text.
 
-- 7 block types: Oral Surgery, Ortho, Special Care, Peds, Emergency, On-Call, Screening
+- Block types: Oral Surgery/Urg Care (BLK-SURGERY, BLK-OS, and BLK-UCARE are treated as one), Ortho, Special Care, Peds, Emergency, On-Call, Screening, Hospital, Pan, Mock Boards, Education/Other. Hospital, Mock Boards, and Education/Other are display/filter-only — they can't be posted for swap
 - Mon–Fri, morning + afternoon
 - Filter the calendar by block type and/or morning/afternoon
 - Each student can see and remove their own posted blocks
@@ -40,7 +40,7 @@ You need a Firebase project to store the shared blocks. It is free for this use 
          return h is string && h.size() >= 32 && h.size() <= 128;
        }
        function validType(t) {
-         return t in ['Oral Surgery','Ortho','Special Care','Peds','Emergency','On-Call','Screening','Hospital','Pan'];
+         return t in ['Oral Surgery/Urg Care','Oral Surgery','Urgent Care','Ortho','Special Care','Peds','Emergency','On-Call','Screening','Hospital','Pan','Mock Boards','Education/Other'];
        }
        function validTime(t) {
          return t == 'morning' || t == 'afternoon';
