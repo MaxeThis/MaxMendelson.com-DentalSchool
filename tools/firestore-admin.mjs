@@ -26,24 +26,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-/* ---- canonical maps (mirror of app.js — keep in sync) ---- */
+/* ---- canonical maps (mirror of app.js — keep in sync) ----
+ * The retired merged "Oral Surgery/Urg Care" type and its
+ * "ORAL SURGERY/URG CARE BLOCK" description are deliberately absent: a record
+ * stored under them could be either Oral Surgery or Urgent Care, so the audit
+ * flags them as UNKNOWN for manual re-typing instead of guessing a side. */
 const BLOCK_TYPES = [
-  'Oral Surgery/Urg Care', 'Ortho', 'Special Care', 'Peds', 'Emergency',
+  'Oral Surgery', 'Urgent Care', 'Ortho', 'Special Care', 'Peds', 'Emergency',
   'On-Call', 'Screening', 'Hospital', 'Pan', 'Mock Boards', 'Education/Other',
+  'Shady Grove',
 ];
 const TYPE_ALIASES = {
-  'Oral Surgery': 'Oral Surgery/Urg Care',
-  'Oral Surgery (OS)': 'Oral Surgery/Urg Care',
-  'Urgent Care': 'Oral Surgery/Urg Care',
+  'Oral Surgery (OS)': 'Oral Surgery',
 };
 const DESC_TO_TYPE = {
-  'ORAL SURGERY/URG CARE BLOCK': 'Oral Surgery/Urg Care',
-  'ORAL SURGERY BLOCK': 'Oral Surgery/Urg Care',
-  'URGENT CARE BLOCK': 'Oral Surgery/Urg Care',
+  'ORAL SURGERY BLOCK': 'Oral Surgery',
+  'URGENT CARE BLOCK': 'Urgent Care',
   'ORTHO BLOCK': 'Ortho', 'SPECIAL CARE BLOCK': 'Special Care', 'PEDS BLOCK': 'Peds',
   'EMERGENCY BLOCK': 'Emergency', 'ON-CALL BLOCK': 'On-Call', 'SCREENING BLOCK': 'Screening',
   'HOSPITAL BLOCK': 'Hospital', 'PAN BLOCK': 'Pan', 'MOCK BOARDS BLOCK': 'Mock Boards',
-  'EDUCATION/OTHER BLOCK': 'Education/Other',
+  'EDUCATION/OTHER BLOCK': 'Education/Other', 'SHADY GROVE BLOCK': 'Shady Grove',
 };
 function resolveType(t) {
   if (!t || typeof t !== 'string') return null;

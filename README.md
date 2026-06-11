@@ -2,8 +2,8 @@
 
 A static site for University of Maryland School of Dentistry students to swap blocks. Students register with their name, S# (5 digits, the `S` is added automatically), and phone number, then post blocks they want to give up. Other students can filter and view the calendar and reach out by phone or text.
 
-- Block types: Oral Surgery/Urg Care (BLK-SURGERY, BLK-OS, and BLK-UCARE are treated as one), Ortho, Special Care, Peds, Emergency, On-Call, Screening, Hospital, Pan, Mock Boards, Education/Other, Shady Grove. Hospital, Mock Boards, and Education/Other are display/filter-only (can't be posted for swap); Shady Grove is admin-filter-only (kept out of the swap-calendar filter and post form since it's never posted)
-- Labels are self-healing: each axiUm code maps to a canonical name (`SCHEDULE_NAME_MAP`, with hyphen-insensitive + OCR-digit repair so `BLKOS`/`09:OO` still resolve) and each block type folds through `TYPE_ALIASES` to its canonical label. To rename or merge a type, edit those maps in one place — existing posted blocks and imported schedules are rewritten to match the next time their owner (or the admin) loads the app, so no manual database edits are needed
+- Block types: Oral Surgery (BLK-SURGERY and BLK-OS), Urgent Care (BLK-UCARE), Ortho, Special Care, Peds, Emergency, On-Call, Screening, Hospital, Pan, Mock Boards, Education/Other, Shady Grove. Hospital, Mock Boards, and Education/Other are display/filter-only (can't be posted for swap); Shady Grove is admin-filter-only (kept out of the swap-calendar filter and post form since it's never posted)
+- Labels are self-healing: each axiUm code maps to a canonical name (`SCHEDULE_NAME_MAP`, with hyphen-insensitive + OCR-digit repair so `BLKOS`/`09:OO` still resolve) and each block type folds through `TYPE_ALIASES` to its canonical label. To rename or merge a type, edit those maps in one place — existing posted blocks and imported schedules are rewritten to match the next time their owner (or the admin) loads the app, so no manual database edits are needed. The one thing that can't self-heal is a *split*: records stored under the retired merged "Oral Surgery/Urg Care" label could be either type, so the audit (`tools/firestore-admin.mjs audit`) flags them for manual re-typing and students can fix their own rows by editing or re-importing their schedule
 - Mon–Fri, morning + afternoon
 - Download an `.ics` of your schedule (deterministic event IDs, so re-importing updates events in place instead of duplicating), or subscribe to a **live** auto-updating calendar feed (optional — deploy the Cloudflare Worker in [`worker/`](worker/README.md))
 - Filter the calendar by block type and/or morning/afternoon
@@ -42,6 +42,8 @@ You need a Firebase project to store the shared blocks. It is free for this use 
          return h is string && h.size() >= 32 && h.size() <= 128;
        }
        function validType(t) {
+         // 'Oral Surgery/Urg Care' is the retired merged label — kept valid so
+         // legacy blocks stored under it can still be updated (urgent flag etc.).
          return t in ['Oral Surgery/Urg Care','Oral Surgery','Urgent Care','Ortho','Special Care','Peds','Emergency','On-Call','Screening','Hospital','Pan','Mock Boards','Education/Other','Shady Grove'];
        }
        function validTime(t) {

@@ -4,7 +4,8 @@
  * all signed-in users. A local cache of the current profile speeds things up. */
 
 const BLOCK_TYPES = [
-  'Oral Surgery/Urg Care',
+  'Oral Surgery',
+  'Urgent Care',
   'Ortho',
   'Special Care',
   'Peds',
@@ -33,13 +34,13 @@ const ADMIN_ONLY_FILTER = new Set(['Shady Grove']);
 const CALENDAR_FEED_BASE = ((window.CALENDAR_FEED_BASE || '').trim()).replace(/\/+$/, '');
 
 // Legacy / equivalent block-type strings → the canonical type they fold into.
-// Oral Surgery (BLK-SURGERY), OS (BLK-OS), and Urgent Care (BLK-UCARE) are all
-// the same block, so blocks posted under the old strings still match the
-// combined "Oral Surgery/Urg Care" filter and render under the merged label.
+// "Oral Surgery (OS)" was an old label for the Oral Surgery type. The retired
+// merged label "Oral Surgery/Urg Care" (from when Oral Surgery and Urgent Care
+// were treated as one block) is deliberately NOT aliased: a record stored under
+// it could be either type, so resolveBlockType() returns null and the audit
+// flags it for manual review instead of guessing a side.
 const TYPE_ALIASES = {
-  'Oral Surgery':      'Oral Surgery/Urg Care',
-  'Oral Surgery (OS)': 'Oral Surgery/Urg Care',
-  'Urgent Care':       'Oral Surgery/Urg Care',
+  'Oral Surgery (OS)': 'Oral Surgery',
 };
 function canonicalType(t) {
   return TYPE_ALIASES[t] || t;
@@ -48,14 +49,14 @@ function canonicalType(t) {
 // axiUm / schedule code → display name. Match is case-insensitive; '@' is stripped.
 // Variants below cover OCR mis-scans we've seen in the wild — see
 // cleanDescription() for the prefix/garbage handling that runs before lookup.
-// BLK-SURGERY, BLK-OS, and BLK-UCARE all fold into one "ORAL SURGERY/URG CARE
-// BLOCK" — they're treated as the same block for swapping and filtering.
+// BLK-SURGERY and BLK-OS are both the Oral Surgery block; BLK-UCARE is the
+// separate Urgent Care block.
 const SCHEDULE_NAME_MAP = {
-  'BLK-SURGERY': 'ORAL SURGERY/URG CARE BLOCK',
-  'BLK-OS':      'ORAL SURGERY/URG CARE BLOCK',
-  'BLK-0S':      'ORAL SURGERY/URG CARE BLOCK',  // OCR: O → 0
-  'BLK-UCARE':   'ORAL SURGERY/URG CARE BLOCK',
-  'BLKUCARE':    'ORAL SURGERY/URG CARE BLOCK',  // OCR: missing dash
+  'BLK-SURGERY': 'ORAL SURGERY BLOCK',
+  'BLK-OS':      'ORAL SURGERY BLOCK',
+  'BLK-0S':      'ORAL SURGERY BLOCK',  // OCR: O → 0
+  'BLK-UCARE':   'URGENT CARE BLOCK',
+  'BLKUCARE':    'URGENT CARE BLOCK',   // OCR: missing dash
   'BLK-ORTHO':   'ORTHO BLOCK',
   'BLK-SPC&G':   'SPECIAL CARE BLOCK',
   'BLK-SPC3G':   'SPECIAL CARE BLOCK',  // OCR: & → 3
@@ -83,7 +84,8 @@ const SCHEDULE_NAME_MAP = {
 
 // swap-listing block type → canonical schedule description.
 const TYPE_TO_DESC = {
-  'Oral Surgery/Urg Care': 'ORAL SURGERY/URG CARE BLOCK',
+  'Oral Surgery':          'ORAL SURGERY BLOCK',
+  'Urgent Care':           'URGENT CARE BLOCK',
   'Ortho':                 'ORTHO BLOCK',
   'Special Care':          'SPECIAL CARE BLOCK',
   'Peds':                  'PEDS BLOCK',
@@ -97,22 +99,24 @@ const TYPE_TO_DESC = {
   'Shady Grove':           'SHADY GROVE BLOCK',
 };
 
-// Display name → swap-listing block type (inverse of TYPE_TO_DESC), plus the
-// pre-merge descriptions so schedules imported before the Oral Surgery / OS /
-// Urgent Care merge still resolve to a type. cleanDescription() normalizes
-// these legacy strings to the canonical description on the next load.
+// Display name → swap-listing block type (inverse of TYPE_TO_DESC). The retired
+// merged "ORAL SURGERY/URG CARE BLOCK" description (from when Oral Surgery and
+// Urgent Care were one block) is deliberately absent: an entry imported during
+// the merged era could be either type, so it surfaces with no type until the
+// student edits the row or re-imports their schedule (the raw axiUm codes
+// split unambiguously).
 const DESC_TO_TYPE = Object.fromEntries(
   Object.entries(TYPE_TO_DESC).map(([type, desc]) => [desc, type])
 );
-DESC_TO_TYPE['ORAL SURGERY BLOCK'] = 'Oral Surgery/Urg Care'; // legacy
-DESC_TO_TYPE['URGENT CARE BLOCK']  = 'Oral Surgery/Urg Care'; // legacy
 
 // Resolve any stored block-type string to a canonical BLOCK_TYPES value, or null
 // if it can't be recognized. Handles canonical types (pass through), legacy
 // aliases (TYPE_ALIASES), and values that are really a schedule description or
-// raw axiUm code ("ORAL SURGERY/URG CARE BLOCK", "BLK-OS", "BLKOS") by routing
-// them through cleanDescription + DESC_TO_TYPE. The DB audit uses this to
-// auto-fix recoverable types and flag the genuinely-unknown ones for review.
+// raw axiUm code ("ORAL SURGERY BLOCK", "BLK-OS", "BLKOS") by routing them
+// through cleanDescription + DESC_TO_TYPE. The DB audit uses this to auto-fix
+// recoverable types and flag the genuinely-unknown ones for review — including
+// the retired merged "Oral Surgery/Urg Care" label, which is ambiguous by
+// construction and must be re-typed by hand.
 function resolveBlockType(t) {
   if (!t || typeof t !== 'string') return null;
   const aliased = canonicalType(t.trim());
@@ -766,11 +770,12 @@ async function propagateProfileToBlocks(profile) {
 }
 
 // Self-healing for block labels. Rewrites any block whose stored `type` is a
-// legacy/aliased value (e.g. a pre-merge "Oral Surgery") to its canonical form
-// so the database matches what's displayed and filtered. This is the durable
-// fix for "small relabelings" like the Oral Surgery / OS / Urgent Care merge:
-// add one entry to TYPE_ALIASES and existing records get rewritten the next
-// time their owner (or the admin) loads the app — no manual data surgery.
+// legacy/aliased value (e.g. "Oral Surgery (OS)") to its canonical form so the
+// database matches what's displayed and filtered. This is the durable fix for
+// "small relabelings": add one entry to TYPE_ALIASES and existing records get
+// rewritten the next time their owner (or the admin) loads the app — no manual
+// data surgery. Ambiguous values (the retired merged "Oral Surgery/Urg Care")
+// land in `unknown` instead, since there's no safe automatic rewrite.
 // Firestore batches cap at 500 writes, so we chunk. Returns the count fixed.
 async function canonicalizeBlockTypes(blocks) {
   if (!state.firestoreReady || !Array.isArray(blocks)) return { fixed: 0, unknown: [] };
@@ -2243,9 +2248,10 @@ function cleanDescription(raw) {
   // the leading S read as 5. Anything shaped like BLK-?PC-?G is this block.
   if (/^BLK[5S]PC.{0,2}G$/.test(squashed)) return 'SPECIAL CARE BLOCK';
   // Normalize an already-cleaned description (e.g. one imported before a label
-  // change) to the current canonical description for its type. This migrates
-  // legacy "ORAL SURGERY BLOCK" / "URGENT CARE BLOCK" entries to the merged
-  // "ORAL SURGERY/URG CARE BLOCK"; canonical descriptions map to themselves.
+  // change) to the current canonical description for its type; canonical
+  // descriptions map to themselves. The retired merged "ORAL SURGERY/URG CARE
+  // BLOCK" isn't in DESC_TO_TYPE (it can't be split automatically), so those
+  // entries fall through and pass back unchanged.
   if (DESC_TO_TYPE[upper]) return TYPE_TO_DESC[DESC_TO_TYPE[upper]];
   return stripped;
 }

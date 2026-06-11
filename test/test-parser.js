@@ -130,7 +130,7 @@ function check(label, cond) {
 
 console.log('\nSpot checks:');
 check('first row: SURGERY  04/15/2026  09:00 AM → 12:00 PM',
-  first && first.description === 'ORAL SURGERY/URG CARE BLOCK' && first.date === '2026-04-15'
+  first && first.description === 'ORAL SURGERY BLOCK' && first.date === '2026-04-15'
   && first.startTime === '09:00 AM' && first.endTime === '12:00 PM');
 check('BLK-SPC&G maps to SPECIAL CARE BLOCK', spcg && spcg.description === 'SPECIAL CARE BLOCK');
 check('BLK-PEDS maps to PEDS BLOCK', peds && peds.description === 'PEDS BLOCK');
@@ -232,8 +232,8 @@ check('good 01:00 PM unchanged', staleTimes[2].startTime === '01:00 PM');
 check('migrateScheduleTimes idempotent (2nd pass no-op)', migrateScheduleTimes(staleTimes) === false);
 check('alignStartTime leaves ambiguous 05:00 PM end alone', alignStartTime('04:00 AM', '05:00 PM') === '04:00 AM');
 
-// --- new block types: OS + Urgent Care fold into Oral Surgery, plus Mock
-// Boards and Education/Other ---
+// --- new block types: BLK-OS folds into Oral Surgery, BLK-UCARE is its own
+// Urgent Care type, plus Mock Boards and Education/Other ---
 const newCodesSample = `
 @BLK-OS       08/10/2026  08/10/2026  09:00 AM  12:00 PM  M   Yes
 @BLK-UCARE    08/11/2026  08/11/2026  01:00 PM  04:00 PM  T   Yes
@@ -245,10 +245,10 @@ const nc = (d) => newCodes.entries.find((e) => e.date === d);
 console.log('\nNew block-type checks:');
 console.log(`  Parsed: ${newCodes.entries.length} entries, ${newCodes.errors.length} errors (expected 4, 0)`);
 newCodes.errors.forEach((e) => console.log('  ERROR:', JSON.stringify(e)));
-check('BLK-OS folds into ORAL SURGERY/URG CARE BLOCK',
-  nc('2026-08-10') && nc('2026-08-10').description === 'ORAL SURGERY/URG CARE BLOCK');
-check('BLK-UCARE folds into ORAL SURGERY/URG CARE BLOCK',
-  nc('2026-08-11') && nc('2026-08-11').description === 'ORAL SURGERY/URG CARE BLOCK');
+check('BLK-OS folds into ORAL SURGERY BLOCK',
+  nc('2026-08-10') && nc('2026-08-10').description === 'ORAL SURGERY BLOCK');
+check('BLK-UCARE maps to URGENT CARE BLOCK',
+  nc('2026-08-11') && nc('2026-08-11').description === 'URGENT CARE BLOCK');
 check('CLIN-MOCKBDS maps to MOCK BOARDS BLOCK',
   nc('2026-08-12') && nc('2026-08-12').description === 'MOCK BOARDS BLOCK');
 check('EDU-OTHER maps to EDUCATION/OTHER BLOCK',
@@ -265,12 +265,12 @@ const ddFind = (d) => dd.entries.find((e) => e.date === d);
 console.log('\nHyphen-drop checks:');
 console.log(`  Parsed: ${dd.entries.length} entries, ${dd.errors.length} errors (expected 3, 0)`);
 dd.errors.forEach((e) => console.log('  ERROR:', JSON.stringify(e)));
-check('BLKOS (no dash) folds into ORAL SURGERY/URG CARE BLOCK',
-  ddFind('2026-09-01') && ddFind('2026-09-01').description === 'ORAL SURGERY/URG CARE BLOCK');
-check('BLK OS (space) folds into ORAL SURGERY/URG CARE BLOCK',
-  ddFind('2026-09-02') && ddFind('2026-09-02').description === 'ORAL SURGERY/URG CARE BLOCK');
-check('BLKUCARE (no dash) folds into ORAL SURGERY/URG CARE BLOCK',
-  ddFind('2026-09-03') && ddFind('2026-09-03').description === 'ORAL SURGERY/URG CARE BLOCK');
+check('BLKOS (no dash) folds into ORAL SURGERY BLOCK',
+  ddFind('2026-09-01') && ddFind('2026-09-01').description === 'ORAL SURGERY BLOCK');
+check('BLK OS (space) folds into ORAL SURGERY BLOCK',
+  ddFind('2026-09-02') && ddFind('2026-09-02').description === 'ORAL SURGERY BLOCK');
+check('BLKUCARE (no dash) maps to URGENT CARE BLOCK',
+  ddFind('2026-09-03') && ddFind('2026-09-03').description === 'URGENT CARE BLOCK');
 
 // --- variants seen in real imported schedules (live DB audit) ---
 const liveVariants = `
@@ -293,39 +293,47 @@ check('EDUQOTHER → EDUCATION/OTHER BLOCK', lvFind('2026-10-06') && lvFind('202
 check('CLINMOCKEBDS → MOCK BOARDS BLOCK', lvFind('2026-10-07') && lvFind('2026-10-07').description === 'MOCK BOARDS BLOCK');
 check('BLK-ShadyGrove ~~ → SHADY GROVE BLOCK', lvFind('2026-10-08') && lvFind('2026-10-08').description === 'SHADY GROVE BLOCK');
 
-// canonicalType folds legacy posted-block type strings into the merged type so
-// they still match the combined "Oral Surgery/Urg Care" calendar filter.
+// canonicalType folds legacy posted-block type strings into their canonical
+// type so they still match the calendar filters.
 console.log('\ncanonicalType checks:');
-check('legacy "Oral Surgery" → "Oral Surgery/Urg Care"',
-  canonicalType('Oral Surgery') === 'Oral Surgery/Urg Care');
-check('legacy "Urgent Care" → "Oral Surgery/Urg Care"',
-  canonicalType('Urgent Care') === 'Oral Surgery/Urg Care');
-check('merged type passes through unchanged',
-  canonicalType('Oral Surgery/Urg Care') === 'Oral Surgery/Urg Care');
+check('"Oral Surgery" passes through unchanged (canonical)',
+  canonicalType('Oral Surgery') === 'Oral Surgery');
+check('"Urgent Care" passes through unchanged (canonical)',
+  canonicalType('Urgent Care') === 'Urgent Care');
+check('legacy "Oral Surgery (OS)" → "Oral Surgery"',
+  canonicalType('Oral Surgery (OS)') === 'Oral Surgery');
 check('unrelated type passes through unchanged',
   canonicalType('Ortho') === 'Ortho');
 
 // resolveBlockType: the DB audit's recognizer. Recoverable values resolve to a
 // canonical type; genuinely unknown values resolve to null (flagged, not guessed).
 console.log('\nresolveBlockType (DB audit) checks:');
-check('canonical type passes through', resolveBlockType('Oral Surgery/Urg Care') === 'Oral Surgery/Urg Care');
+check('canonical type passes through', resolveBlockType('Oral Surgery') === 'Oral Surgery');
+check('canonical Urgent Care passes through', resolveBlockType('Urgent Care') === 'Urgent Care');
 check('valid non-postable type passes through', resolveBlockType('Hospital') === 'Hospital');
-check('legacy alias resolves', resolveBlockType('Oral Surgery') === 'Oral Surgery/Urg Care');
-check('description-form type resolves', resolveBlockType('ORAL SURGERY/URG CARE BLOCK') === 'Oral Surgery/Urg Care');
-check('raw code resolves', resolveBlockType('BLK-OS') === 'Oral Surgery/Urg Care');
-check('hyphen-dropped code resolves', resolveBlockType('BLKOS') === 'Oral Surgery/Urg Care');
+check('legacy alias resolves', resolveBlockType('Oral Surgery (OS)') === 'Oral Surgery');
+check('description-form type resolves', resolveBlockType('ORAL SURGERY BLOCK') === 'Oral Surgery');
+check('Urgent Care description resolves', resolveBlockType('URGENT CARE BLOCK') === 'Urgent Care');
+check('raw code resolves', resolveBlockType('BLK-OS') === 'Oral Surgery');
+check('raw Urgent Care code resolves', resolveBlockType('BLK-UCARE') === 'Urgent Care');
+check('hyphen-dropped code resolves', resolveBlockType('BLKOS') === 'Oral Surgery');
+check('retired merged type flagged as null (ambiguous, not guessed)',
+  resolveBlockType('Oral Surgery/Urg Care') === null);
+check('retired merged description flagged as null',
+  resolveBlockType('ORAL SURGERY/URG CARE BLOCK') === null);
 check('unknown value flagged as null', resolveBlockType('Lecture') === null);
 check('empty value flagged as null', resolveBlockType('') === null);
 
 // --- migration of already-imported entries (descriptions stored before the
-// mis-scan map / block-type merge was updated) ---
+// mis-scan map / block-type split was updated) ---
 const stale = [
   { description: 'BLK-5PC&G', date: '2026-08-01' },
   { description: 'BLK-SPCAG', date: '2026-08-02' },
   { description: 'GBLKONCALL', date: '2026-08-03' },
   { description: '| @BLK-PAN', date: '2026-08-04' },
-  { description: 'ORAL SURGERY BLOCK', date: '2026-08-05' }, // pre-merge canonical
-  { description: 'EDU-OTHER', date: '2026-08-06' },          // old passthrough, now mapped
+  { description: 'ORAL SURGERY BLOCK', date: '2026-08-05' },          // canonical, untouched
+  { description: 'EDU-OTHER', date: '2026-08-06' },                   // old passthrough, now mapped
+  { description: 'ORAL SURGERY/URG CARE BLOCK', date: '2026-08-07' }, // merged era: ambiguous, untouched
 ];
 const migratedChanged = migrateScheduleDescriptions(stale);
 console.log('\nMigration checks:');
@@ -334,9 +342,11 @@ check('stale BLK-5PC&G → SPECIAL CARE BLOCK', stale[0].description === 'SPECIA
 check('stale BLK-SPCAG → SPECIAL CARE BLOCK', stale[1].description === 'SPECIAL CARE BLOCK');
 check('stale GBLKONCALL → ON-CALL BLOCK', stale[2].description === 'ON-CALL BLOCK');
 check('stale | @BLK-PAN → PAN BLOCK', stale[3].description === 'PAN BLOCK');
-check('pre-merge ORAL SURGERY BLOCK → ORAL SURGERY/URG CARE BLOCK',
-  stale[4].description === 'ORAL SURGERY/URG CARE BLOCK');
+check('canonical ORAL SURGERY BLOCK passes through unchanged',
+  stale[4].description === 'ORAL SURGERY BLOCK');
 check('stale EDU-OTHER → EDUCATION/OTHER BLOCK', stale[5].description === 'EDUCATION/OTHER BLOCK');
+check('merged-era ORAL SURGERY/URG CARE BLOCK left alone (can\'t be split automatically)',
+  stale[6].description === 'ORAL SURGERY/URG CARE BLOCK');
 
 // Idempotency: a second pass should not change anything.
 const secondPass = migrateScheduleDescriptions(stale);
