@@ -7,6 +7,9 @@ export const CSG_WELD_TOLERANCE = 1e-4;
 
 const evaluator = new Evaluator();
 evaluator.useGroups = false;
+// Normals and UVs get rebuilt after every operation, so interpolating
+// them during evaluation is wasted work.
+evaluator.attributes = ['position'];
 
 function assertGeometry(geometry, name) {
     if (!geometry?.isBufferGeometry) {
@@ -738,15 +741,19 @@ export function unionGeometries(
         secondName = 'Second geometry',
         tolerance = CSG_WELD_TOLERANCE,
         planarSeamY = null,
-        repairTopology = true
+        repairTopology = true,
+        // Caller already ran prepareGeometryForCSG (and baked any matrix)
+        // on the first geometry; skip the redundant weld. The caller keeps
+        // ownership and disposes it.
+        firstPrepared = false
     } = {}
 ) {
-    let firstPrepared;
+    let firstOwned;
     let secondPrepared;
     let resultGeometry;
 
     try {
-        firstPrepared = prepareGeometryForCSG(firstGeometry, {
+        firstOwned = firstPrepared ? null : prepareGeometryForCSG(firstGeometry, {
             matrix: firstMatrix,
             name: firstName,
             tolerance
@@ -757,7 +764,7 @@ export function unionGeometries(
             tolerance
         });
 
-        const firstBrush = new Brush(firstPrepared);
+        const firstBrush = new Brush(firstOwned ?? firstGeometry);
         const secondBrush = new Brush(secondPrepared);
         firstBrush.updateMatrixWorld(true);
         secondBrush.updateMatrixWorld(true);
@@ -772,7 +779,7 @@ export function unionGeometries(
             repairTopology
         });
     } finally {
-        firstPrepared?.dispose();
+        firstOwned?.dispose();
         secondPrepared?.dispose();
         resultGeometry?.dispose();
     }
@@ -792,15 +799,16 @@ export function subtractGeometries(
         secondName = 'Second geometry',
         tolerance = CSG_WELD_TOLERANCE,
         planarSeamY = null,
-        repairTopology = true
+        repairTopology = true,
+        firstPrepared = false
     } = {}
 ) {
-    let firstPrepared;
+    let firstOwned;
     let secondPrepared;
     let resultGeometry;
 
     try {
-        firstPrepared = prepareGeometryForCSG(firstGeometry, {
+        firstOwned = firstPrepared ? null : prepareGeometryForCSG(firstGeometry, {
             matrix: firstMatrix,
             name: firstName,
             tolerance
@@ -811,7 +819,7 @@ export function subtractGeometries(
             tolerance
         });
 
-        const firstBrush = new Brush(firstPrepared);
+        const firstBrush = new Brush(firstOwned ?? firstGeometry);
         const secondBrush = new Brush(secondPrepared);
         firstBrush.updateMatrixWorld(true);
         secondBrush.updateMatrixWorld(true);
@@ -826,7 +834,7 @@ export function subtractGeometries(
             repairTopology
         });
     } finally {
-        firstPrepared?.dispose();
+        firstOwned?.dispose();
         secondPrepared?.dispose();
         resultGeometry?.dispose();
     }

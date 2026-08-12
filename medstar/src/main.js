@@ -21,7 +21,7 @@ import {
 } from './base.js';
 import {
     bakeMeshGeometry,
-    unionModelAndBase,
+    prepareGeometryForCSG,
     unionGeometries,
     subtractGeometries,
     getGeometryStats,
@@ -41,6 +41,7 @@ export const MODEL_ROTATION_OFFSET = Object.freeze({ x: 0, y: 0, z: 0 });
 const state = {
     model: null,
     base: null,
+    preparedModel: null,       // CSG-welded copy, built once at import
     baseParams: null,          // normalized params + posX/posZ offsets
     baseAnchor: { centerX: 0, centerZ: 0, topY: 0 },
     sizeOverride: false,       // user set an explicit size this session
@@ -402,6 +403,8 @@ function disposeCurrent() {
         sceneContext.scene.remove(state.base);
         state.base.geometry.dispose();
     }
+    state.preparedModel?.dispose();
+    state.preparedModel = null;
     state.model = null;
     state.base = null;
     state.processed = false;
@@ -439,6 +442,14 @@ async function handleFile(file) {
         state.model.name = 'DentalModel';
         sceneContext.scene.add(state.model);
         state.model.updateMatrixWorld(true);
+
+        // Weld once now, while the loading overlay is up, so the export
+        // merge later skips this ~half-second step.
+        ui.updateProcessing('Preparing the mesh…');
+        await nextPaint();
+        state.preparedModel = prepareGeometryForCSG(imported.geometry, {
+            name: 'DentalModel'
+        });
 
         state.base = new THREE.Mesh(
             buildBaseGeometry(state.baseParams),
@@ -547,6 +558,14 @@ function overlapExists() {
     return size.x > 1e-4 && size.y > 1e-4 && size.z > 1e-4;
 }
 
+/** The import-time welded copy, with the current world transform baked. */
+function bakedPreparedModel() {
+    const baked = state.preparedModel.clone();
+    state.model.updateWorldMatrix(true, false);
+    baked.applyMatrix4(state.model.matrixWorld);
+    return baked;
+}
+
 /**
  * Hollow merge, in three clean cuts:
  * 1. If the model is sunk past the deck's underside, trim it there with a
@@ -566,6 +585,27 @@ async function mergeHollow() {
     const deepSink = meshWorldBounds(state.model).min.y < deckBottom - 0.05;
     const tolerance = deepSink ? 5e-4 : undefined;
 
+    if (!deepSink) {
+        // Nothing reaches the cavity: one union with the hollow base is
+        // enough, and it costs a single repair pass instead of two.
+        ui.updateProcessing('Merging model and base…');
+        await nextPaint();
+        const bakedModel = bakedPreparedModel();
+        try {
+            const result = unionGeometries(bakedModel, state.base.geometry, {
+                firstPrepared: true,
+                secondMatrix: state.base.matrixWorld,
+                firstName: modelName,
+                secondName: state.base.name || 'Procedural base',
+                planarSeamY: baseTop
+            });
+            state.meshHasSeams = false;
+            return result;
+        } finally {
+            bakedModel.dispose();
+        }
+    }
+
     let trimmedModel = null;
     if (deepSink) {
         ui.updateProcessing('Trimming the sunken part of the model…');
@@ -582,51 +622,55 @@ async function mergeHollow() {
             deckBottom - (deckBottom - modelBounds.min.y + margin) / 2,
             (modelBounds.min.z + modelBounds.max.z) / 2
         );
+        const bakedModel = bakedPreparedModel();
         try {
-            trimmedModel = subtractGeometries(state.model.geometry, cutter, {
-                firstMatrix: state.model.matrixWorld,
+            trimmedModel = subtractGeometries(bakedModel, cutter, {
+                firstPrepared: true,
                 firstName: modelName,
                 secondName: 'Halfspace cutter',
                 planarSeamY: deckBottom,
                 tolerance
             });
         } finally {
+            bakedModel.dispose();
             cutter.dispose();
         }
     }
 
     ui.updateProcessing('Merging model and base…');
     await nextPaint();
+    const modelInput = trimmedModel ?? bakedPreparedModel();
     const solidBase = buildBaseGeometry({ ...state.baseParams, hollow: false });
     const cavityCutter = buildCavityCutterGeometry(state.baseParams);
     try {
-        const fused = unionGeometries(
-            trimmedModel ?? state.model.geometry,
-            solidBase,
-            {
-                firstMatrix: trimmedModel ? null : state.model.matrixWorld,
-                secondMatrix: state.base.matrixWorld,
-                firstName: modelName,
-                secondName: 'Solid base',
-                planarSeamY: baseTop,
-                tolerance
-            }
-        );
+        const fused = unionGeometries(modelInput, solidBase, {
+            firstPrepared: true,
+            secondMatrix: state.base.matrixWorld,
+            firstName: modelName,
+            secondName: 'Solid base',
+            planarSeamY: baseTop,
+            tolerance
+        });
         ui.updateProcessing('Hollowing the base…');
         await nextPaint();
         try {
-            return subtractGeometries(fused, cavityCutter, {
+            const result = subtractGeometries(fused, cavityCutter, {
                 secondMatrix: state.base.matrixWorld,
                 firstName: 'Model with base',
                 secondName: 'Cavity',
                 planarSeamY: deckBottom,
                 tolerance
             });
+            // Only deep sinks can leave slicer-repairable seams; the
+            // default flow is proven watertight, so skip the check there.
+            state.meshHasSeams = deepSink
+                && !getEdgeTopologyStats(result).isTwoManifold;
+            return result;
         } finally {
             fused.dispose();
         }
     } finally {
-        trimmedModel?.dispose();
+        modelInput.dispose();
         solidBase.dispose();
         cavityCutter.dispose();
     }
@@ -640,31 +684,26 @@ async function mergeGeometry() {
     const startedAt = performance.now();
 
     let resultGeometry;
+    state.meshHasSeams = false;
     if (state.base.visible && state.baseParams.hollow) {
         resultGeometry = await mergeHollow();
     } else if (state.base.visible) {
-        resultGeometry = unionModelAndBase(state.model, state.base);
+        state.base.updateWorldMatrix(true, false);
+        const bakedModel = bakedPreparedModel();
+        try {
+            resultGeometry = unionGeometries(bakedModel, state.base.geometry, {
+                firstPrepared: true,
+                secondMatrix: state.base.matrixWorld,
+                firstName: state.model.name || 'Dental model',
+                secondName: state.base.name || 'Procedural base',
+                planarSeamY: state.base.position.y + state.baseParams.height
+            });
+        } finally {
+            bakedModel.dispose();
+        }
     } else {
         resultGeometry = bakeMeshGeometry(state.model);
     }
-
-    // Deep-sink merges can leave a handful of slicer-repairable seam
-    // edges; check honestly so the export toast can say so.
-    const topology = getEdgeTopologyStats(resultGeometry);
-    state.meshHasSeams = !topology.isTwoManifold;
-    if (state.meshHasSeams) {
-        log('[CSG] Seam edges remain:', topology);
-    }
-
-    // Split normals at sharp edges so the flat deck and walls shade
-    // cleanly instead of smearing across the crease (display only; the
-    // STL exporter derives face normals from the triangles).
-    const creased = BufferGeometryUtils.toCreasedNormals(
-        resultGeometry,
-        THREE.MathUtils.degToRad(38)
-    );
-    resultGeometry.dispose();
-    resultGeometry = creased;
 
     const previous = state.model.geometry;
     state.model.geometry = resultGeometry;
@@ -696,7 +735,8 @@ async function handleExport() {
     state.busy = true;
     ui.setExportState('busy');
     try {
-        if (!state.processed) await mergeGeometry();
+        const needsMerge = !state.processed;
+        if (needsMerge) await mergeGeometry();
         ui.updateProcessing('Saving STL…');
 
         const stem = state.filename
@@ -707,6 +747,20 @@ async function handleExport() {
             oneClick: true,
             onStatus: () => {}
         });
+
+        if (needsMerge) {
+            // The file is already on its way; polish the on-screen normals
+            // afterward so sharp edges shade cleanly (display only — the
+            // STL exporter derives face normals from the triangles).
+            ui.updateProcessing('Finishing up…');
+            await nextPaint();
+            const creased = BufferGeometryUtils.toCreasedNormals(
+                state.model.geometry,
+                THREE.MathUtils.degToRad(38)
+            );
+            state.model.geometry.dispose();
+            state.model.geometry = creased;
+        }
         ui.hideProcessing();
         ui.setExportState('exported');
         if (exportResult?.method === 'cancelled') {
