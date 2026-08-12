@@ -886,6 +886,12 @@ input[type="number"] {
         flex-direction: column;
         gap: 10px;
         padding: 12px 16px;
+        max-width: calc(100vw - 24px);
+    }
+
+    .action-buttons {
+        flex-wrap: wrap;
+        justify-content: center;
     }
 
     .character-bubble {

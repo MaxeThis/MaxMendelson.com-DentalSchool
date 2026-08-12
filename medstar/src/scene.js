@@ -27,6 +27,7 @@ export function createScene(canvas) {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
     renderer.setClearColor(0x000000, 0);
+    renderer.localClippingEnabled = true;
 
     // Background is a CSS radial gradient behind the transparent canvas so
     // the deep blue reads with depth instead of one flat tone.
@@ -81,13 +82,19 @@ export function createScene(canvas) {
             .start();
     }
 
+    // Live preview of the hollow-base cut: anything the user sinks below
+    // the cut plane vanishes, exactly like the real merge will trim it.
+    // A huge constant keeps the plane inert until the layout sets it.
+    const modelClipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 1e6);
+
     const materials = {
         model: new THREE.MeshStandardMaterial({
             color: 0xf3eee3,
             metalness: 0.02,
             roughness: 0.58,
             emissive: 0x000000,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            clippingPlanes: [modelClipPlane]
         }),
         base: new THREE.MeshStandardMaterial({
             color: MEDSTAR_COLORS.blue,
@@ -122,5 +129,22 @@ export function createScene(canvas) {
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     }
 
-    return { renderer, scene, grid, materials, setMaterialState, setGridShown, resize };
+    /**
+     * planeY: model surface below this height disappears. Pass null to
+     * disable (e.g. after the merge, when the cut is real geometry).
+     */
+    function setModelCutPlane(planeY) {
+        modelClipPlane.constant = planeY === null ? 1e6 : -planeY;
+    }
+
+    return {
+        renderer,
+        scene,
+        grid,
+        materials,
+        setMaterialState,
+        setGridShown,
+        setModelCutPlane,
+        resize
+    };
 }

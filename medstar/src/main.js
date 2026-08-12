@@ -14,11 +14,19 @@ import {
     BASE_EMBED,
     BASE_LIMITS,
     buildBaseGeometry,
+    buildCavityCutterGeometry,
     rebuildBaseMesh,
     normalizeBaseParams,
     debounce
 } from './base.js';
-import { bakeMeshGeometry, unionModelAndBase, getGeometryStats } from './csg.js';
+import {
+    bakeMeshGeometry,
+    unionModelAndBase,
+    unionGeometries,
+    subtractGeometries,
+    getGeometryStats,
+    getEdgeTopologyStats
+} from './csg.js';
 import { createUI } from './ui.js';
 import { createCharacter } from './character.js';
 import { loadSettings, saveSettings, resetSettings } from './settings.js';
@@ -36,6 +44,8 @@ const state = {
     baseParams: null,          // normalized params + posX/posZ offsets
     baseAnchor: { centerX: 0, centerZ: 0, topY: 0 },
     sizeOverride: false,       // user set an explicit size this session
+    sink: BASE_EMBED,          // how deep the model sits into the base (mm)
+    meshHasSeams: false,       // deep-sink merges can leave slicer-repairable seams
     processed: false,
     exported: false,
     busy: false,
@@ -92,13 +102,22 @@ const viewCube = new ViewCube(
 // ============ Geometry helpers ============
 
 /**
- * World-space bounds from the mesh's own geometry only (children like the
- * transform gizmo never pollute the result).
+ * Exact world-space bounds from the mesh's own vertices. Children (like
+ * the transform gizmo) never pollute the result, and unlike transforming
+ * the local bounding box, rotation cannot inflate it — the embed math
+ * depends on a true min.y or a tilted model would float above its base.
  */
+const boundsScratch = new THREE.Vector3();
 function meshWorldBounds(mesh) {
     mesh.updateMatrixWorld(true);
-    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-    return mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+    const bounds = new THREE.Box3();
+    const position = mesh.geometry.getAttribute('position');
+    for (let i = 0; i < position.count; i += 1) {
+        boundsScratch.fromBufferAttribute(position, i)
+            .applyMatrix4(mesh.matrixWorld);
+        bounds.expandByPoint(boundsScratch);
+    }
+    return bounds;
 }
 
 function computeFootprintParams(modelBounds) {
@@ -122,6 +141,18 @@ function computeFootprintParams(modelBounds) {
     };
 }
 
+/**
+ * A sunken model gets trimmed at the deck's underside: the hollow cavity
+ * eats whatever reaches into it. Used for the live preview; the merge
+ * carves the same volume for real.
+ */
+function modelCutPlaneY() {
+    if (!state.base || !state.baseParams.hollow) return null;
+    return state.base.position.y
+        + state.baseParams.height
+        - state.baseParams.wall;
+}
+
 function placeBase() {
     if (!state.base) return;
     state.base.position.set(
@@ -130,6 +161,7 @@ function placeBase() {
         state.baseAnchor.centerZ + state.baseParams.posZ
     );
     state.base.updateMatrixWorld(true);
+    sceneContext.setModelCutPlane(state.processed ? null : modelCutPlaneY());
 }
 
 function clampOffset(value, limits) {
@@ -161,11 +193,20 @@ function settleLayout({ preserveBaseWorld = false } = {}) {
         state.baseParams.posZ = clampOffset(
             state.base.position.z - center.z, BASE_LIMITS.posZ
         );
+        // Dragging the model down sinks it into the base; the cut preview
+        // and the merge both honor this depth.
+        state.sink = state.base.position.y
+            + state.baseParams.height
+            - bounds.min.y;
     }
+    state.sink = Math.min(
+        Math.max(state.sink, BASE_EMBED),
+        state.baseParams.height
+    );
 
     state.baseAnchor.centerX = center.x;
     state.baseAnchor.centerZ = center.z;
-    state.baseAnchor.topY = bounds.min.y + BASE_EMBED;
+    state.baseAnchor.topY = bounds.min.y + state.sink;
 
     // Seat the pair on the grid plane.
     const baseBottom = state.baseAnchor.topY - state.baseParams.height;
@@ -257,7 +298,8 @@ function captureSnapshot() {
         ],
         baseParams: { ...state.baseParams },
         baseAnchor: { ...state.baseAnchor },
-        sizeOverride: state.sizeOverride
+        sizeOverride: state.sizeOverride,
+        sink: state.sink
     };
 }
 
@@ -269,6 +311,7 @@ function restoreSnapshot(snapshot) {
     state.baseParams = { ...snapshot.baseParams };
     state.baseAnchor = { ...snapshot.baseAnchor };
     state.sizeOverride = snapshot.sizeOverride;
+    state.sink = snapshot.sink ?? BASE_EMBED;
     rebuildBaseIfNeeded();
     placeBase();
     syncReadouts();
@@ -295,7 +338,8 @@ const interactions = createInteractionManager({
             return;
         }
         if (mesh === state.model) {
-            transformManager.attach(state.model, { allowY: false });
+            // Y stays live so the model can sink into the hollow base.
+            transformManager.attach(state.model, { allowY: true });
             ui.setSelection('model');
         } else if (mesh === state.base) {
             transformManager.attach(state.base, { allowY: false, translateOnly: true });
@@ -311,6 +355,12 @@ function deselect() {
 // ============ Import ============
 
 async function nextPaint(delay = 0) {
+    // requestAnimationFrame never fires in a hidden tab, which would stall
+    // a merge the user left running in the background.
+    if (document.hidden) {
+        await new Promise(resolve => window.setTimeout(resolve, delay));
+        return;
+    }
     await new Promise(resolve => {
         requestAnimationFrame(() => window.setTimeout(resolve, delay));
     });
@@ -376,6 +426,8 @@ async function handleFile(file) {
         disposeCurrent();
         state.filename = imported.filename;
         state.exported = false;
+        state.sink = BASE_EMBED;
+        state.meshHasSeams = false;
         character.setVisible(false);
         state.baseParams = {
             ...normalizeBaseParams(state.settings),
@@ -445,6 +497,8 @@ function updateBaseParam(name, value, commit) {
 
 function updateBaseHollow(checked) {
     if (!state.base || state.processed) return;
+    // Keep the user's choice past the next layout settle.
+    state.sizeOverride = true;
     state.baseParams.hollow = checked;
     rebuildBaseIfNeeded();
     placeBase();
@@ -493,6 +547,91 @@ function overlapExists() {
     return size.x > 1e-4 && size.y > 1e-4 && size.z > 1e-4;
 }
 
+/**
+ * Hollow merge, in three clean cuts:
+ * 1. If the model is sunk past the deck's underside, trim it there with a
+ *    halfspace box (an open-space cut, no coplanar faces).
+ * 2. Union the trimmed model with a SOLID base — one seam at the base top.
+ * 3. Carve the cavity out of the pair. The cutter never meets the model,
+ *    so near-tangent skirt/cavity intersections cannot happen.
+ */
+async function mergeHollow() {
+    state.base.updateWorldMatrix(true, false);
+    const deckBottom = modelCutPlaneY();
+    const baseTop = state.base.position.y + state.baseParams.height;
+    const modelName = state.model.name || 'Dental model';
+
+    // Deep sinks slice the seam through rough gum anatomy; a slightly
+    // coarser weld collapses the sliver triangles that otherwise leak.
+    const deepSink = meshWorldBounds(state.model).min.y < deckBottom - 0.05;
+    const tolerance = deepSink ? 5e-4 : undefined;
+
+    let trimmedModel = null;
+    if (deepSink) {
+        ui.updateProcessing('Trimming the sunken part of the model…');
+        await nextPaint();
+        const modelBounds = meshWorldBounds(state.model);
+        const margin = 10;
+        const cutter = new THREE.BoxGeometry(
+            modelBounds.max.x - modelBounds.min.x + margin * 2,
+            deckBottom - modelBounds.min.y + margin,
+            modelBounds.max.z - modelBounds.min.z + margin * 2
+        );
+        cutter.translate(
+            (modelBounds.min.x + modelBounds.max.x) / 2,
+            deckBottom - (deckBottom - modelBounds.min.y + margin) / 2,
+            (modelBounds.min.z + modelBounds.max.z) / 2
+        );
+        try {
+            trimmedModel = subtractGeometries(state.model.geometry, cutter, {
+                firstMatrix: state.model.matrixWorld,
+                firstName: modelName,
+                secondName: 'Halfspace cutter',
+                planarSeamY: deckBottom,
+                tolerance
+            });
+        } finally {
+            cutter.dispose();
+        }
+    }
+
+    ui.updateProcessing('Merging model and base…');
+    await nextPaint();
+    const solidBase = buildBaseGeometry({ ...state.baseParams, hollow: false });
+    const cavityCutter = buildCavityCutterGeometry(state.baseParams);
+    try {
+        const fused = unionGeometries(
+            trimmedModel ?? state.model.geometry,
+            solidBase,
+            {
+                firstMatrix: trimmedModel ? null : state.model.matrixWorld,
+                secondMatrix: state.base.matrixWorld,
+                firstName: modelName,
+                secondName: 'Solid base',
+                planarSeamY: baseTop,
+                tolerance
+            }
+        );
+        ui.updateProcessing('Hollowing the base…');
+        await nextPaint();
+        try {
+            return subtractGeometries(fused, cavityCutter, {
+                secondMatrix: state.base.matrixWorld,
+                firstName: 'Model with base',
+                secondName: 'Cavity',
+                planarSeamY: deckBottom,
+                tolerance
+            });
+        } finally {
+            fused.dispose();
+        }
+    } finally {
+        trimmedModel?.dispose();
+        solidBase.dispose();
+        cavityCutter.dispose();
+    }
+}
+
 async function mergeGeometry() {
     rebuildBaseDebounced.flush();
     deselect();
@@ -500,9 +639,22 @@ async function mergeGeometry() {
     await nextPaint(40);
     const startedAt = performance.now();
 
-    let resultGeometry = state.base.visible
-        ? unionModelAndBase(state.model, state.base)
-        : bakeMeshGeometry(state.model);
+    let resultGeometry;
+    if (state.base.visible && state.baseParams.hollow) {
+        resultGeometry = await mergeHollow();
+    } else if (state.base.visible) {
+        resultGeometry = unionModelAndBase(state.model, state.base);
+    } else {
+        resultGeometry = bakeMeshGeometry(state.model);
+    }
+
+    // Deep-sink merges can leave a handful of slicer-repairable seam
+    // edges; check honestly so the export toast can say so.
+    const topology = getEdgeTopologyStats(resultGeometry);
+    state.meshHasSeams = !topology.isTwoManifold;
+    if (state.meshHasSeams) {
+        log('[CSG] Seam edges remain:', topology);
+    }
 
     // Split normals at sharp edges so the flat deck and walls shade
     // cleanly instead of smearing across the crease (display only; the
@@ -522,6 +674,7 @@ async function mergeGeometry() {
     state.model.scale.set(1, 1, 1);
     state.model.updateMatrixWorld(true);
     state.base.visible = false;
+    sceneContext.setModelCutPlane(null);
 
     transformManager.detach();
     transformManager.setEnabled(false);
@@ -549,14 +702,20 @@ async function handleExport() {
         const stem = state.filename
             .replace(/\.[^.]+$/, '')
             .replace(/[^a-z0-9_-]+/gi, '_');
-        await exportSTL(state.model, {
+        const exportResult = await exportSTL(state.model, {
             suggestedName: `${stem || 'model'}_based.stl`,
             oneClick: true,
             onStatus: () => {}
         });
         ui.hideProcessing();
         ui.setExportState('exported');
-        ui.toast('STL downloaded. Check your Downloads folder.');
+        if (exportResult?.method === 'cancelled') {
+            ui.toast('Export cancelled. No file was saved. Click "Export again" to save it.');
+            return;
+        }
+        ui.toast(state.meshHasSeams
+            ? 'STL downloaded. Your slicer may auto-close a few small seams on this one.'
+            : 'STL downloaded. Check your Downloads folder.');
 
         // The thank-you moment: Max slides out once the file is saved.
         if (!state.exported && state.settings.showGreeter) {
@@ -576,6 +735,7 @@ async function handleExport() {
 }
 
 function handleReset() {
+    if (state.busy) return;
     importSequence += 1;
     disposeCurrent();
     undoManager.reset();
@@ -594,14 +754,18 @@ function handleReset() {
 
 // ============ Settings ============
 
+const FOOTPRINT_SETTING_KEYS = ['width', 'depth', 'height', 'wall', 'hollow', 'autoGrow'];
+
 function applySettings(patch, commit) {
     state.settings = { ...state.settings, ...patch };
     if (commit) state.settings = saveSettings(state.settings);
     ui.syncSettings(state.settings);
     character.setVisible(state.settings.showGreeter && state.exported);
 
-    if (state.base && !state.processed) {
-        // Defaults drive the live base whenever it has no manual override.
+    // Only a base-plate edit retakes control of the live base; toggling
+    // something unrelated (like the greeter) must not wipe manual sizing.
+    const touchesFootprint = FOOTPRINT_SETTING_KEYS.some(key => key in patch);
+    if (state.base && !state.processed && touchesFootprint) {
         state.sizeOverride = false;
         if (commit) {
             settleLayout();
@@ -718,6 +882,11 @@ window.__MEDSTAR_BASE__ = Object.freeze({
     selectBase: () => interactions.select(state.base),
     deselect,
     fitBase,
+    setSink(depth) {
+        state.sink = depth;
+        settleLayout();
+        return state.sink;
+    },
     merge: mergeGeometry,
     exportAndDownload: handleExport,
     reset: handleReset,

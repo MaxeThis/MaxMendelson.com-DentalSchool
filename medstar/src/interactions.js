@@ -107,7 +107,10 @@ export function createInteractionManager({
     });
 
     canvas.addEventListener('pointerdown', event => {
-        if (event.button !== 0) return;
+        // TransformControls' own pointerdown runs first (registered
+        // earlier), so gizmoDragging is already true for handle grabs —
+        // never treat those as picking clicks.
+        if (event.button !== 0 || gizmoDragging) return;
         pointerDown = { x: event.clientX, y: event.clientY };
     });
 

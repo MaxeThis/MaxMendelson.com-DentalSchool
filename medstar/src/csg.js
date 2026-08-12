@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ADDITION, Brush, Evaluator } from 'three-bvh-csg';
+import { ADDITION, SUBTRACTION, Brush, Evaluator } from 'three-bvh-csg';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { removeDegenerateTriangles } from './geometry.js';
 
@@ -767,6 +767,60 @@ export function unionGeometries(
 
         return cleanupCSGGeometry(resultGeometry, {
             name: `${firstName} + ${secondName}`,
+            tolerance,
+            planarSeamY,
+            repairTopology
+        });
+    } finally {
+        firstPrepared?.dispose();
+        secondPrepared?.dispose();
+        resultGeometry?.dispose();
+    }
+}
+
+/**
+ * Subtract the second geometry from the first. Optional matrices are baked
+ * into cloned vertices, so both Brushes use identity transforms.
+ */
+export function subtractGeometries(
+    firstGeometry,
+    secondGeometry,
+    {
+        firstMatrix = null,
+        secondMatrix = null,
+        firstName = 'First geometry',
+        secondName = 'Second geometry',
+        tolerance = CSG_WELD_TOLERANCE,
+        planarSeamY = null,
+        repairTopology = true
+    } = {}
+) {
+    let firstPrepared;
+    let secondPrepared;
+    let resultGeometry;
+
+    try {
+        firstPrepared = prepareGeometryForCSG(firstGeometry, {
+            matrix: firstMatrix,
+            name: firstName,
+            tolerance
+        });
+        secondPrepared = prepareGeometryForCSG(secondGeometry, {
+            matrix: secondMatrix,
+            name: secondName,
+            tolerance
+        });
+
+        const firstBrush = new Brush(firstPrepared);
+        const secondBrush = new Brush(secondPrepared);
+        firstBrush.updateMatrixWorld(true);
+        secondBrush.updateMatrixWorld(true);
+
+        const resultBrush = evaluator.evaluate(firstBrush, secondBrush, SUBTRACTION);
+        resultGeometry = resultBrush.geometry;
+
+        return cleanupCSGGeometry(resultGeometry, {
+            name: `${firstName} - ${secondName}`,
             tolerance,
             planarSeamY,
             repairTopology

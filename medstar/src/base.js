@@ -111,30 +111,22 @@ function createOuterHalfDisc(width, depth) {
     return shape;
 }
 
-function createHalfDiscWallShape(width, depth, wall) {
-    const shape = createOuterHalfDisc(width, depth);
+// The inner half-disc is inscribed in the outer half-disc's bounding
+// rectangle after that rectangle is inset by `wall` on every side. Its
+// straight chord is therefore wall millimeters in from the outer chord.
+function traceInnerHalfDisc(path, width, depth, wall) {
     const innerRadiusX = width / 2 - wall;
     const innerRadiusZ = depth - wall * 2;
-    const hole = new THREE.Path();
+    path.moveTo(-innerRadiusX, wall);
+    path.lineTo(innerRadiusX, wall);
+    path.absellipse(0, wall, innerRadiusX, innerRadiusZ, 0, Math.PI, false, 0);
+    path.closePath();
+    return path;
+}
 
-    // This ellipse is inscribed in the outer half-disc's bounding rectangle
-    // after that rectangle is inset by `wall` on every side. Its straight
-    // chord is therefore wall millimeters in from the outer chord.
-    hole.moveTo(-innerRadiusX, wall);
-    hole.lineTo(innerRadiusX, wall);
-    hole.absellipse(
-        0,
-        wall,
-        innerRadiusX,
-        innerRadiusZ,
-        0,
-        Math.PI,
-        false,
-        0
-    );
-    hole.closePath();
-
-    shape.holes.push(hole);
+function createHalfDiscWallShape(width, depth, wall) {
+    const shape = createOuterHalfDisc(width, depth);
+    shape.holes.push(traceInnerHalfDisc(new THREE.Path(), width, depth, wall));
     return shape;
 }
 
@@ -323,6 +315,28 @@ export function buildBaseGeometry(params = DEFAULT_BASE_PARAMS) {
 
     geometry.name = normalized.hollow ? 'HollowBaseGeometry' : 'SolidBaseGeometry';
     geometry.userData.baseParams = { ...normalized };
+    return geometry;
+}
+
+/**
+ * The hollow base's cavity as a solid cutter, in the same local frame as
+ * the base geometry (bottom of the base at Y = 0). It spans from below the
+ * base's underside up to the deck's underside, so subtracting it from
+ * (model UNION solid base) carves the hollow and trims whatever part of a
+ * sunken model would dangle inside it. The overshoot keeps the cutter's
+ * bottom face in open space, away from any coplanar seam.
+ */
+export function buildCavityCutterGeometry(params, { overshoot = 10 } = {}) {
+    const normalized = normalizeBaseParams(params);
+    const shape = new THREE.Shape();
+    traceInnerHalfDisc(shape, normalized.width, normalized.depth, normalized.wall);
+
+    const cutterHeight = normalized.height - normalized.wall + overshoot;
+    const geometry = extrudeBaseShape(shape, cutterHeight, normalized.depth);
+    geometry.translate(0, -overshoot, 0);
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    geometry.name = 'CavityCutterGeometry';
     return geometry;
 }
 
