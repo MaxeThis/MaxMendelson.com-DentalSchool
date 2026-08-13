@@ -47,6 +47,8 @@ const state = {
     baseParams: null,          // normalized params + posX/posZ offsets
     baseAnchor: { centerX: 0, centerZ: 0, topY: 0 },
     sizeOverride: false,       // user set an explicit size this session
+    // The base can never be smaller than the scan standing on it.
+    minFootprint: { width: 0, depth: 0 },
     sink: BASE_EMBED,          // how deep the model sits into the base (mm)
     meshHasSeams: false,       // deep-sink merges can leave slicer-repairable seams
     processed: false,
@@ -125,6 +127,9 @@ function meshWorldBounds(mesh) {
 
 function computeFootprintParams(modelBounds) {
     const size = modelBounds.getSize(new THREE.Vector3());
+    // The scan has to stand on the plate, so the plate can never be
+    // narrower or shallower than the scan's own footprint.
+    state.minFootprint = { width: size.x, depth: size.z };
     const params = { ...state.baseParams };
     if (!state.sizeOverride) {
         params.width = state.settings.width;
@@ -139,8 +144,18 @@ function computeFootprintParams(modelBounds) {
             params.depth = Math.max(params.depth, size.z * BASE_AUTOFIT_PADDING);
         }
     }
+    const normalized = normalizeBaseParams({
+        ...params,
+        width: Math.max(params.width, state.minFootprint.width),
+        depth: Math.max(params.depth, state.minFootprint.depth)
+    });
+    ui?.setBaseFloors({
+        width: Math.ceil(state.minFootprint.width * 10) / 10,
+        depth: Math.ceil(state.minFootprint.depth * 10) / 10
+    });
+
     return {
-        ...normalizeBaseParams(params),
+        ...normalized,
         posX: params.posX ?? 0,
         posZ: params.posZ ?? 0
     };
@@ -496,9 +511,20 @@ async function handleFile(file) {
 function updateBaseParam(name, value, commit) {
     if (!state.base || state.processed) return;
     state.sizeOverride = true;
+
+    // Typing a number straight into the box bypasses the slider's stop, so
+    // the floor is enforced here too.
+    let requested = value;
+    if (name === 'width') requested = Math.max(value, state.minFootprint.width);
+    if (name === 'depth') requested = Math.max(value, state.minFootprint.depth);
+    if (requested !== value) {
+        ui.toast(`The plate cannot be smaller than the scan: ${
+            requested.toFixed(1)} mm is the minimum.`, 2200);
+    }
+
     const { posX, posZ } = state.baseParams;
     state.baseParams = {
-        ...normalizeBaseParams({ ...state.baseParams, [name]: value }),
+        ...normalizeBaseParams({ ...state.baseParams, [name]: requested }),
         posX,
         posZ
     };

@@ -256,6 +256,26 @@ export function createUI({
             inspectorModel.hidden = kind !== 'model';
         },
 
+        /**
+         * Raise the floor on the base size sliders so they physically stop
+         * where the scan stops. `limits` is { width, depth } in mm.
+         */
+        setBaseFloors(limits) {
+            for (const [name, floor] of Object.entries(limits)) {
+                const field = baseFields[name];
+                if (!field) continue;
+                const [rangeEl, numberEl] = field;
+                const value = String(Math.max(0, floor));
+                rangeEl.min = value;
+                numberEl.min = value;
+                if (Number(rangeEl.value) < floor) {
+                    rangeEl.value = value;
+                    numberEl.value = value;
+                    syncRangeFill(rangeEl);
+                }
+            }
+        },
+
         syncBaseControls(params) {
             suppressEvents = true;
             setField(...baseFields.width, params.width);

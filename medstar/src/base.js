@@ -29,7 +29,7 @@ export const BASE_LIMITS = Object.freeze({
 export const INFILL_PATTERNS = Object.freeze([
     { id: 'solid', label: 'Solid wall' },
     { id: 'bars', label: 'Bars' },
-    { id: 'windows', label: 'Windows' },
+    { id: 'wide', label: 'Wide slots' },
     { id: 'text', label: 'MedStar OMFS' }
 ]);
 
@@ -423,13 +423,15 @@ function buildStitchedHollowGeometry(params) {
 // it around the perimeter by a fraction of one cut spacing, which lands
 // the cuts on different wall facets.
 const PATTERN_ATTEMPTS = [
-    { lift: 0, phase: 0 },
-    { lift: 0, phase: 0.33 },
-    { lift: 0.037, phase: 0 },
-    { lift: 0, phase: 0.66 },
-    { lift: 0.083, phase: 0.33 },
-    { lift: 0.146, phase: 0 },
-    { lift: 0.211, phase: 0.66 }
+    { lift: 0, phase: 0, widthScale: 1 },
+    { lift: 0, phase: 0, widthScale: 0.94 },
+    { lift: 0, phase: 0.33, widthScale: 1 },
+    { lift: 0.037, phase: 0, widthScale: 1.05 },
+    { lift: 0, phase: 0.66, widthScale: 0.97 },
+    { lift: 0.083, phase: 0.33, widthScale: 1 },
+    { lift: 0.146, phase: 0, widthScale: 0.91 },
+    { lift: 0.211, phase: 0.66, widthScale: 1.03 },
+    { lift: 0.037, phase: 0.5, widthScale: 0.88 }
 ];
 
 /**

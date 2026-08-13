@@ -164,8 +164,24 @@ function buildSweptPrism(outline, arcStart, arcEnd, wall, profile, innerDepth) {
     const rings = [];
 
     // Sample at the outline's own vertices so the cut's outer face follows
-    // the shell facet for facet, plus the two ends.
-    const arcs = [arcStart, ...outline.verticesBetween(arcStart, arcEnd), arcEnd];
+    // the shell facet for facet, plus evenly spaced interior samples so a
+    // shaped profile is described everywhere. The flat posterior chord is
+    // one long facet with no interior vertices, so without the even
+    // samples any tapered or chamfered cut would collapse to a hairline
+    // right across the back of the base.
+    const samples = outline.verticesBetween(arcStart, arcEnd);
+    const steps = Math.max(1, Math.ceil(Math.abs(span) / STATION_SPACING));
+    for (let step = 1; step < steps; step += 1) {
+        samples.push(arcStart + span * (step / steps));
+    }
+    samples.sort((a, b) => a - b);
+
+    const arcs = [arcStart];
+    for (const value of samples) {
+        if (value - arcs[arcs.length - 1] > 1e-3) arcs.push(value);
+    }
+    if (arcEnd - arcs[arcs.length - 1] > 1e-3) arcs.push(arcEnd);
+    else arcs[arcs.length - 1] = arcEnd;
     const stations = arcs.length;
 
     // The inner face is pushed along one fixed direction rather than each
@@ -298,7 +314,37 @@ export function getInfillBand(params) {
     return { low, high, height: high - low };
 }
 
-export function buildSlotCutters(outline, params, band, { slotWidth, pitch, rows = 1, rowGap: rowGapOption, stagger = true, phase = 0 }) {
+/**
+ * Widest cut the anterior arch will accept, in millimeters.
+ *
+ * A cut is refused where the wall turns more than MAX_CUT_TURN across it,
+ * and on a D-shaped base the tightest curve is the front of the arch, not
+ * the posterior fillets: its radius is (width/2)^2 / depth. Asking for a
+ * wider slot than this does not widen the cuts, it silently deletes the
+ * ones around the front and leaves a long solid stretch there.
+ */
+export function maxSlotWidth(params) {
+    const apexRadius = (params.width / 2) ** 2 / params.depth;
+    return Math.max(2.5, 0.9 * (MAX_CUT_TURN * apexRadius - 3));
+}
+
+// A cut end lands on the nearest wall facet, which can move it by up to
+// this much, so the gap between neighbours is designed with the loss
+// already priced in.
+const SNAP_ALLOWANCE = 1.5;
+// Thinnest strip of wall left between two cuts. Below the wall thickness
+// the strip stops behaving like a post and starts behaving like a hinge.
+const MIN_LIGAMENT = 3;
+
+export function buildSlotCutters(outline, params, band, {
+    slotWidth,
+    pitch,
+    rows = 1,
+    rowGap: rowGapOption,
+    stagger = true,
+    phase = 0,
+    profile: profileShape = null
+}) {
     const low = band.low + EDGE_MARGIN;
     const high = band.high - EDGE_MARGIN;
     const available = high - low;
@@ -335,12 +381,16 @@ export function buildSlotCutters(outline, params, band, { slotWidth, pitch, rows
             const from = outline.snap(centre - slotWidth / 2);
             const to = outline.snap(centre + slotWidth / 2);
             if (to - from < 1) continue;
+
+            const profile = profileShape
+                ? t => profileShape(t, rowLow, rowHigh, index)
+                : () => [rowLow, rowHigh];
             cutters.push(buildSweptPrism(
                 outline,
                 from,
                 to,
                 params.wall,
-                () => [rowLow, rowHigh]
+                profile
             ));
         }
     }
@@ -435,7 +485,7 @@ function buildTextCutters(outline, params, band) {
  * A single cutter solid for the chosen pattern, in the base's local frame
  * (bottom at Y = 0). Returns null when the pattern removes nothing.
  */
-export function buildInfillCutterGeometry(params, outlinePoints, { lift = 0, phase = 0 } = {}) {
+export function buildInfillCutterGeometry(params, outlinePoints, { lift = 0, phase = 0, widthScale = 1 } = {}) {
     if (!params.infill || params.infill === 'solid') return null;
 
     const raw = getInfillBand(params);
@@ -452,18 +502,27 @@ export function buildInfillCutterGeometry(params, outlinePoints, { lift = 0, pha
     if (band.height < MIN_BAND_HEIGHT) return null;
 
     const outline = measureOutline(outlinePoints);
+    // Every slot pattern is sized from the base itself: as wide as the
+    // arch's curvature allows, spaced so the strip of wall left between
+    // two cuts still measures at least MIN_LIGAMENT after snapping.
+    const width = Math.min(5.5, maxSlotWidth(params)) * widthScale;
+    const spacing = width + MIN_LIGAMENT + SNAP_ALLOWANCE;
     let cutters = [];
 
     if (params.infill === 'bars') {
         cutters = buildSlotCutters(outline, params, band, {
-            slotWidth: 4,
-            pitch: 8.5,
+            slotWidth: width,
+            pitch: spacing,
             phase
         });
-    } else if (params.infill === 'windows') {
+    } else if (params.infill === 'wide') {
+        // As wide as the arch's curvature will take, which is the most
+        // material a single course can remove without the cuts around the
+        // front of the arch being refused outright.
+        const bold = maxSlotWidth(params) * widthScale;
         cutters = buildSlotCutters(outline, params, band, {
-            slotWidth: 12,
-            pitch: 18,
+            slotWidth: bold,
+            pitch: bold + MIN_LIGAMENT + SNAP_ALLOWANCE,
             phase
         });
     } else if (params.infill === 'text') {

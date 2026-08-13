@@ -100,7 +100,13 @@ export function createScene(canvas) {
             color: MEDSTAR_COLORS.blue,
             metalness: 0.05,
             roughness: 0.38,
-            emissive: 0x000000
+            emissive: 0x000000,
+            // The shell is welded into one closed surface, so smooth
+            // shading averages normals straight across the sharp bottom
+            // and deck edges and makes flat corners look rounded. Flat
+            // shading reports each face honestly; the arc carries enough
+            // segments to still read as a curve.
+            flatShading: true
         })
     };
     materials.model.userData.highlight = new THREE.Color(0x2b2b1f);
