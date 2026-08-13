@@ -29,7 +29,7 @@ const MAX_CUT_TURN = 0.35;
 const TEXT_DEPTH_FACTOR = 2;
 
 /** Arc-length lookup along a closed outline of Vector2 (x, z) points. */
-function measureOutline(points) {
+export function measureOutline(points) {
     const count = points.length;
     const cumulative = [0];
     for (let index = 0; index < count; index += 1) {
@@ -89,6 +89,43 @@ function measureOutline(points) {
         chordZ,
         chordLength,
         at: oriented,
+
+        /**
+         * Snap an arc position onto the nearest outline vertex. The shell's
+         * wall is a faceted strip, so a cut that starts or ends part way
+         * across a facet shaves a sliver off it and tears the mesh. Landing
+         * the cut on the facet boundaries keeps every intersection exact.
+         */
+        snap(arc, maxShift = 0.75) {
+            let s = arc % perimeter;
+            if (s < 0) s += perimeter;
+            let low = 0;
+            let high = count;
+            while (low < high) {
+                const mid = (low + high) >> 1;
+                if (cumulative[mid] <= s) low = mid + 1;
+                else high = mid;
+            }
+            const before = cumulative[Math.max(0, low - 1)];
+            const after = cumulative[Math.min(count, low)];
+            const nearest = (s - before) <= (after - s) ? before : after;
+            // The flat chord is a single long facet with nothing to land
+            // on. Leave those cuts where they are: a flat wall has no
+            // slivers to shave off in the first place.
+            return Math.abs(nearest - s) <= maxShift ? nearest : s;
+        },
+
+        /** Outline vertex arc positions strictly inside a span. */
+        verticesBetween(arcStart, arcEnd) {
+            const inside = [];
+            for (let index = 0; index <= count; index += 1) {
+                const value = cumulative[index];
+                if (value > arcStart + 1e-9 && value < arcEnd - 1e-9) {
+                    inside.push(value);
+                }
+            }
+            return inside;
+        },
         /**
          * Largest change in heading anywhere across an arc span, in
          * radians. Comparing only the two ends would wave through a cut
@@ -121,11 +158,15 @@ function measureOutline(points) {
  */
 function buildSweptPrism(outline, arcStart, arcEnd, wall, profile, innerDepth) {
     const span = arcEnd - arcStart;
-    const stations = Math.max(2, Math.ceil(Math.abs(span) / STATION_SPACING) + 1);
     const outer = PIERCE_OVERSHOOT;
     const inner = innerDepth ?? (wall + PIERCE_OVERSHOOT);
     const positions = [];
     const rings = [];
+
+    // Sample at the outline's own vertices so the cut's outer face follows
+    // the shell facet for facet, plus the two ends.
+    const arcs = [arcStart, ...outline.verticesBetween(arcStart, arcEnd), arcEnd];
+    const stations = arcs.length;
 
     // The inner face is pushed along one fixed direction rather than each
     // station's own normal. Offsetting inward along the local normal by
@@ -134,8 +175,8 @@ function buildSweptPrism(outline, arcStart, arcEnd, wall, profile, innerDepth) {
     const middleNormal = outline.at(arcStart + span / 2).normal.clone();
 
     for (let index = 0; index < stations; index += 1) {
-        const t = index / (stations - 1);
-        const sample = outline.at(arcStart + span * t);
+        const t = span === 0 ? 0 : (arcs[index] - arcStart) / span;
+        const sample = outline.at(arcs[index]);
         let [low, high] = profile(t);
         if (high - low < MIN_PROFILE_HEIGHT) {
             const middle = (low + high) / 2;
@@ -257,14 +298,14 @@ export function getInfillBand(params) {
     return { low, high, height: high - low };
 }
 
-function buildSlotCutters(outline, params, band, { slotWidth, pitch, rows = 1 }) {
+export function buildSlotCutters(outline, params, band, { slotWidth, pitch, rows = 1, rowGap: rowGapOption, stagger = true, phase = 0 }) {
     const low = band.low + EDGE_MARGIN;
     const high = band.high - EDGE_MARGIN;
     const available = high - low;
     if (available < 1) return [];
 
     const rowCount = rows > 1 && available >= 4 ? rows : 1;
-    const rowGap = rowCount > 1 ? 1.2 : 0;
+    const rowGap = rowCount > 1 ? (rowGapOption ?? 1.2) : 0;
     const rowHeight = (available - rowGap * (rowCount - 1)) / rowCount;
     if (rowHeight < 1) return [];
 
@@ -277,11 +318,11 @@ function buildSlotCutters(outline, params, band, { slotWidth, pitch, rows = 1 })
         const rowLow = low + row * (rowHeight + rowGap);
         const rowHigh = rowLow + rowHeight;
         // Offset alternate rows by half a pitch for a staggered course.
-        const shift = (row % 2) * (step / 2);
+        const shift = stagger ? (row % 2) * (step / 2) : 0;
 
         for (let index = 0; index < count; index += 1) {
             // Start half a step in so no cut straddles the outline's seam.
-            const centre = step / 2 + shift + index * step;
+            const centre = step / 2 + shift + phase * step + index * step;
             // Leave the tight posterior fillets solid. A cut spanning that
             // much curvature cannot be squared cleanly through the wall,
             // and a solid corner is the part most likely to take a knock.
@@ -291,10 +332,13 @@ function buildSlotCutters(outline, params, band, { slotWidth, pitch, rows = 1 })
                 continue;
             }
 
+            const from = outline.snap(centre - slotWidth / 2);
+            const to = outline.snap(centre + slotWidth / 2);
+            if (to - from < 1) continue;
             cutters.push(buildSweptPrism(
                 outline,
-                centre - slotWidth / 2,
-                centre + slotWidth / 2,
+                from,
+                to,
                 params.wall,
                 () => [rowLow, rowHigh]
             ));
@@ -366,6 +410,9 @@ function buildTextCutters(outline, params, band) {
                 if (lit && runStart < 0) runStart = column;
                 if (lit || runStart < 0) continue;
 
+                // No snapping here: the chord is a single flat facet, so
+                // there is nothing to land on and snapping would collapse
+                // these sub-millimeter bars.
                 const from = glyphArc - column * columnPitch + inset;
                 const to = glyphArc - runStart * columnPitch - inset;
                 runStart = -1;
@@ -388,10 +435,20 @@ function buildTextCutters(outline, params, band) {
  * A single cutter solid for the chosen pattern, in the base's local frame
  * (bottom at Y = 0). Returns null when the pattern removes nothing.
  */
-export function buildInfillCutterGeometry(params, outlinePoints) {
+export function buildInfillCutterGeometry(params, outlinePoints, { lift = 0, phase = 0 } = {}) {
     if (!params.infill || params.infill === 'solid') return null;
 
-    const band = getInfillBand(params);
+    const raw = getInfillBand(params);
+    // `lift` nudges the whole pattern up by a fraction of a millimeter.
+    // Whether a cut lands cleanly depends on how its faces happen to fall
+    // against the shell's own vertices, so a caller that gets a torn
+    // result can retry a hair higher. Lifting only ever moves cuts away
+    // from the clamp band, never into it.
+    const band = {
+        low: raw.low + lift,
+        high: raw.high,
+        height: raw.height - lift
+    };
     if (band.height < MIN_BAND_HEIGHT) return null;
 
     const outline = measureOutline(outlinePoints);
@@ -400,12 +457,14 @@ export function buildInfillCutterGeometry(params, outlinePoints) {
     if (params.infill === 'bars') {
         cutters = buildSlotCutters(outline, params, band, {
             slotWidth: 4,
-            pitch: 8.5
+            pitch: 8.5,
+            phase
         });
     } else if (params.infill === 'windows') {
         cutters = buildSlotCutters(outline, params, band, {
             slotWidth: 12,
-            pitch: 18
+            pitch: 18,
+            phase
         });
     } else if (params.infill === 'text') {
         cutters = buildTextCutters(outline, params, band);

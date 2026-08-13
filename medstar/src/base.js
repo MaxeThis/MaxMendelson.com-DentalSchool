@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { subtractGeometries } from './csg.js';
+import { subtractGeometries, getEdgeTopologyStats } from './csg.js';
 import { buildInfillCutterGeometry } from './infill.js';
 
 // Flip between 0 and Math.PI if a future scan convention reverses the arch.
@@ -416,6 +416,77 @@ function buildStitchedHollowGeometry(params) {
  * local top is Y=height. Width/depth changes regenerate vertices; no mesh
  * scale is involved, so wall and deck thickness remain constant in mm.
  */
+// Fractions of a millimeter to lift the pattern by when a cut lands on a
+// vertex of the shell and tears it. Each retry is a fresh boolean, so the
+// list stays short; the first clean result wins.
+// `lift` nudges the pattern up a fraction of a millimeter; `phase` slides
+// it around the perimeter by a fraction of one cut spacing, which lands
+// the cuts on different wall facets.
+const PATTERN_ATTEMPTS = [
+    { lift: 0, phase: 0 },
+    { lift: 0, phase: 0.33 },
+    { lift: 0.037, phase: 0 },
+    { lift: 0, phase: 0.66 },
+    { lift: 0.083, phase: 0.33 },
+    { lift: 0.146, phase: 0 },
+    { lift: 0.211, phase: 0.66 }
+];
+
+/**
+ * Cut the wall pattern, retrying at slightly different heights until the
+ * result is a closed mesh. Whether a given cut tears the shell depends on
+ * how its faces happen to land against existing vertices, so a nudge of a
+ * tenth of a millimeter usually clears it. If nothing comes back clean,
+ * the least damaged attempt is kept and the caller can report it.
+ */
+function cutWallPattern(baseGeometry, normalized) {
+    const outline = createHalfDiscPerimeter(
+        normalized.width / 2,
+        normalized.depth,
+        0,
+        normalized.cornerRadius
+    );
+
+    let geometry = baseGeometry;
+    let best = null;
+    let bestScore = Infinity;
+
+    for (const attempt of PATTERN_ATTEMPTS) {
+        const cutter = buildInfillCutterGeometry(normalized, outline, attempt);
+        if (!cutter) break;
+
+        let candidate;
+        try {
+            candidate = subtractGeometries(geometry, cutter, {
+                firstName: 'Base',
+                secondName: 'Wall pattern'
+            });
+        } finally {
+            cutter.dispose();
+        }
+
+        const stats = getEdgeTopologyStats(candidate);
+        if (stats.isTwoManifold) {
+            best?.dispose();
+            geometry.dispose();
+            return candidate;
+        }
+
+        const score = stats.boundaryEdges + stats.nonManifoldEdges;
+        if (score < bestScore) {
+            best?.dispose();
+            best = candidate;
+            bestScore = score;
+        } else {
+            candidate.dispose();
+        }
+    }
+
+    if (!best) return geometry;
+    geometry.dispose();
+    return best;
+}
+
 export function buildBaseGeometry(params = DEFAULT_BASE_PARAMS) {
     const normalized = normalizeBaseParams(params);
     let geometry = normalized.hollow
@@ -424,23 +495,7 @@ export function buildBaseGeometry(params = DEFAULT_BASE_PARAMS) {
 
     // The wall pattern is cut here so the shape on screen and the shape in
     // the exported file can never drift apart.
-    const cutter = buildInfillCutterGeometry(
-        normalized,
-        createHalfDiscPerimeter(normalized.width / 2, normalized.depth, 0,
-            normalized.cornerRadius)
-    );
-    if (cutter) {
-        try {
-            const patterned = subtractGeometries(geometry, cutter, {
-                firstName: 'Base',
-                secondName: 'Wall pattern'
-            });
-            geometry.dispose();
-            geometry = patterned;
-        } finally {
-            cutter.dispose();
-        }
-    }
+    geometry = cutWallPattern(geometry, normalized);
 
     geometry.name = normalized.hollow ? 'HollowBaseGeometry' : 'SolidBaseGeometry';
     geometry.userData.baseParams = { ...normalized };
