@@ -13,6 +13,7 @@ import {
     BASE_AUTOFIT_PADDING,
     BASE_EMBED,
     BASE_LIMITS,
+    MIN_PATTERN_BAND,
     buildBaseGeometry,
     buildCavityCutterGeometry,
     rebuildBaseMesh,
@@ -27,6 +28,7 @@ import {
     getGeometryStats,
     getEdgeTopologyStats
 } from './csg.js';
+import { TEXT_MIN_BAND } from './infill.js';
 import { createUI } from './ui.js';
 import { createCharacter } from './character.js';
 import { loadSettings, saveSettings, resetSettings } from './settings.js';
@@ -130,6 +132,8 @@ function computeFootprintParams(modelBounds) {
         params.height = state.settings.height;
         params.wall = state.settings.wall;
         params.hollow = state.settings.hollow;
+        params.infill = state.settings.infill;
+        params.clampBand = state.settings.clampBand;
         if (state.settings.autoGrow) {
             params.width = Math.max(params.width, size.x * BASE_AUTOFIT_PADDING);
             params.depth = Math.max(params.depth, size.z * BASE_AUTOFIT_PADDING);
@@ -599,7 +603,10 @@ async function mergeHollow() {
                 secondName: state.base.name || 'Procedural base',
                 planarSeamY: baseTop
             });
-            state.meshHasSeams = false;
+            // A plain solid wall is proven watertight, so only a patterned
+            // wall is worth the cost of re-checking.
+            state.meshHasSeams = state.baseParams.infill !== 'solid'
+                && !getEdgeTopologyStats(result).isTwoManifold;
             return result;
         } finally {
             bakedModel.dispose();
@@ -808,12 +815,68 @@ function handleReset() {
 
 // ============ Settings ============
 
-const FOOTPRINT_SETTING_KEYS = ['width', 'depth', 'height', 'wall', 'hollow', 'autoGrow'];
+const FOOTPRINT_SETTING_KEYS = [
+    'width', 'depth', 'height', 'wall', 'hollow', 'autoGrow',
+    'infill', 'clampBand'
+];
+
+/**
+ * A pattern needs open wall above the clamp band. Rather than silently
+ * cutting nothing, raise the base just enough to fit and say so.
+ */
+/** Open wall the chosen pattern wants, in millimeters. */
+function requiredBand(infill) {
+    return infill === 'text' ? TEXT_MIN_BAND : MIN_PATTERN_BAND;
+}
+
+function ensureRoomForPattern() {
+    const settings = state.settings;
+    if (settings.infill === 'solid') return null;
+
+    const needed = settings.clampBand
+        + settings.wall
+        + requiredBand(settings.infill);
+    if (settings.height >= needed) return null;
+
+    const height = Math.min(needed, BASE_LIMITS.height.max);
+    if (height <= settings.height) return 'tight';
+    state.settings = saveSettings({ ...settings, height });
+    ui.syncSettings(state.settings);
+    return height;
+}
+
+function describeInfill() {
+    const settings = state.settings;
+    if (settings.infill === 'solid') {
+        return 'A solid wall is the strongest option and the safest bet for the clamp.';
+    }
+    const band = settings.height - settings.wall - settings.clampBand;
+    if (band < requiredBand(settings.infill)) {
+        return `Not enough wall above the clamp band. Raise the base to about ${
+            Math.ceil(settings.clampBand + settings.wall + requiredBand(settings.infill))
+        } mm, or lower the clamp band, to fit this pattern.`;
+    }
+    if (settings.infill === 'text') {
+        return `MedStar OMFS reads across the flat back wall. The bottom ${
+            settings.clampBand} mm stays solid for the clamp.`;
+    }
+    return `The bottom ${settings.clampBand} mm stays solid for the clamp. `
+        + `The pattern opens the ${band.toFixed(1)} mm above it.`;
+}
 
 function applySettings(patch, commit) {
     state.settings = { ...state.settings, ...patch };
     if (commit) state.settings = saveSettings(state.settings);
+
+    if (commit && 'infill' in patch) {
+        const raised = ensureRoomForPattern();
+        if (typeof raised === 'number') {
+            ui.toast(`Base raised to ${raised} mm so the pattern has wall to cut.`);
+        }
+    }
+
     ui.syncSettings(state.settings);
+    ui.setInfillHint(describeInfill());
     character.setVisible(state.settings.showGreeter && state.exported);
 
     // Only a base-plate edit retakes control of the live base; toggling
@@ -860,6 +923,7 @@ const ui = createUI({
 });
 
 ui.syncSettings(state.settings);
+ui.setInfillHint(describeInfill());
 ui.showDropScreen();
 ui.setExportState('ready');
 // Max stays offstage until the first export finishes.

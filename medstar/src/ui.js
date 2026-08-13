@@ -1,4 +1,5 @@
 import { isSupportedModelFile } from './importers.js';
+import { INFILL_PATTERNS } from './base.js';
 
 const $ = id => document.getElementById(id);
 
@@ -160,8 +161,20 @@ export function createUI({
         width: [$('setting-width'), $('setting-width-val')],
         depth: [$('setting-depth'), $('setting-depth-val')],
         height: [$('setting-height'), $('setting-height-val')],
-        wall: [$('setting-wall'), $('setting-wall-val')]
+        wall: [$('setting-wall'), $('setting-wall-val')],
+        clampBand: [$('setting-clampband'), $('setting-clampband-val')]
     };
+
+    const infillSelect = $('setting-infill');
+    for (const pattern of INFILL_PATTERNS) {
+        const option = document.createElement('option');
+        option.value = pattern.id;
+        option.textContent = pattern.label;
+        infillSelect.appendChild(option);
+    }
+    infillSelect.addEventListener('change', event => {
+        if (!suppressEvents) onSettingsChange({ infill: event.target.value }, true);
+    });
     for (const [name, [rangeEl, numberEl]] of Object.entries(settingFields)) {
         bindField(rangeEl, numberEl, (value, commit) => {
             if (!suppressEvents) onSettingsChange({ [name]: value }, commit);
@@ -267,10 +280,18 @@ export function createUI({
             setField(...settingFields.depth, settings.depth);
             setField(...settingFields.height, settings.height);
             setField(...settingFields.wall, settings.wall);
+            setField(...settingFields.clampBand, settings.clampBand);
+            infillSelect.value = settings.infill;
             $('setting-hollow').checked = Boolean(settings.hollow);
             $('setting-autogrow').checked = Boolean(settings.autoGrow);
             $('setting-greeter').checked = Boolean(settings.showGreeter);
             suppressEvents = false;
+        },
+
+        setInfillHint(text) {
+            const hint = $('infill-hint');
+            hint.textContent = text;
+            hint.hidden = !text;
         },
 
         isSettingsOpen: () => !settingsPanel.hidden,

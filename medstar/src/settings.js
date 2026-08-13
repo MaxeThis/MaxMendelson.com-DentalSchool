@@ -14,6 +14,8 @@ export const FACTORY_SETTINGS = Object.freeze({
     height: DEFAULT_BASE_PARAMS.height,
     wall: DEFAULT_BASE_PARAMS.wall,
     hollow: DEFAULT_BASE_PARAMS.hollow,
+    infill: DEFAULT_BASE_PARAMS.infill,
+    clampBand: DEFAULT_BASE_PARAMS.clampBand,
     // When true the footprint grows beyond the defaults to cover an
     // oversized scan; the defaults act as the guaranteed minimum.
     autoGrow: true,
@@ -29,6 +31,8 @@ function sanitize(raw) {
         depth: normalized.depth,
         height: normalized.height,
         wall: normalized.wall,
+        infill: normalized.infill,
+        clampBand: normalized.clampBand,
         hollow: Boolean(merged.hollow),
         autoGrow: Boolean(merged.autoGrow),
         showGreeter: Boolean(merged.showGreeter)

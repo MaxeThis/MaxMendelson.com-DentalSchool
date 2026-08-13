@@ -515,6 +515,23 @@ input[type="number"] {
     font-variant-numeric: tabular-nums;
 }
 
+.field-row-wide {
+    grid-template-columns: 46px 1fr;
+}
+
+select {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    padding: 6px 8px;
+    font-family: var(--font-ui);
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--ink);
+    cursor: pointer;
+}
+
 .check-row {
     display: flex;
     align-items: center;

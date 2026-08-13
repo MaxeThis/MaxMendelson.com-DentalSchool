@@ -161,6 +161,16 @@
             <input type="range" id="setting-wall" min="1" max="5" step="0.1">
             <input type="number" id="setting-wall-val" step="0.1"><span class="unit">mm</span>
         </div>
+        <div class="field-row field-row-wide">
+            <label for="setting-infill">Pattern</label>
+            <select id="setting-infill"></select>
+        </div>
+        <div class="field-row">
+            <label for="setting-clampband">Clamp</label>
+            <input type="range" id="setting-clampband" min="0" max="25" step="0.5">
+            <input type="number" id="setting-clampband-val" step="0.5"><span class="unit">mm</span>
+        </div>
+        <p class="panel-hint" id="infill-hint"></p>
         <label class="check-row" for="setting-hollow">
             <input type="checkbox" id="setting-hollow">
             <span>Hollow base (saves resin)</span>
