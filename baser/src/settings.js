@@ -1,7 +1,10 @@
 import { DEFAULT_BASE_PARAMS, normalizeBaseParams } from './base.js';
 import { warn } from './debug.js';
 
-const STORAGE_KEY = 'medstar-base-settings-v2';
+const STORAGE_KEY = 'articulator-baser-settings-v2';
+// The app was called something else before. Anyone who had set their
+// preferences then keeps them, rather than being handed the defaults back.
+const FORMER_STORAGE_KEY = 'medstar-base-settings-v2';
 
 /**
  * Factory defaults. Footprint and height target the "large adult" size the
@@ -41,7 +44,8 @@ function sanitize(raw) {
 
 export function loadSettings() {
     try {
-        const raw = window.localStorage?.getItem(STORAGE_KEY);
+        const raw = window.localStorage?.getItem(STORAGE_KEY)
+            ?? window.localStorage?.getItem(FORMER_STORAGE_KEY);
         return sanitize(raw ? JSON.parse(raw) : null);
     } catch (error) {
         warn('[Settings] Could not read saved settings; using defaults.', error);
@@ -62,6 +66,7 @@ export function saveSettings(settings) {
 export function resetSettings() {
     try {
         window.localStorage?.removeItem(STORAGE_KEY);
+        window.localStorage?.removeItem(FORMER_STORAGE_KEY);
     } catch (error) {
         warn('[Settings] Could not clear settings.', error);
     }

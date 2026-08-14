@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Articulator Baser</title>
+    <meta name="description"
+        content="Drop a dental scan, get a print-ready articulator base. Everything runs on your own computer.">
+    <link rel="icon" href="./public/icons/app-icon.svg">
+    <!-- Installing the page as an app: Chrome and Edge read these to give
+         it a name, an icon and its own window with no address bar. -->
+    <link rel="manifest" href="./manifest.webmanifest">
+    <meta name="theme-color" content="#002664">
+    <link rel="apple-touch-icon" href="./public/icons/apple-touch-icon.png">
+    <meta name="application-name" content="Articulator Baser">
+    <!-- Fonts ship with the app. Nothing here reaches out to a server, so
+         a scan, a patient name and even the fact that someone opened the
+         page all stay on the machine it runs on. -->
+    <link rel="stylesheet" href="./src/styles/fonts.css">
+    <link rel="stylesheet" href="./src/styles/main.css">
+</head>
+
+<body>
+    <!-- 3D viewport (transparent canvas over the CSS deep-blue backdrop) -->
+    <canvas id="canvas" aria-label="3D viewport"></canvas>
+
+    <!-- Top chrome -->
+    <header id="topbar">
+        <div class="brand">
+            <svg class="brand-arc" viewBox="0 0 40 14" aria-hidden="true">
+                <path d="M2 12 Q20 -6 38 12" fill="none" stroke="currentColor" stroke-width="5"
+                    stroke-linecap="round" />
+            </svg>
+            <div class="brand-text">
+                <span class="brand-name">Articulator Baser</span>
+                <span class="brand-sub">bases for printed models</span>
+            </div>
+        </div>
+        <div class="topbar-actions">
+            <button id="btn-settings" class="icon-btn" type="button" aria-label="Settings" title="Settings">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="3.2" />
+                    <path
+                        d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.08A1.7 1.7 0 0 0 10 4.09V4a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56h.08a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.08a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51.88z" />
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- View cube (Blender-style camera presets) -->
+    <div id="view-cube-container" aria-label="Preset camera views">
+        <canvas id="view-cube-canvas"
+            aria-label="View cube: choose front, back, left, right, top, or bottom"></canvas>
+    </div>
+
+    <!-- Drop screen -->
+    <main id="drop-screen">
+        <div class="drop-card" id="drop-card">
+            <svg class="drop-glyph" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M24 30V10" />
+                <path d="m15 19 9-9 9 9" />
+                <path d="M8 32v4a4 4 0 0 0 4 4h24a4 4 0 0 0 4-4v-4" />
+            </svg>
+            <h1 class="drop-title">Drop your scan here</h1>
+            <p class="drop-sub">STL or OBJ &middot; the articulator base is added automatically</p>
+            <button id="btn-browse" class="btn btn-primary" type="button">Browse files</button>
+            <p class="drop-privacy">Scans stay on this computer. Nothing is uploaded.</p>
+        </div>
+    </main>
+
+    <!-- Contextual inspector (appears when the model or base is selected) -->
+    <aside id="inspector" class="panel" hidden>
+        <div class="panel-head">
+            <h2 id="inspector-title">Base plate</h2>
+            <button id="btn-inspector-close" class="icon-btn icon-btn-sm" type="button" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    aria-hidden="true">
+                    <path d="m6 6 12 12M18 6 6 18" />
+                </svg>
+            </button>
+        </div>
+
+        <div id="inspector-base" class="inspector-section">
+            <div class="field-row">
+                <label for="base-width">Width</label>
+                <input type="range" id="base-width" min="20" max="120" step="0.5">
+                <input type="number" id="base-width-val" step="0.5"><span class="unit">mm</span>
+            </div>
+            <div class="field-row">
+                <label for="base-depth">Depth</label>
+                <input type="range" id="base-depth" min="10" max="80" step="0.5">
+                <input type="number" id="base-depth-val" step="0.5"><span class="unit">mm</span>
+            </div>
+            <div class="field-row">
+                <label for="base-height">Height</label>
+                <input type="range" id="base-height" min="2" max="30" step="0.5">
+                <input type="number" id="base-height-val" step="0.5"><span class="unit">mm</span>
+            </div>
+            <div class="field-row">
+                <label for="base-wall">Wall</label>
+                <input type="range" id="base-wall" min="1" max="5" step="0.1">
+                <input type="number" id="base-wall-val" step="0.1"><span class="unit">mm</span>
+            </div>
+            <label class="check-row" for="base-hollow">
+                <input type="checkbox" id="base-hollow">
+                <span>Hollow (saves resin)</span>
+            </label>
+            <h3 class="panel-section-title">Engraving</h3>
+            <div class="field-row field-row-text">
+                <label for="base-text-1">Line 1</label>
+                <input type="text" id="base-text-1" maxlength="22" placeholder="e.g. SMITH, J." autocomplete="off">
+            </div>
+            <div class="field-row field-row-text">
+                <label for="base-text-2">Line 2</label>
+                <input type="text" id="base-text-2" maxlength="22" placeholder="e.g. UPPER 03/26" autocomplete="off">
+            </div>
+            <p class="panel-hint" id="engraving-hint"></p>
+            <button id="btn-fit-base" class="btn btn-ghost btn-block" type="button">Center under model</button>
+            <p class="panel-hint">Drag the arrows to slide the plate. Sizes stay true to the millimeter. Walls
+                never stretch.</p>
+        </div>
+
+        <div id="inspector-model" class="inspector-section">
+            <div class="field-row">
+                <label for="model-rot-x">Pitch</label>
+                <input type="range" id="model-rot-x" min="-180" max="180" step="1">
+                <input type="number" id="model-rot-x-val" step="1"><span class="unit">&deg;</span>
+            </div>
+            <div class="field-row">
+                <label for="model-rot-y">Turn</label>
+                <input type="range" id="model-rot-y" min="-180" max="180" step="1">
+                <input type="number" id="model-rot-y-val" step="1"><span class="unit">&deg;</span>
+            </div>
+            <div class="field-row">
+                <label for="model-rot-z">Roll</label>
+                <input type="range" id="model-rot-z" min="-180" max="180" step="1">
+                <input type="number" id="model-rot-z-val" step="1"><span class="unit">&deg;</span>
+            </div>
+            <button id="btn-recenter" class="btn btn-ghost btn-block" type="button">Re-center on plate</button>
+            <p class="panel-hint">Drag the arrows to move. Press <kbd>R</kbd> to rotate, <kbd>G</kbd> to move,
+                <kbd>Esc</kbd> to deselect.</p>
+        </div>
+    </aside>
+
+    <!-- Settings -->
+    <aside id="settings-panel" class="panel" hidden>
+        <div class="panel-head">
+            <h2>Settings</h2>
+            <button id="btn-settings-close" class="icon-btn icon-btn-sm" type="button" aria-label="Close settings">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    aria-hidden="true">
+                    <path d="m6 6 12 12M18 6 6 18" />
+                </svg>
+            </button>
+        </div>
+        <h3 class="panel-section-title">Base plate defaults</h3>
+        <div class="field-row">
+            <label for="setting-width">Width</label>
+            <input type="range" id="setting-width" min="20" max="120" step="0.5">
+            <input type="number" id="setting-width-val" step="0.5"><span class="unit">mm</span>
+        </div>
+        <div class="field-row">
+            <label for="setting-depth">Depth</label>
+            <input type="range" id="setting-depth" min="10" max="80" step="0.5">
+            <input type="number" id="setting-depth-val" step="0.5"><span class="unit">mm</span>
+        </div>
+        <div class="field-row">
+            <label for="setting-height">Height</label>
+            <input type="range" id="setting-height" min="2" max="30" step="0.5">
+            <input type="number" id="setting-height-val" step="0.5"><span class="unit">mm</span>
+        </div>
+        <div class="field-row">
+            <label for="setting-wall">Wall</label>
+            <input type="range" id="setting-wall" min="1" max="5" step="0.1">
+            <input type="number" id="setting-wall-val" step="0.1"><span class="unit">mm</span>
+        </div>
+        <div class="field-row field-row-wide">
+            <label for="setting-infill">Pattern</label>
+            <select id="setting-infill"></select>
+        </div>
+        <div class="field-row">
+            <label for="setting-clampband">Clamp</label>
+            <input type="range" id="setting-clampband" min="0" max="25" step="0.5">
+            <input type="number" id="setting-clampband-val" step="0.5"><span class="unit">mm</span>
+        </div>
+        <p class="panel-hint" id="infill-hint"></p>
+        <label class="check-row" for="setting-hollow">
+            <input type="checkbox" id="setting-hollow">
+            <span>Hollow base (saves resin)</span>
+        </label>
+        <label class="check-row" for="setting-autogrow">
+            <input type="checkbox" id="setting-autogrow">
+            <span>Grow to fit oversized scans</span>
+        </label>
+        <label class="check-row" for="setting-greeter">
+            <input type="checkbox" id="setting-greeter">
+            <span>Show Max in the corner</span>
+        </label>
+        <button id="btn-settings-reset" class="btn btn-ghost btn-block" type="button">Restore factory
+            defaults</button>
+        <p class="panel-hint">Saved on this device and applied to every scan you drop in. The defaults are sized so
+            the printed base seats in the clinic&rsquo;s articulator clamps.</p>
+        <div class="panel-footer">
+            <span class="panel-footer-line"><kbd>G</kbd> move &middot; <kbd>R</kbd> rotate &middot; <kbd>T</kbd> top
+                view &middot; <kbd>Ctrl&nbsp;Z</kbd> undo</span>
+        </div>
+    </aside>
+
+    <!-- Action bar -->
+    <footer id="action-bar" hidden>
+        <div class="file-info">
+            <span id="file-name" class="file-name">&nbsp;</span>
+            <span id="dims-readout" class="dims-readout">&nbsp;</span>
+        </div>
+        <div class="action-buttons">
+            <button id="btn-reset" class="btn btn-ghost" type="button">Reset</button>
+            <button id="btn-top-view" class="btn btn-ghost" type="button">Top view</button>
+            <button id="btn-export" class="btn btn-primary" type="button">
+                <span class="btn-label">Export STL</span>
+            </button>
+        </div>
+    </footer>
+
+    <!-- Toast -->
+    <div id="toast" role="status" aria-live="polite" hidden></div>
+
+    <!-- Processing overlay -->
+    <div id="processing-overlay" hidden>
+        <div class="processing-card">
+            <div class="processing-ring" aria-hidden="true"></div>
+            <p id="processing-status">Working&hellip;</p>
+        </div>
+    </div>
+
+    <!-- Corner greeter. Hidden until the first export finishes. -->
+    <div id="character" hidden>
+        <div class="character-bubble" role="dialog" aria-label="A note from Max" hidden>
+            <button class="bubble-close" type="button" aria-label="Close note">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    aria-hidden="true">
+                    <path d="m6 6 12 12M18 6 6 18" />
+                </svg>
+            </button>
+            <p class="bubble-title">Thank you, MedStar Oral Surgery!</p>
+            <p class="bubble-body">Thank you for such a welcoming externship. I had a great time meeting all of
+                you, and I learned a lot from watching you work. This little tool is my way of saying thanks.
+                If you ever need a new tool for a task, or a hand with a research project, just let me know!
+                I&rsquo;d love to help.</p>
+            <p class="bubble-signoff">Max</p>
+            <button class="bubble-phone" id="btn-contact" type="button">Contact</button>
+            <div class="contact-card" id="contact-card" hidden>
+                <a href="mailto:maxwellhmendelson@gmail.com">maxwellhmendelson@gmail.com</a>
+                <a href="tel:4437215017">(443) 721-5017</a>
+            </div>
+        </div>
+        <button class="character-figure" type="button" aria-label="A note from Max" title="A note from Max">
+            <img src="./public/character.png" alt="Max, waving in scrubs">
+        </button>
+    </div>
+
+    <input type="file" id="file-input" accept=".stl,.obj" hidden>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "./vendor/three/three.module.js",
+            "three/addons/": "./vendor/three/addons/",
+            "three-bvh-csg": "./vendor/three-bvh-csg/index.module.js",
+            "three-mesh-bvh": "./vendor/three-mesh-bvh/index.module.js"
+        }
+    }
+    </script>
+    <script type="module" src="./src/main.js"></script>
+</body>
+
+</html>

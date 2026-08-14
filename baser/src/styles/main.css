@@ -1,6 +1,6 @@
 /* ============================================================
-   MedStar Base — visual system
-   Calm clinical tool: deep MedStar-navy viewport, warm paper
+   Articulator Baser — visual system
+   Calm clinical tool: deep navy viewport, warm paper
    panels, one loud yellow action. No glass, no noise.
    ============================================================ */
 
@@ -329,6 +329,14 @@ body.has-model #view-cube-container {
     font-size: 0.86rem;
     color: var(--ink-soft);
     margin-bottom: 24px;
+}
+
+/* Quiet enough to stay out of the way, present enough to be read once. */
+.drop-privacy {
+    margin: 18px 0 0;
+    font-size: 0.76rem;
+    color: var(--ink-soft);
+    opacity: 0.75;
 }
 
 /* Full-window drag ring */

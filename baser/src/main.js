@@ -1120,7 +1120,7 @@ requestAnimationFrame(animate);
 
 // ============ Automation hooks (tests / acceptance) ============
 
-window.__MEDSTAR_BASE__ = Object.freeze({
+window.__ARTICULATOR_BASER__ = Object.freeze({
     async loadTestAsset(url) {
         const response = await fetch(url);
         if (!response.ok) throw new Error(`Could not load fixture: ${response.status}`);
@@ -1170,4 +1170,4 @@ window.__MEDSTAR_BASE__ = Object.freeze({
     }
 });
 
-log('MedStar Base initialized.');
+log('Articulator Baser initialized.');

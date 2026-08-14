@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { createMeasurementGrid } from './grid.js';
 import { Tween, Easing } from './tween.js';
 
-export const MEDSTAR_COLORS = Object.freeze({
+export const BRAND_COLORS = Object.freeze({
     navy: 0x002664,
     yellow: 0xFCD900,
     blue: 0x007DAC,
@@ -97,7 +97,7 @@ export function createScene(canvas) {
             clippingPlanes: [modelClipPlane]
         }),
         base: new THREE.MeshStandardMaterial({
-            color: MEDSTAR_COLORS.blue,
+            color: BRAND_COLORS.blue,
             metalness: 0.05,
             roughness: 0.38,
             emissive: 0x000000,

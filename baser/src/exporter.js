@@ -48,7 +48,7 @@ function downloadBlob(blob, filename) {
 }
 
 export async function exportSTL(mesh, {
-    suggestedName = `medstar_base_${Date.now()}.stl`,
+    suggestedName = `articulator_base_${Date.now()}.stl`,
     onStatus = () => {},
     oneClick = false
 } = {}) {

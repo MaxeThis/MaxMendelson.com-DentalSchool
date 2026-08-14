@@ -1,7 +1,7 @@
 {
-  "name": "MedStar Base",
-  "short_name": "MedStar Base",
-  "description": "Drop a dental scan, get a print-ready model on an articulator base.",
+  "name": "Articulator Baser",
+  "short_name": "Baser",
+  "description": "Drop a dental scan, get a print-ready articulator base. Everything runs on your own computer.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
