@@ -1,0 +1,31 @@
+{
+  "name": "MedStar Base",
+  "short_name": "MedStar Base",
+  "description": "Drop a dental scan, get a print-ready model on an articulator base.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#030D24",
+  "theme_color": "#002664",
+  "icons": [
+    {
+      "src": "./public/icons/app-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./public/icons/app-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./public/icons/app-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
