@@ -69,6 +69,21 @@ export class ViewCube {
 
         this.wrapper.add(this.cube);
 
+        // Each label is painted once into a canvas. If that happens before
+        // the typeface has finished loading, the paint uses a fallback and
+        // keeps it for good, so the labels are painted again once the font
+        // is really there.
+        document.fonts?.ready.then(() => {
+            faces.forEach((face, index) => {
+                const material = this.cube.material[index];
+                const fresh = this.createFaceMaterial(face.text);
+                material.map?.dispose();
+                material.map = fresh.map;
+                material.needsUpdate = true;
+                fresh.dispose();
+            });
+        });
+
         // --- 2. Axes Helpers (Optional visual flair) ---
         // We can add small cones/cylinders for axes if we want to look like Blender exactly,
         // but just the box is a good start as requested by "cube".
@@ -109,7 +124,10 @@ export class ViewCube {
 
         // Text
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.font = 'bold 24px Inter, sans-serif';
+        // Ask for a face the app actually ships. Inter was named here once
+        // and never shipped, so the cube quietly used whatever the system
+        // had while the rest of the window used Instrument Sans.
+        ctx.font = "bold 24px 'Instrument Sans', sans-serif";
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
