@@ -14,6 +14,8 @@ import {
     BASE_EMBED,
     BASE_LIMITS,
     MIN_PATTERN_BAND,
+    cleanEngravedText,
+    createBaseOutline,
     buildBaseGeometry,
     buildCavityCutterGeometry,
     rebuildBaseMesh,
@@ -28,7 +30,14 @@ import {
     getGeometryStats,
     getEdgeTopologyStats
 } from './csg.js';
-import { TEXT_MIN_BAND } from './infill.js';
+import {
+    TEXT_MIN_BAND,
+    hasEngraving,
+    measureOutline,
+    getInfillBand,
+    buildEngravingCutters,
+    maxLineCharacters
+} from './infill.js';
 import { createUI } from './ui.js';
 import { createCharacter } from './character.js';
 import { loadSettings, saveSettings, resetSettings } from './settings.js';
@@ -47,6 +56,7 @@ const state = {
     baseParams: null,          // normalized params + posX/posZ offsets
     baseAnchor: { centerX: 0, centerZ: 0, topY: 0 },
     sizeOverride: false,       // user set an explicit size this session
+    previewPlain: false,       // mid-drag: skip the costly wall detail
     // The base can never be smaller than the scan standing on it.
     minFootprint: { width: 0, depth: 0 },
     sink: BASE_EMBED,          // how deep the model sits into the base (mm)
@@ -258,18 +268,45 @@ function settleLayout({ preserveBaseWorld = false } = {}) {
 
 let lastBuiltKey = '';
 function baseGeometryKey(params) {
-    return [params.width, params.depth, params.height, params.wall, params.hollow]
-        .join('|');
+    return [
+        params.width, params.depth, params.height, params.wall, params.hollow,
+        params.infill, params.clampBand, params.cornerRadius,
+        params.textLine1, params.textLine2
+    ].join('|');
+}
+
+/**
+ * What to actually build right now.
+ *
+ * While a size slider is being dragged the wall pattern and the lettering
+ * are dropped: each costs a boolean per rebuild, and the thing being
+ * judged mid-drag is the plate's size, not its wall. They come back the
+ * moment the slider is released.
+ */
+function effectiveBaseParams() {
+    if (!state.previewPlain) return state.baseParams;
+    return {
+        ...state.baseParams,
+        infill: 'solid',
+        textLine1: '',
+        textLine2: ''
+    };
 }
 
 function rebuildBaseIfNeeded() {
     if (!state.base) return;
-    const key = baseGeometryKey(state.baseParams);
+    const effective = effectiveBaseParams();
+    const key = baseGeometryKey(effective);
     if (key === lastBuiltKey) return;
-    const { posX, posZ } = state.baseParams;
-    const normalized = rebuildBaseMesh(state.base, state.baseParams);
-    state.baseParams = { ...normalized, posX, posZ };
-    lastBuiltKey = baseGeometryKey(state.baseParams);
+
+    // The build may normalize numbers, but the wall choice and lettering
+    // stay whatever the user asked for, not whatever the preview used.
+    const { posX, posZ, infill, textLine1, textLine2 } = state.baseParams;
+    const normalized = rebuildBaseMesh(state.base, effective);
+    state.baseParams = {
+        ...normalized, posX, posZ, infill, textLine1, textLine2
+    };
+    lastBuiltKey = key;
     interactions.refreshOutline();
 }
 
@@ -287,6 +324,9 @@ function syncReadouts() {
         + `Base ${mm(p.width)} × ${mm(p.depth)} × ${mm(p.height)} mm`
     );
     ui.syncBaseControls(p);
+    // Whether a line fits depends on how wide the plate is, so this has to
+    // be recomputed whenever the plate changes, not only when text is typed.
+    ui.setEngravingHint(describeEngraving());
     syncModelRotationUI();
 }
 
@@ -528,12 +568,79 @@ function updateBaseParam(name, value, commit) {
         posX,
         posZ
     };
+    // Mid-drag the plate rebuilds plain, which keeps it instant; the wall
+    // detail returns as soon as the slider is let go.
+    state.previewPlain = !commit;
     rebuildBaseDebounced();
     if (commit) {
         rebuildBaseDebounced.flush();
         settleLayout();
         undoManager.commit();
     }
+}
+
+function updateEngraving(line1, line2) {
+    if (!state.base || state.processed) return;
+    state.sizeOverride = true;
+    state.previewPlain = false;
+    state.baseParams = {
+        ...state.baseParams,
+        textLine1: cleanEngravedText(line1),
+        textLine2: cleanEngravedText(line2)
+    };
+    rebuildBaseIfNeeded();
+    placeBase();
+    syncReadouts();
+    undoManager.commit();
+}
+
+/**
+ * Say plainly whether the lettering will actually appear. It needs a run
+ * of flat back wall and enough open band, and quietly cutting nothing
+ * would look like a bug.
+ */
+function describeEngraving() {
+    const params = state.baseParams;
+    if (!params || !hasEngraving(params)) {
+        return 'Cut into the flat back of the plate, centered. Letters and numbers.';
+    }
+
+    const outline = measureOutline(createBaseOutline(params));
+    const band = getInfillBand(params);
+    const cutters = buildEngravingCutters(outline, params, band);
+    const lines = [params.textLine1, params.textLine2].filter(Boolean).length;
+    cutters.forEach(cutter => cutter.dispose());
+
+    if (!cutters.length) {
+        // Say the actual numbers. Lettering that quietly fails to appear
+        // reads as a bug, and "make it bigger" is not an instruction.
+
+        // Width bites first on a long line, and no amount of extra height
+        // fixes that, so check it before talking about raising the base.
+        const fits = maxLineCharacters(outline, params, band);
+        const longest = Math.max(
+            params.textLine1.length,
+            params.textLine2.length
+        );
+        if (fits > 0 && longest > fits) {
+            return `This plate holds ${fits} characters a line. Shorten the `
+                + `line, or widen the plate to fit ${longest}.`;
+        }
+
+        const needed = lines > 1 ? TEXT_MIN_BAND * 2 + 1.2 : TEXT_MIN_BAND;
+        const height = Math.ceil(params.clampBand + params.wall + needed);
+        if (height <= BASE_LIMITS.height.max) {
+            return `${lines > 1 ? 'Two lines need' : 'Lettering needs'} about ${
+                needed.toFixed(0)} mm of open wall. Raise the base to ${
+                height} mm.`;
+        }
+        const spare = Math.ceil(needed + params.wall);
+        return `${lines > 1 ? 'Two lines need' : 'Lettering needs'} about ${
+            needed.toFixed(0)} mm of open wall, more than this plate has. `
+            + `Lower the clamp band to about ${
+                Math.max(0, BASE_LIMITS.height.max - spare)} mm, or use one line.`;
+    }
+    return 'Cut into the flat back of the plate, centered.';
 }
 
 function updateBaseHollow(checked) {
@@ -937,6 +1044,7 @@ const ui = createUI({
     onFile: handleFile,
     onBaseParam: updateBaseParam,
     onBaseHollow: updateBaseHollow,
+    onEngraving: updateEngraving,
     onFitBase: fitBase,
     onModelRotate: updateModelRotation,
     onRecenter: recenterModel,
@@ -1035,7 +1143,8 @@ window.__MEDSTAR_BASE__ = Object.freeze({
     exportAndDownload: handleExport,
     reset: handleReset,
     undo: () => undoManager.undo(),
-    setBaseParam: (name, value) => updateBaseParam(name, value, true),
+    setBaseParam: (name, value, commit = true) =>
+        updateBaseParam(name, value, commit),
     exportBytes() {
         if (!state.processed) throw new Error('Merge the model first.');
         return binaryResultToBytes(createBinarySTL(state.model));

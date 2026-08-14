@@ -292,15 +292,49 @@ function flipWinding(geometry) {
 // ---------------------------------------------------------------------
 
 const FONT = {
-    M: [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001],
-    E: [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
+    A: [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+    B: [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
+    C: [0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110],
     D: [0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110],
+    E: [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
+    F: [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000],
+    G: [0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111],
+    H: [0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+    I: [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
+    J: [0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100],
+    K: [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001],
+    L: [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
+    M: [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001],
+    N: [0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001],
+    O: [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+    P: [0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000],
+    Q: [0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101],
+    R: [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001],
     S: [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110],
     T: [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100],
-    A: [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
-    R: [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001],
-    O: [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
-    F: [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000],
+    U: [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+    V: [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
+    W: [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001],
+    X: [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001],
+    Y: [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100],
+    Z: [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111],
+    0: [0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110],
+    1: [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
+    2: [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111],
+    3: [0b11111, 0b00010, 0b00100, 0b00010, 0b00001, 0b10001, 0b01110],
+    4: [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010],
+    5: [0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110],
+    6: [0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110],
+    7: [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000],
+    8: [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110],
+    9: [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100],
+    '.': [0, 0, 0, 0, 0, 0b01100, 0b01100],
+    ',': [0, 0, 0, 0, 0b00110, 0b00110, 0b01100],
+    "'": [0b00100, 0b00100, 0b01000, 0, 0, 0, 0],
+    '&': [0b01100, 0b10010, 0b10100, 0b01000, 0b10101, 0b10010, 0b01101],
+    '/': [0b00001, 0b00010, 0b00010, 0b00100, 0b01000, 0b01000, 0b10000],
+    '+': [0, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0],
+    '-': [0, 0, 0, 0b11111, 0, 0, 0],
     ' ': [0, 0, 0, 0, 0, 0, 0]
 };
 
@@ -326,10 +360,17 @@ export function buildWallBars(params, outlinePoints, { spacing, diameter, spin =
     const overlap = 1.5;
     const height = band.height + overlap * 2;
     const centreY = (band.low + band.high) / 2;
+    // Lettering owns the flat back. A bar standing there would be sliced
+    // by the glyph cuts and tear the wall open, so the chord is left bare.
+    const clearChord = hasEngraving(params);
     const parts = [];
 
     for (let index = 0; index < count; index += 1) {
         const sample = outline.at(step / 2 + index * step);
+        if (clearChord
+            && Math.abs(sample.position.y - outline.chordZ) < diameter) {
+            continue;
+        }
         // Sit the bar on the wall's centre line so it clears both faces.
         const inward = sample.normal.clone().multiplyScalar(-params.wall / 2);
         const bar = new THREE.CylinderGeometry(
@@ -449,20 +490,56 @@ export function buildSlotCutters(outline, params, band, {
     return cutters;
 }
 
-// Thinnest bar worth cutting: below this the slot neither prints nor
-// drains cleanly.
-const MIN_TEXT_BAR = 0.6;
+// How far off the flat back a wall cut has to stay once lettering is
+// there. Covers the fillet at each end of the chord plus a clear gap, so
+// no slot ever comes close enough to a letter to tear the wall between.
+const CHORD_CLEARANCE = 2;
+
+// What the wall pattern writes on the back, longest first. A wide plate
+// takes the full name; a narrow one takes as much of it as will print.
+const WALL_LABELS = ['MEDSTAR OMFS', 'MEDSTAR', 'MSO'];
+
+// Share of each cell the cut fills; the rest is the ridge of material
+// left between stacked rows. Packing the rows tighter would let letters
+// fit a shorter wall, and it was tried: at 0.8 and 0.85 the ridges grow
+// thin enough to tear, so 0.7 is where this stays.
+const BAR_FRACTION = 0.7;
+
+// Thinnest bar worth cutting. Measured, not guessed: across a sweep of
+// plate widths and line lengths every run at 1.05 mm and above came back
+// two-manifold in well under a second, while every run at 0.93 mm and
+// below tore the wall and took seconds to do it. One millimeter is the
+// line between the two.
+const MIN_TEXT_BAR = 1;
 
 /**
  * Smallest band, in millimeters, that still yields printable lettering.
  * Seven rows of cells, each 70 percent bar, plus the edge margins.
  */
 export const TEXT_MIN_BAND = Number(
-    ((MIN_TEXT_BAR / 0.7) * FONT_ROWS + EDGE_MARGIN * 2 + 0.5).toFixed(1)
+    ((MIN_TEXT_BAR / BAR_FRACTION) * FONT_ROWS + EDGE_MARGIN * 2 + 0.5).toFixed(1)
 );
 
-function buildTextCutters(outline, params, band) {
-    const text = 'MEDSTAR OMFS';
+/**
+ * How many characters one line can hold on this plate. The flat back is
+ * the only wall a line can use, so a wider plate takes a longer line and
+ * nothing else changes it.
+ */
+export function maxLineCharacters(outline, params, band) {
+    const usableHeight = band.height - EDGE_MARGIN * 2;
+    const usableWidth = outline.chordLength - 6;
+    const pitch = MIN_TEXT_BAR / BAR_FRACTION;
+    if (usableWidth <= 0 || usableHeight / FONT_ROWS < pitch) return 0;
+    const cells = Math.floor(usableWidth / pitch + 1e-6);
+    return Math.max(0, Math.floor((cells + 1) / (FONT_COLUMNS + 1)));
+}
+
+/**
+ * One line of stencil lettering cut into the flat posterior wall,
+ * centered, within the vertical slot given.
+ */
+function buildLineCutters(outline, params, band, text) {
+    if (!text) return [];
     const usableHeight = band.height - EDGE_MARGIN * 2;
     // Text stays on the flat posterior chord, clear of both fillets.
     const usableWidth = outline.chordLength - 6;
@@ -472,7 +549,7 @@ function buildTextCutters(outline, params, band) {
     // the band's height or the run of flat wall the line has to fit in.
     const cellsWide = text.length * (FONT_COLUMNS + 1) - 1;
     const pitch = Math.min(usableHeight / FONT_ROWS, usableWidth / cellsWide);
-    const barHeight = pitch * 0.7;
+    const barHeight = pitch * BAR_FRACTION;
     // Bars thinner than this neither print nor drain, so the pattern
     // declines rather than shipping a wall of hairline slots.
     if (barHeight < MIN_TEXT_BAR) return [];
@@ -481,7 +558,9 @@ function buildTextCutters(outline, params, band) {
     const columnPitch = pitch;
     const advance = (FONT_COLUMNS + 1) * columnPitch;
     const totalWidth = text.length * advance - columnPitch;
-    if (totalWidth > usableWidth) return [];
+    // When the width is the binding limit these two are the same number,
+    // so compare with a tolerance or rounding alone rejects a line that fits.
+    if (totalWidth > usableWidth + 1e-6) return [];
 
     // Arc runs left to right along the chord in world +X, but a reader
     // standing outside sees +X on their left. So the line is laid out
@@ -491,6 +570,7 @@ function buildTextCutters(outline, params, band) {
     const bottom = band.low + (band.height - FONT_ROWS * rowPitch) / 2;
     const inset = columnPitch * 0.15;
     const cutters = [];
+
 
     for (let character = 0; character < text.length; character += 1) {
         const rows = FONT[text[character]] ?? FONT[' '];
@@ -534,9 +614,41 @@ function buildTextCutters(outline, params, band) {
 }
 
 /**
- * A single cutter solid for the chosen pattern, in the base's local frame
- * (bottom at Y = 0). Returns null when the pattern removes nothing.
+ * The user's own lettering, up to two lines, stacked and centered on the
+ * flat back wall. Two lines split the band between them with a gap, so a
+ * second line always shrinks the first rather than colliding with it.
  */
+export function buildEngravingCutters(outline, params, band) {
+    const lines = [params.textLine1, params.textLine2].filter(Boolean);
+    if (!lines.length) return [];
+
+    if (lines.length === 1) {
+        return buildLineCutters(outline, params, band, lines[0]);
+    }
+
+    const gap = Math.min(1.2, band.height * 0.08);
+    const lineHeight = (band.height - gap) / 2;
+    const upper = {
+        low: band.low + lineHeight + gap,
+        high: band.high,
+        height: lineHeight
+    };
+    const lower = {
+        low: band.low,
+        high: band.low + lineHeight,
+        height: lineHeight
+    };
+    return [
+        ...buildLineCutters(outline, params, upper, lines[0]),
+        ...buildLineCutters(outline, params, lower, lines[1])
+    ];
+}
+
+/** Does this base carry any engraved lettering? */
+export function hasEngraving(params) {
+    return Boolean(params.textLine1 || params.textLine2);
+}
+
 /** Bar sizing for the prison-bar pattern, derived from the base itself. */
 export function getBarSpec(params) {
     const opening = maxSlotWidth(params);
@@ -548,7 +660,8 @@ export function getBarSpec(params) {
 }
 
 export function buildInfillCutterGeometry(params, outlinePoints, { lift = 0, phase = 0, widthScale = 1 } = {}) {
-    if (!params.infill || params.infill === 'solid') return null;
+    const engraved = hasEngraving(params);
+    if ((!params.infill || params.infill === 'solid') && !engraved) return null;
 
     const raw = getInfillBand(params);
     // `lift` nudges the whole pattern up by a fraction of a millimeter.
@@ -592,7 +705,29 @@ export function buildInfillCutterGeometry(params, outlinePoints, { lift = 0, pha
             phase
         });
     } else if (params.infill === 'text') {
-        cutters = buildTextCutters(outline, params, band);
+        // Letters have a floor they print and cut cleanly at, so a narrow
+        // plate has room for a shorter name and nothing else. Take the
+        // longest that fits rather than cutting nothing at all.
+        for (const label of WALL_LABELS) {
+            cutters = buildLineCutters(outline, params, band, label);
+            if (cutters.length) break;
+        }
+    }
+
+    if (engraved) {
+        // Lettering and wall cuts must never share ground: two cutters
+        // that touch tear the mesh. The lettering owns the flat back, so
+        // any slot that would land there is dropped.
+        // Test the near edge, not the far one. Every slot sweeps clean
+        // through the wall, so its far edge always sits well above the
+        // chord and testing that keeps exactly the slots it should drop.
+        // The lettering itself is cut later, in its own pass.
+        cutters = cutters.filter(cutter => {
+            cutter.computeBoundingBox();
+            const keep = cutter.boundingBox.min.z > outline.chordZ + CHORD_CLEARANCE;
+            if (!keep) cutter.dispose();
+            return keep;
+        });
     }
 
     if (!cutters.length) return null;

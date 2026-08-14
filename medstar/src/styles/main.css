@@ -519,6 +519,28 @@ input[type="number"] {
     grid-template-columns: 46px 1fr;
 }
 
+.field-row-text {
+    grid-template-columns: 46px 1fr;
+}
+
+.field-row-text input[type="text"] {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    padding: 6px 8px;
+    font-family: var(--font-ui);
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--ink);
+    text-transform: uppercase;
+}
+
+.field-row-text input::placeholder {
+    text-transform: none;
+    color: color-mix(in srgb, var(--ink-soft) 70%, transparent);
+}
+
 select {
     width: 100%;
     border: 1px solid var(--line);

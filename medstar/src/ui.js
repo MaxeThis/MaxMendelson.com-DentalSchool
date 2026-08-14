@@ -52,6 +52,7 @@ export function createUI({
     onFile,
     onBaseParam,
     onBaseHollow,
+    onEngraving,
     onFitBase,
     onModelRotate,
     onRecenter,
@@ -140,6 +141,25 @@ export function createUI({
     $('base-hollow').addEventListener('change', event => {
         if (!suppressEvents) onBaseHollow(event.target.checked);
     });
+    // Engraving. Typing repaints the wall, so the rebuild waits until the
+    // user pauses rather than firing on every keystroke.
+    const textFields = [$('base-text-1'), $('base-text-2')];
+    let engravingTimer = null;
+    for (const field of textFields) {
+        field.addEventListener('input', () => {
+            if (suppressEvents) return;
+            if (engravingTimer) window.clearTimeout(engravingTimer);
+            engravingTimer = window.setTimeout(() => {
+                onEngraving(textFields[0].value, textFields[1].value);
+            }, 400);
+        });
+        field.addEventListener('change', () => {
+            if (suppressEvents) return;
+            if (engravingTimer) window.clearTimeout(engravingTimer);
+            onEngraving(textFields[0].value, textFields[1].value);
+        });
+    }
+
     $('btn-fit-base').addEventListener('click', () => onFitBase());
 
     const modelFields = {
@@ -283,7 +303,19 @@ export function createUI({
             setField(...baseFields.height, params.height);
             setField(...baseFields.wall, params.wall);
             $('base-hollow').checked = Boolean(params.hollow);
+            if (document.activeElement !== textFields[0]) {
+                textFields[0].value = params.textLine1 ?? '';
+            }
+            if (document.activeElement !== textFields[1]) {
+                textFields[1].value = params.textLine2 ?? '';
+            }
             suppressEvents = false;
+        },
+
+        setEngravingHint(text) {
+            const hint = $('engraving-hint');
+            hint.textContent = text;
+            hint.hidden = !text;
         },
 
         syncModelRotation(degrees) {

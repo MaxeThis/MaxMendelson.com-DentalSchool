@@ -1,7 +1,12 @@
 import * as THREE from 'three';
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { subtractGeometries, unionGeometries, getEdgeTopologyStats } from './csg.js';
 import {
     buildInfillCutterGeometry,
+    buildEngravingCutters,
+    hasEngraving,
+    measureOutline,
+    getInfillBand,
     buildWallBars,
     getBarSpec
 } from './infill.js';
@@ -57,6 +62,9 @@ export const DEFAULT_BASE_PARAMS = Object.freeze({
     // stretching the base never distorts the rounding.
     cornerRadius: 4,
     infill: 'solid',
+    // Lettering cut into the flat back wall, centered. Empty means none.
+    textLine1: '',
+    textLine2: '',
     // The clamp grips the lower part of the base; keep it solid.
     clampBand: 10,
     posX: 0,
@@ -64,6 +72,24 @@ export const DEFAULT_BASE_PARAMS = Object.freeze({
 });
 
 const MIN_CAVITY_SIZE = 0.1;
+
+/** Longest line the wall will take, in characters. */
+export const MAX_ENGRAVED_CHARACTERS = 22;
+
+/**
+ * Keep engraved text to what the stencil font can actually draw: capitals,
+ * digits and a few marks. Anything else is dropped rather than silently
+ * cut as a blank.
+ */
+export function cleanEngravedText(value) {
+    if (typeof value !== 'string') return '';
+    return value
+        .toUpperCase()
+        .replace(/[^A-Z0-9 .,'&/+-]/g, '')
+        .replace(/\s+/g, ' ')
+        .trimStart()
+        .slice(0, MAX_ENGRAVED_CHARACTERS);
+}
 
 function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
@@ -129,6 +155,8 @@ export function normalizeBaseParams(params = {}) {
         infill: INFILL_IDS.includes(params.infill)
             ? params.infill
             : DEFAULT_BASE_PARAMS.infill,
+        textLine1: cleanEngravedText(params.textLine1),
+        textLine2: cleanEngravedText(params.textLine2),
         // The clamp band is a safety value: the wall the articulator screw
         // bites on. It is never trimmed to make room for a pattern. If the
         // base is too short to fit both, the pattern is the thing that
@@ -450,6 +478,7 @@ const PATTERN_ATTEMPTS = [
  * the least damaged attempt is kept and the caller can report it.
  */
 function cutWallPattern(baseGeometry, normalized) {
+    if (normalized.infill === 'solid') return baseGeometry;
     const outline = createHalfDiscPerimeter(
         normalized.width / 2,
         normalized.depth,
@@ -500,6 +529,80 @@ function cutWallPattern(baseGeometry, normalized) {
     geometry.dispose();
     return best;
 }
+
+/**
+ * Cut the operator's own two lines into the flat back of a finished wall.
+ * Runs on its own, after any pattern and any bars, so the lettering never
+ * has to share a boolean with them.
+ */
+function cutEngraving(baseGeometry, normalized) {
+    if (!hasEngraving(normalized)) return baseGeometry;
+
+    const outline = measureOutline(createHalfDiscPerimeter(
+        normalized.width / 2,
+        normalized.depth,
+        0,
+        normalized.cornerRadius
+    ));
+    const raw = getInfillBand(normalized);
+
+    let best = null;
+    let bestScore = Infinity;
+
+    // Whether a cut lands cleanly depends on how its faces fall against
+    // the wall's own vertices, so a torn result is worth retrying a hair
+    // higher. Lifting only moves the lettering away from the clamp band.
+    for (const lift of ENGRAVING_LIFTS) {
+        const band = {
+            low: raw.low + lift,
+            high: raw.high,
+            height: raw.height - lift
+        };
+        const cutters = buildEngravingCutters(outline, normalized, band);
+        if (!cutters.length) break;
+
+        let cutter;
+        try {
+            cutter = BufferGeometryUtils.mergeGeometries(cutters, false);
+        } finally {
+            cutters.forEach(part => part.dispose());
+        }
+        if (!cutter) break;
+
+        let candidate;
+        try {
+            candidate = subtractGeometries(baseGeometry, cutter, {
+                firstName: 'Base',
+                secondName: 'Lettering'
+            });
+        } finally {
+            cutter.dispose();
+        }
+
+        const stats = getEdgeTopologyStats(candidate);
+        if (stats.isTwoManifold) {
+            best?.dispose();
+            baseGeometry.dispose();
+            return candidate;
+        }
+
+        const score = stats.boundaryEdges + stats.nonManifoldEdges;
+        if (score < bestScore) {
+            best?.dispose();
+            best = candidate;
+            bestScore = score;
+        } else {
+            candidate.dispose();
+        }
+    }
+
+    if (!best) return baseGeometry;
+    baseGeometry.dispose();
+    return best;
+}
+
+// How far to nudge the lettering up when a cut comes back torn.
+const ENGRAVING_LIFTS = [0, 0.037, 0.083, 0.146, 0.211];
 
 // Diameter scale and facet rotation to try for the standing bars. Whether
 // a bar lands cleanly depends on where its facets fall against the cut
@@ -578,6 +681,11 @@ export function buildBaseGeometry(params = DEFAULT_BASE_PARAMS) {
     if (normalized.infill === 'bars') {
         geometry = addWallBars(geometry, normalized);
     }
+    // Lettering goes on last, and on purpose. Cutting it earlier leaves
+    // the wall finely divided where the bars then have to meet it, and the
+    // union tears along those new edges. Cut into a finished wall, on the
+    // flat back the bars never reach, it comes out clean.
+    geometry = cutEngraving(geometry, normalized);
 
     geometry.name = normalized.hollow ? 'HollowBaseGeometry' : 'SolidBaseGeometry';
     geometry.userData.baseParams = { ...normalized };
