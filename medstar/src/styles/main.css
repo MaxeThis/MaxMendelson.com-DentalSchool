@@ -856,8 +856,34 @@ select {
     margin-top: 8px;
 }
 
+.contact-card {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    background: var(--paper-2);
+    border-radius: var(--radius-md);
+    animation: card-in 240ms var(--ease-spring) both;
+}
+
+.contact-card a {
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--navy);
+    text-decoration: none;
+    word-break: break-all;
+}
+
+.contact-card a:hover {
+    text-decoration: underline;
+}
+
 .bubble-phone {
     display: inline-block;
+    border: none;
+    cursor: pointer;
+    font-family: var(--font-ui);
     margin-top: 12px;
     background: var(--yellow);
     color: #16264A;

@@ -24,7 +24,16 @@ export function createCharacter() {
         else window.setTimeout(() => { if (!open) bubble.hidden = true; }, 350);
     }
 
-    figure.addEventListener('click', () => setOpen(!open));
+    const contactButton = root.querySelector('#btn-contact');
+    const contactCard = root.querySelector('#contact-card');
+    contactButton?.addEventListener('click', () => {
+        contactCard.hidden = !contactCard.hidden;
+    });
+
+    figure.addEventListener('click', () => {
+        if (open) contactCard.hidden = true;
+        setOpen(!open);
+    });
     close.addEventListener('click', event => {
         event.stopPropagation();
         setOpen(false);

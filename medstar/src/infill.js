@@ -307,6 +307,58 @@ const FONT = {
 const FONT_COLUMNS = 5;
 const FONT_ROWS = 7;
 
+/**
+ * Free-standing round bars for the openings, as one merged solid ready to
+ * be unioned onto an already-cut base.
+ *
+ * The bar is deliberately thinner than the wall so it stands clear of both
+ * wall faces. A bar as thick as the wall runs tangent to those faces, and
+ * tangency is what shreds the boolean: at wall thickness it leaves about
+ * seventy torn edges, and at wall minus one it leaves none.
+ */
+export function buildWallBars(params, outlinePoints, { spacing, diameter, spin = 0 }) {
+    const band = getInfillBand(params);
+    if (band.height < MIN_BAND_HEIGHT) return null;
+
+    const outline = measureOutline(outlinePoints);
+    const count = Math.max(1, Math.floor(outline.perimeter / spacing));
+    const step = outline.perimeter / count;
+    const overlap = 1.5;
+    const height = band.height + overlap * 2;
+    const centreY = (band.low + band.high) / 2;
+    const parts = [];
+
+    for (let index = 0; index < count; index += 1) {
+        const sample = outline.at(step / 2 + index * step);
+        // Sit the bar on the wall's centre line so it clears both faces.
+        const inward = sample.normal.clone().multiplyScalar(-params.wall / 2);
+        const bar = new THREE.CylinderGeometry(
+            diameter / 2,
+            diameter / 2,
+            height,
+            16
+        );
+        if (spin) bar.rotateY(spin);
+        bar.translate(
+            sample.position.x + inward.x,
+            centreY,
+            sample.position.y + inward.y
+        );
+        const flat = bar.toNonIndexed();
+        for (const name of Object.keys(flat.attributes)) {
+            if (name !== 'position') flat.deleteAttribute(name);
+        }
+        bar.dispose();
+        parts.push(flat);
+    }
+
+    try {
+        return BufferGeometryUtils.mergeGeometries(parts, false);
+    } finally {
+        parts.forEach(part => part.dispose());
+    }
+}
+
 /** The patternable window between the clamp band and the deck. */
 export function getInfillBand(params) {
     const low = params.clampBand;
@@ -485,6 +537,16 @@ function buildTextCutters(outline, params, band) {
  * A single cutter solid for the chosen pattern, in the base's local frame
  * (bottom at Y = 0). Returns null when the pattern removes nothing.
  */
+/** Bar sizing for the prison-bar pattern, derived from the base itself. */
+export function getBarSpec(params) {
+    const opening = maxSlotWidth(params);
+    return {
+        spacing: opening + MIN_LIGAMENT + SNAP_ALLOWANCE,
+        // Thinner than the wall on purpose: see buildWallBars.
+        diameter: Math.max(1.6, params.wall - 1)
+    };
+}
+
 export function buildInfillCutterGeometry(params, outlinePoints, { lift = 0, phase = 0, widthScale = 1 } = {}) {
     if (!params.infill || params.infill === 'solid') return null;
 
@@ -510,9 +572,13 @@ export function buildInfillCutterGeometry(params, outlinePoints, { lift = 0, pha
     let cutters = [];
 
     if (params.infill === 'bars') {
+        // Prison bars: the same wide openings as the window pattern, with a
+        // round bar standing in each one. The bars are added back as solids
+        // afterwards, so only the openings are cut here.
+        const bold = maxSlotWidth(params) * widthScale;
         cutters = buildSlotCutters(outline, params, band, {
-            slotWidth: width,
-            pitch: spacing,
+            slotWidth: bold,
+            pitch: bold + MIN_LIGAMENT + SNAP_ALLOWANCE,
             phase
         });
     } else if (params.infill === 'wide') {

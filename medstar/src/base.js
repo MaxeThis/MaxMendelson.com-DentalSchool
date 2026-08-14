@@ -1,6 +1,10 @@
 import * as THREE from 'three';
-import { subtractGeometries, getEdgeTopologyStats } from './csg.js';
-import { buildInfillCutterGeometry } from './infill.js';
+import { subtractGeometries, unionGeometries, getEdgeTopologyStats } from './csg.js';
+import {
+    buildInfillCutterGeometry,
+    buildWallBars,
+    getBarSpec
+} from './infill.js';
 
 // Flip between 0 and Math.PI if a future scan convention reverses the arch.
 export const BASE_ROTATION_Y = Math.PI;
@@ -28,8 +32,8 @@ export const BASE_LIMITS = Object.freeze({
  */
 export const INFILL_PATTERNS = Object.freeze([
     { id: 'solid', label: 'Solid wall' },
-    { id: 'bars', label: 'Bars' },
-    { id: 'wide', label: 'Wide slots' },
+    { id: 'bars', label: 'Prison bars' },
+    { id: 'wide', label: 'Windows' },
     { id: 'text', label: 'MedStar OMFS' }
 ]);
 
@@ -422,6 +426,10 @@ function buildStitchedHollowGeometry(params) {
 // `lift` nudges the pattern up a fraction of a millimeter; `phase` slides
 // it around the perimeter by a fraction of one cut spacing, which lands
 // the cuts on different wall facets.
+// The lettering costs about a second per attempt, far more than the slot
+// patterns, so it gets a shorter search rather than the full sweep.
+const TEXT_ATTEMPT_LIMIT = 3;
+
 const PATTERN_ATTEMPTS = [
     { lift: 0, phase: 0, widthScale: 1 },
     { lift: 0, phase: 0, widthScale: 0.94 },
@@ -453,7 +461,11 @@ function cutWallPattern(baseGeometry, normalized) {
     let best = null;
     let bestScore = Infinity;
 
-    for (const attempt of PATTERN_ATTEMPTS) {
+    const attempts = normalized.infill === 'text'
+        ? PATTERN_ATTEMPTS.slice(0, TEXT_ATTEMPT_LIMIT)
+        : PATTERN_ATTEMPTS;
+
+    for (const attempt of attempts) {
         const cutter = buildInfillCutterGeometry(normalized, outline, attempt);
         if (!cutter) break;
 
@@ -489,6 +501,71 @@ function cutWallPattern(baseGeometry, normalized) {
     return best;
 }
 
+// Diameter scale and facet rotation to try for the standing bars. Whether
+// a bar lands cleanly depends on where its facets fall against the cut
+// faces, so a slightly different size or a turned profile usually clears
+// a torn result.
+const BAR_ATTEMPTS = [
+    [1, 0], [0.92, 0.4], [1.08, 0], [0.85, 0.2], [1, 0.55], [0.78, 0]
+];
+
+/**
+ * Stand a round bar in each opening. Tried at a couple of diameters: which
+ * one lands cleanly depends on where the bar's surface falls against the
+ * cut faces, so the first closed result wins.
+ */
+function addWallBars(baseGeometry, normalized) {
+    const outline = createHalfDiscPerimeter(
+        normalized.width / 2,
+        normalized.depth,
+        0,
+        normalized.cornerRadius
+    );
+    const spec = getBarSpec(normalized);
+
+    let geometry = baseGeometry;
+    let best = null;
+    let bestScore = Infinity;
+
+    for (const [scale, spin] of BAR_ATTEMPTS) {
+        const bars = buildWallBars(normalized, outline, {
+            spacing: spec.spacing,
+            diameter: Math.max(1.4, spec.diameter * scale),
+            spin
+        });
+        if (!bars) break;
+
+        let candidate;
+        try {
+            candidate = unionGeometries(geometry, bars, {
+                firstName: 'Base',
+                secondName: 'Wall bars'
+            });
+        } finally {
+            bars.dispose();
+        }
+
+        const stats = getEdgeTopologyStats(candidate);
+        if (stats.isTwoManifold) {
+            best?.dispose();
+            geometry.dispose();
+            return candidate;
+        }
+        const score = stats.boundaryEdges + stats.nonManifoldEdges;
+        if (score < bestScore) {
+            best?.dispose();
+            best = candidate;
+            bestScore = score;
+        } else {
+            candidate.dispose();
+        }
+    }
+
+    if (!best) return geometry;
+    geometry.dispose();
+    return best;
+}
+
 export function buildBaseGeometry(params = DEFAULT_BASE_PARAMS) {
     const normalized = normalizeBaseParams(params);
     let geometry = normalized.hollow
@@ -498,6 +575,9 @@ export function buildBaseGeometry(params = DEFAULT_BASE_PARAMS) {
     // The wall pattern is cut here so the shape on screen and the shape in
     // the exported file can never drift apart.
     geometry = cutWallPattern(geometry, normalized);
+    if (normalized.infill === 'bars') {
+        geometry = addWallBars(geometry, normalized);
+    }
 
     geometry.name = normalized.hollow ? 'HollowBaseGeometry' : 'SolidBaseGeometry';
     geometry.userData.baseParams = { ...normalized };
