@@ -393,11 +393,10 @@ export function buildWallBars(params, outlinePoints, { spacing, diameter, spin =
         parts.push(flat);
     }
 
-    try {
-        return BufferGeometryUtils.mergeGeometries(parts, false);
-    } finally {
-        parts.forEach(part => part.dispose());
-    }
+    // Returned as separate bars, not one merged solid. Each goes into the
+    // wall on its own so a bar that will not union cleanly costs one bar
+    // rather than the whole plate.
+    return parts;
 }
 
 /** The patternable window between the clamp band and the deck. */
@@ -495,9 +494,25 @@ export function buildSlotCutters(outline, params, band, {
 // no slot ever comes close enough to a letter to tear the wall between.
 const CHORD_CLEARANCE = 2;
 
-// What the wall pattern writes on the back, longest first. A wide plate
-// takes the full name; a narrow one takes as much of it as will print.
-const WALL_LABELS = ['MEDSTAR OMFS', 'MEDSTAR', 'MSO'];
+// What the wall pattern writes on the back.
+const WALL_LABEL = 'MEDSTAR OMFS';
+
+// The operator's own lettering is a shallow recess in the outer face, not
+// a slot through the wall. That is what lets it sit low on the base, at a
+// readable label size, without opening the clamp zone or fighting the
+// wall pattern for room.
+const ENGRAVE_DEPTH = 0.6;
+// Height of a capital, in millimeters. A label, not a headline.
+const ENGRAVE_CAP_HEIGHT = 4.2;
+// How far the lowest line sits above the ground, so the first printed
+// layer is never a letter.
+const ENGRAVE_FLOOR = 2;
+const ENGRAVE_LINE_GAP = 1.4;
+// A recess into solid material tolerates far finer strokes than a slot
+// cut through a thin wall, which is why this is well under MIN_TEXT_BAR.
+const MIN_ENGRAVE_BAR = 0.25;
+// Narrowest a column may be condensed to before strokes stop printing.
+const MIN_COLUMN_PITCH = 0.5;
 
 // Share of each cell the cut fills; the rest is the ridge of material
 // left between stacked rows. Packing the rows tighter would let letters
@@ -525,37 +540,99 @@ export const TEXT_MIN_BAND = Number(
  * the only wall a line can use, so a wider plate takes a longer line and
  * nothing else changes it.
  */
-export function maxLineCharacters(outline, params, band) {
-    const usableHeight = band.height - EDGE_MARGIN * 2;
+export function maxLineCharacters(outline) {
     const usableWidth = outline.chordLength - 6;
-    const pitch = MIN_TEXT_BAR / BAR_FRACTION;
-    if (usableWidth <= 0 || usableHeight / FONT_ROWS < pitch) return 0;
-    const cells = Math.floor(usableWidth / pitch + 1e-6);
+    if (usableWidth <= 0) return 0;
+    const cells = Math.floor(usableWidth / MIN_COLUMN_PITCH + 1e-6);
     return Math.max(0, Math.floor((cells + 1) / (FONT_COLUMNS + 1)));
+}
+
+/**
+ * Break a glyph into as few rectangles as will cover it, merging downward
+ * as well as across.
+ *
+ * Cutting one box per row-run leaves a vertical stroke as a stack of
+ * seven separate crumbs: seven times the cutters, each of them smaller
+ * than this boolean reliably handles, and a stroke that reads as a dotted
+ * line. Merged, the same stroke is a single tall box.
+ */
+function glyphRectangles(rows) {
+    const covered = Array.from(
+        { length: FONT_ROWS },
+        () => new Array(FONT_COLUMNS).fill(false)
+    );
+    const lit = (row, column) => Boolean(
+        rows[row] & (1 << (FONT_COLUMNS - 1 - column))
+    );
+    const free = (row, column) => lit(row, column) && !covered[row][column];
+    const rectangles = [];
+
+    for (let row = 0; row < FONT_ROWS; row += 1) {
+        for (let column = 0; column < FONT_COLUMNS; column += 1) {
+            if (!free(row, column)) continue;
+
+            let width = 1;
+            while (column + width < FONT_COLUMNS && free(row, column + width)) {
+                width += 1;
+            }
+
+            let height = 1;
+            while (row + height < FONT_ROWS) {
+                let whole = true;
+                for (let step = 0; step < width; step += 1) {
+                    if (!free(row + height, column + step)) {
+                        whole = false;
+                        break;
+                    }
+                }
+                if (!whole) break;
+                height += 1;
+            }
+
+            for (let r = row; r < row + height; r += 1) {
+                for (let c = column; c < column + width; c += 1) covered[r][c] = true;
+            }
+            rectangles.push({ row, column, width, height });
+        }
+    }
+    return rectangles;
 }
 
 /**
  * One line of stencil lettering cut into the flat posterior wall,
  * centered, within the vertical slot given.
  */
-function buildLineCutters(outline, params, band, text) {
+function buildLineCutters(outline, params, band, text, options = {}) {
     if (!text) return [];
+    const {
+        // A fixed capital height, or null to fill whatever band it is given.
+        capHeight = null,
+        // How far into the wall to cut. Null cuts clean through.
+        depth = null,
+        minBar = MIN_TEXT_BAR
+    } = options;
+
     const usableHeight = band.height - EDGE_MARGIN * 2;
     // Text stays on the flat posterior chord, clear of both fillets.
     const usableWidth = outline.chordLength - 6;
     if (usableWidth <= 0) return [];
 
-    // Square cells, scaled to whichever of the two limits bites first:
-    // the band's height or the run of flat wall the line has to fit in.
-    const cellsWide = text.length * (FONT_COLUMNS + 1) - 1;
-    const pitch = Math.min(usableHeight / FONT_ROWS, usableWidth / cellsWide);
-    const barHeight = pitch * BAR_FRACTION;
-    // Bars thinner than this neither print nor drain, so the pattern
-    // declines rather than shipping a wall of hairline slots.
-    if (barHeight < MIN_TEXT_BAR) return [];
+    const capacity = capHeight ?? usableHeight;
+    if (capacity > usableHeight + 1e-6) return [];
+    const rowPitch = capacity / FONT_ROWS;
+    const barHeight = rowPitch * BAR_FRACTION;
+    // Bars thinner than this neither print nor drain, so the line declines
+    // rather than shipping a wall of hairline slots.
+    if (barHeight < minBar) return [];
 
-    const rowPitch = pitch;
-    const columnPitch = pitch;
+    // Columns are sized on their own, and condensed when a long line has
+    // to fit a narrow plate. Tying them to the rows, as this once did,
+    // meant a long line thinned its own bars until they tore, which is
+    // why the wall used to fall back to a shortened name.
+    const cellsWide = text.length * (FONT_COLUMNS + 1) - 1;
+    const columnPitch = Math.min(rowPitch, usableWidth / cellsWide);
+    if (columnPitch < MIN_COLUMN_PITCH) return [];
+
     const advance = (FONT_COLUMNS + 1) * columnPitch;
     const totalWidth = text.length * advance - columnPitch;
     // When the width is the binding limit these two are the same number,
@@ -569,44 +646,45 @@ function buildLineCutters(outline, params, band, text) {
     const rightArc = outline.chordLength / 2 + totalWidth / 2;
     const bottom = band.low + (band.height - FONT_ROWS * rowPitch) / 2;
     const inset = columnPitch * 0.15;
+    // A prism is measured from PIERCE_OVERSHOOT outside the surface, so a
+    // recess has to span that standoff before it bites. Passing the bare
+    // depth leaves the cutter hovering clear of the wall, cutting nothing.
+    const innerDepth = depth === null
+        ? params.wall + PIERCE_OVERSHOOT * TEXT_DEPTH_FACTOR
+        : PIERCE_OVERSHOOT + depth;
     const cutters = [];
 
 
+    // The vertical gap left between two separate rectangles. A stroke that
+    // runs on through several rows keeps no gap at all, because it is now
+    // cut as one piece.
+    const rowGap = rowPitch - barHeight;
+
     for (let character = 0; character < text.length; character += 1) {
-        const rows = FONT[text[character]] ?? FONT[' '];
         const glyphArc = rightArc - character * advance;
 
-        for (let row = 0; row < FONT_ROWS; row += 1) {
-            const bits = rows[row];
+        for (const rect of glyphRectangles(FONT[text[character]] ?? FONT[' '])) {
+            // No snapping here: the chord is a single flat facet, so there
+            // is nothing to land on and snapping would collapse these
+            // sub-millimeter bars.
+            const from = glyphArc - (rect.column + rect.width) * columnPitch + inset;
+            const to = glyphArc - rect.column * columnPitch - inset;
             // Row 0 is the top of the glyph.
-            const centreY = bottom
-                + (FONT_ROWS - 1 - row) * rowPitch
-                + rowPitch / 2;
+            const top = bottom
+                + (FONT_ROWS - rect.row) * rowPitch
+                - rowGap / 2;
+            const low = bottom
+                + (FONT_ROWS - rect.row - rect.height) * rowPitch
+                + rowGap / 2;
 
-            // Merge each run of lit cells into one bar. Runs are always
-            // separated by an unlit cell, so the bars stay disjoint.
-            let runStart = -1;
-            for (let column = 0; column <= FONT_COLUMNS; column += 1) {
-                const lit = column < FONT_COLUMNS
-                    && Boolean(bits & (1 << (FONT_COLUMNS - 1 - column)));
-                if (lit && runStart < 0) runStart = column;
-                if (lit || runStart < 0) continue;
-
-                // No snapping here: the chord is a single flat facet, so
-                // there is nothing to land on and snapping would collapse
-                // these sub-millimeter bars.
-                const from = glyphArc - column * columnPitch + inset;
-                const to = glyphArc - runStart * columnPitch - inset;
-                runStart = -1;
-                cutters.push(buildSweptPrism(
-                    outline,
-                    from,
-                    to,
-                    params.wall,
-                    () => [centreY - barHeight / 2, centreY + barHeight / 2],
-                    params.wall + PIERCE_OVERSHOOT * TEXT_DEPTH_FACTOR
-                ));
-            }
+            cutters.push(buildSweptPrism(
+                outline,
+                from,
+                to,
+                params.wall,
+                () => [low, top],
+                innerDepth
+            ));
         }
     }
 
@@ -618,30 +696,60 @@ function buildLineCutters(outline, params, band, text) {
  * flat back wall. Two lines split the band between them with a gap, so a
  * second line always shrinks the first rather than colliding with it.
  */
-export function buildEngravingCutters(outline, params, band) {
+export function buildEngravingCutters(outline, params) {
     const lines = [params.textLine1, params.textLine2].filter(Boolean);
     if (!lines.length) return [];
 
-    if (lines.length === 1) {
-        return buildLineCutters(outline, params, band, lines[0]);
-    }
+    // Lines stack upward from the floor with the first on top, so adding a
+    // second line pushes the first up rather than shrinking both. Each
+    // line is the same fixed size whatever else is on the plate.
+    const cutters = [];
+    const ceiling = params.height - params.wall - 0.6;
 
-    const gap = Math.min(1.2, band.height * 0.08);
-    const lineHeight = (band.height - gap) / 2;
-    const upper = {
-        low: band.low + lineHeight + gap,
-        high: band.high,
-        height: lineHeight
-    };
-    const lower = {
-        low: band.low,
-        high: band.low + lineHeight,
-        height: lineHeight
-    };
-    return [
-        ...buildLineCutters(outline, params, upper, lines[0]),
-        ...buildLineCutters(outline, params, lower, lines[1])
-    ];
+    lines.slice().reverse().forEach((text, index) => {
+        const low = ENGRAVE_FLOOR
+            + index * (ENGRAVE_CAP_HEIGHT + ENGRAVE_LINE_GAP);
+        const high = low + ENGRAVE_CAP_HEIGHT;
+        if (high > ceiling) return;
+        cutters.push(...buildLineCutters(
+            outline,
+            params,
+            // The builder centers a line inside the band it is handed, so
+            // the band is padded by exactly the margin it will take back.
+            {
+                low: low - EDGE_MARGIN,
+                high: high + EDGE_MARGIN,
+                height: ENGRAVE_CAP_HEIGHT + EDGE_MARGIN * 2
+            },
+            text,
+            {
+                capHeight: ENGRAVE_CAP_HEIGHT,
+                depth: ENGRAVE_DEPTH,
+                minBar: MIN_ENGRAVE_BAR
+            }
+        ));
+    });
+    return cutters;
+}
+
+/**
+ * The wall pattern that writes the clinic's name through the wall, as a
+ * list of separate strokes rather than one merged cutter.
+ */
+export function buildWallLabelCutters(outline, params) {
+    if (params.infill !== 'text') return [];
+    const band = getInfillBand(params);
+    if (band.height < MIN_BAND_HEIGHT) return [];
+    return buildLineCutters(outline, params, band, WALL_LABEL);
+}
+
+/** The tallest plate lettering can reach, given how the lines stack. */
+export function engravingHeightNeeded(lineCount) {
+    const lines = Math.max(1, lineCount);
+    return ENGRAVE_FLOOR
+        + lines * ENGRAVE_CAP_HEIGHT
+        + (lines - 1) * ENGRAVE_LINE_GAP
+        + 0.6;
 }
 
 /** Does this base carry any engraved lettering? */
@@ -654,14 +762,34 @@ export function getBarSpec(params) {
     const opening = maxSlotWidth(params);
     return {
         spacing: opening + MIN_LIGAMENT + SNAP_ALLOWANCE,
-        // Thinner than the wall on purpose: see buildWallBars.
-        diameter: Math.max(1.6, params.wall - 1)
+        // Thinner than the wall on purpose: see buildWallBars. The floor
+        // used to be a flat 1.6 mm, which on a thin wall came out equal to
+        // the wall itself. A bar that touches both faces is tangent to
+        // them, and tangency is what tears this boolean, so the bar is
+        // held clear of both faces at every wall thickness.
+        diameter: Math.min(
+            Math.max(1.6, params.wall - 1),
+            params.wall * 0.6
+        )
     };
 }
 
-export function buildInfillCutterGeometry(params, outlinePoints, { lift = 0, phase = 0, widthScale = 1 } = {}) {
-    const engraved = hasEngraving(params);
-    if ((!params.infill || params.infill === 'solid') && !engraved) return null;
+export function buildInfillCutterGeometry(params, outlinePoints, attempt = {}) {
+    const pieces = buildInfillCutterPieces(params, outlinePoints, attempt);
+    if (!pieces.length) return null;
+    try {
+        return BufferGeometryUtils.mergeGeometries(pieces, false);
+    } finally {
+        pieces.forEach(piece => piece.dispose());
+    }
+}
+
+/**
+ * The wall pattern as separate cuts. Each goes into the wall on its own,
+ * so one awkward slot costs one slot rather than the whole plate.
+ */
+export function buildInfillCutterPieces(params, outlinePoints, { lift = 0, phase = 0, widthScale = 1 } = {}) {
+    if (!params.infill || params.infill === 'solid') return [];
 
     const raw = getInfillBand(params);
     // `lift` nudges the whole pattern up by a fraction of a millimeter.
@@ -674,7 +802,7 @@ export function buildInfillCutterGeometry(params, outlinePoints, { lift = 0, pha
         high: raw.high,
         height: raw.height - lift
     };
-    if (band.height < MIN_BAND_HEIGHT) return null;
+    if (band.height < MIN_BAND_HEIGHT) return [];
 
     const outline = measureOutline(outlinePoints);
     // Every slot pattern is sized from the base itself: as wide as the
@@ -704,24 +832,17 @@ export function buildInfillCutterGeometry(params, outlinePoints, { lift = 0, pha
             pitch: bold + MIN_LIGAMENT + SNAP_ALLOWANCE,
             phase
         });
-    } else if (params.infill === 'text') {
-        // Letters have a floor they print and cut cleanly at, so a narrow
-        // plate has room for a shorter name and nothing else. Take the
-        // longest that fits rather than cutting nothing at all.
-        for (const label of WALL_LABELS) {
-            cutters = buildLineCutters(outline, params, band, label);
-            if (cutters.length) break;
-        }
     }
+    // The lettered wall is not built here. Letters are many small cuts,
+    // and small cuts go in one at a time, through the same path as the
+    // operator's own lines.
 
-    if (engraved) {
-        // Lettering and wall cuts must never share ground: two cutters
-        // that touch tear the mesh. The lettering owns the flat back, so
-        // any slot that would land there is dropped.
-        // Test the near edge, not the far one. Every slot sweeps clean
-        // through the wall, so its far edge always sits well above the
-        // chord and testing that keeps exactly the slots it should drop.
-        // The lettering itself is cut later, in its own pass.
+    // Lettering and wall cuts must never share ground: two cuts that meet
+    // tear the mesh between them. The flat back belongs to the lettering,
+    // so any slot that would land there is dropped. Test the near edge,
+    // not the far one: every slot sweeps clean through the wall, so its
+    // far edge always sits well above the chord.
+    if (hasEngraving(params) || params.infill === 'text') {
         cutters = cutters.filter(cutter => {
             cutter.computeBoundingBox();
             const keep = cutter.boundingBox.min.z > outline.chordZ + CHORD_CLEARANCE;
@@ -730,11 +851,5 @@ export function buildInfillCutterGeometry(params, outlinePoints, { lift = 0, pha
         });
     }
 
-    if (!cutters.length) return null;
-
-    try {
-        return BufferGeometryUtils.mergeGeometries(cutters, false);
-    } finally {
-        cutters.forEach(cutter => cutter.dispose());
-    }
+    return cutters;
 }

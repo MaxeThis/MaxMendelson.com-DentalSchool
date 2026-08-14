@@ -36,6 +36,7 @@ import {
     measureOutline,
     getInfillBand,
     buildEngravingCutters,
+    engravingHeightNeeded,
     maxLineCharacters
 } from './infill.js';
 import { createUI } from './ui.js';
@@ -601,46 +602,24 @@ function updateEngraving(line1, line2) {
  */
 function describeEngraving() {
     const params = state.baseParams;
-    if (!params || !hasEngraving(params)) {
-        return 'Cut into the flat back of the plate, centered. Letters and numbers.';
-    }
+    if (!params || !hasEngraving(params)) return '';
 
     const outline = measureOutline(createBaseOutline(params));
-    const band = getInfillBand(params);
-    const cutters = buildEngravingCutters(outline, params, band);
-    const lines = [params.textLine1, params.textLine2].filter(Boolean).length;
+    const cutters = buildEngravingCutters(outline, params);
     cutters.forEach(cutter => cutter.dispose());
+    if (cutters.length) return '';
 
-    if (!cutters.length) {
-        // Say the actual numbers. Lettering that quietly fails to appear
-        // reads as a bug, and "make it bigger" is not an instruction.
-
-        // Width bites first on a long line, and no amount of extra height
-        // fixes that, so check it before talking about raising the base.
-        const fits = maxLineCharacters(outline, params, band);
-        const longest = Math.max(
-            params.textLine1.length,
-            params.textLine2.length
-        );
-        if (fits > 0 && longest > fits) {
-            return `This plate holds ${fits} characters a line. Shorten the `
-                + `line, or widen the plate to fit ${longest}.`;
-        }
-
-        const needed = lines > 1 ? TEXT_MIN_BAND * 2 + 1.2 : TEXT_MIN_BAND;
-        const height = Math.ceil(params.clampBand + params.wall + needed);
-        if (height <= BASE_LIMITS.height.max) {
-            return `${lines > 1 ? 'Two lines need' : 'Lettering needs'} about ${
-                needed.toFixed(0)} mm of open wall. Raise the base to ${
-                height} mm.`;
-        }
-        const spare = Math.ceil(needed + params.wall);
-        return `${lines > 1 ? 'Two lines need' : 'Lettering needs'} about ${
-            needed.toFixed(0)} mm of open wall, more than this plate has. `
-            + `Lower the clamp band to about ${
-                Math.max(0, BASE_LIMITS.height.max - spare)} mm, or use one line.`;
+    // Lettering that quietly fails to appear reads as a bug, so when it
+    // will not fit, say the one number that would fix it.
+    const lines = [params.textLine1, params.textLine2].filter(Boolean).length;
+    const fits = maxLineCharacters(outline);
+    const longest = Math.max(params.textLine1.length, params.textLine2.length);
+    if (fits > 0 && longest > fits) {
+        return `Too long. This plate holds ${fits} characters a line.`;
     }
-    return 'Cut into the flat back of the plate, centered.';
+    return `Raise the base to ${
+        Math.ceil(engravingHeightNeeded(lines))} mm to fit ${
+        lines > 1 ? 'two lines' : 'a line'}.`;
 }
 
 function updateBaseHollow(checked) {
@@ -1132,6 +1111,7 @@ window.__ARTICULATOR_BASER__ = Object.freeze({
     },
     selectModel: () => interactions.select(state.model),
     selectBase: () => interactions.select(state.base),
+    setView: view => cameraManager.setCameraView(view),
     deselect,
     fitBase,
     setSink(depth) {
