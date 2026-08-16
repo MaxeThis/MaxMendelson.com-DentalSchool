@@ -131,11 +131,43 @@ export function createUI({
         width: [$('base-width'), $('base-width-val')],
         depth: [$('base-depth'), $('base-depth-val')],
         height: [$('base-height'), $('base-height-val')],
-        wall: [$('base-wall'), $('base-wall-val')]
+        wall: [$('base-wall'), $('base-wall-val')],
+        clampBand: [$('base-clampband'), $('base-clampband-val')]
     };
     for (const [name, [rangeEl, numberEl]] of Object.entries(baseFields)) {
         bindField(rangeEl, numberEl, (value, commit) => {
             if (!suppressEvents) onBaseParam(name, value, commit);
+        });
+    }
+
+    /**
+     * Paint the shared track and say in words what the two handles mean.
+     * The clamp band can never exceed the height it is measured inside, so
+     * the lower handle stops where the upper one stands.
+     */
+    function paintHeightStack(height, clampBand) {
+        const max = Number($('base-height').max) || 30;
+        const band = Math.min(clampBand, height);
+        $('dual-clamp').style.width = `${(band / max) * 100}%`;
+        $('dual-wall').style.left = `${(band / max) * 100}%`;
+        $('dual-wall').style.width = `${Math.max(0, (height - band) / max) * 100}%`;
+        const open = Math.max(0, height - band - Number($('base-wall').value || 0));
+        $('height-stack-legend').textContent = open > 0.05
+            ? `${open.toFixed(1)} mm open wall`
+            : 'no wall left to pattern';
+    }
+
+    // Repaint while a handle is moving, rather than waiting for the rebuild
+    // to come back and tell us where things ended up.
+    for (const id of ['base-height', 'base-clampband', 'base-wall']) {
+        $(id).addEventListener('input', () => {
+            const height = Number($('base-height').value);
+            baseFields.clampBand[0].max = String(height);
+            if (Number($('base-clampband').value) > height) {
+                $('base-clampband').value = String(height);
+                $('base-clampband-val').value = String(height);
+            }
+            paintHeightStack(height, Number($('base-clampband').value));
         });
     }
     $('base-hollow').addEventListener('change', event => {
@@ -302,6 +334,11 @@ export function createUI({
             setField(...baseFields.depth, params.depth);
             setField(...baseFields.height, params.height);
             setField(...baseFields.wall, params.wall);
+            // The clamp band lives inside the height, so its handle can
+            // never travel past it.
+            baseFields.clampBand[0].max = String(params.height);
+            setField(...baseFields.clampBand, params.clampBand);
+            paintHeightStack(params.height, params.clampBand);
             $('base-hollow').checked = Boolean(params.hollow);
             if (document.activeElement !== textFields[0]) {
                 textFields[0].value = params.textLine1 ?? '';

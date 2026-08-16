@@ -36,7 +36,7 @@ import {
     measureOutline,
     getInfillBand,
     buildEngravingCutters,
-    engravingHeightNeeded,
+    engravingBandNeeded,
     maxLineCharacters
 } from './infill.js';
 import { createUI } from './ui.js';
@@ -617,8 +617,8 @@ function describeEngraving() {
     if (fits > 0 && longest > fits) {
         return `Too long. This plate holds ${fits} characters a line.`;
     }
-    return `Raise the base to ${
-        Math.ceil(engravingHeightNeeded(lines))} mm to fit ${
+    return `Raise the clamp band to ${
+        Math.ceil(engravingBandNeeded(lines))} mm to fit ${
         lines > 1 ? 'two lines' : 'a line'}.`;
 }
 

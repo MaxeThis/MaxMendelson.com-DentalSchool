@@ -94,10 +94,29 @@
                 <input type="range" id="base-depth" min="10" max="80" step="0.5">
                 <input type="number" id="base-depth-val" step="0.5"><span class="unit">mm</span>
             </div>
+            <!-- Height and clamp band share one track. They were separate
+                 sliders in separate panels, and nothing on screen said the
+                 clamp band eats into the height or that lettering lives in
+                 it, so people set combinations that could not work. -->
             <div class="field-row">
                 <label for="base-height">Height</label>
-                <input type="range" id="base-height" min="2" max="30" step="0.5">
+                <div class="dual-range" id="height-stack"
+                    title="Lower handle: the clamp band, solid wall the articulator screw bites on. Engraved lines sit here. Upper handle: total height. Wall patterns fill the space between the two.">
+                    <div class="dual-track">
+                        <div class="dual-clamp" id="dual-clamp"></div>
+                        <div class="dual-wall" id="dual-wall"></div>
+                    </div>
+                    <input type="range" id="base-clampband" min="0" max="25" step="0.5"
+                        aria-label="Clamp band height">
+                    <input type="range" id="base-height" min="2" max="30" step="0.5"
+                        aria-label="Total base height">
+                </div>
                 <input type="number" id="base-height-val" step="0.5"><span class="unit">mm</span>
+            </div>
+            <div class="field-row field-row-sub">
+                <label for="base-clampband-val">Clamp</label>
+                <span class="dual-legend" id="height-stack-legend"></span>
+                <input type="number" id="base-clampband-val" step="0.5"><span class="unit">mm</span>
             </div>
             <div class="field-row">
                 <label for="base-wall">Wall</label>

@@ -502,17 +502,25 @@ const WALL_LABEL = 'MEDSTAR OMFS';
 // readable label size, without opening the clamp zone or fighting the
 // wall pattern for room.
 const ENGRAVE_DEPTH = 0.6;
-// Height of a capital, in millimeters. A label, not a headline.
+// Tallest a capital is allowed to be. A label, not a headline.
 const ENGRAVE_CAP_HEIGHT = 4.2;
 // How far the lowest line sits above the ground, so the first printed
 // layer is never a letter.
-const ENGRAVE_FLOOR = 2;
-const ENGRAVE_LINE_GAP = 1.4;
+const ENGRAVE_FLOOR = 1.5;
+const ENGRAVE_LINE_GAP = 1;
+// Clearance kept under the wall pattern, so a letter and a slot never
+// meet on the same stretch of wall.
+const ENGRAVE_HEADROOM = 0.6;
 // A recess into solid material tolerates far finer strokes than a slot
 // cut through a thin wall, which is why this is well under MIN_TEXT_BAR.
 const MIN_ENGRAVE_BAR = 0.25;
-// Narrowest a column may be condensed to before strokes stop printing.
-const MIN_COLUMN_PITCH = 0.5;
+// Narrowest a column may be, in millimeters. A stroke is 0.7 of its cell,
+// and a resin printer holds about 0.3 mm, so this is where a stroke stops
+// being a stroke. It is a printing limit, not a boolean one: columns are
+// never what tears the wall, rows are. Set at 0.5 it silently outlawed
+// every capital under 3.5 mm, which is exactly the size a default clamp
+// band asks for once two lines have to share it.
+const MIN_COLUMN_PITCH = 0.43;
 
 // Share of each cell the cut fills; the rest is the ridge of material
 // left between stacked rows. Packing the rows tighter would let letters
@@ -700,17 +708,14 @@ export function buildEngravingCutters(outline, params) {
     const lines = [params.textLine1, params.textLine2].filter(Boolean);
     if (!lines.length) return [];
 
-    // Lines stack upward from the floor with the first on top, so adding a
-    // second line pushes the first up rather than shrinking both. Each
-    // line is the same fixed size whatever else is on the plate.
-    const cutters = [];
-    const ceiling = params.height - params.wall - 0.6;
+    const cap = engravingCapHeight(params, lines.length);
+    if (!cap) return [];
 
+    // Lines stack upward from the floor with the first on top, so adding a
+    // second line lifts the first rather than colliding with it.
+    const cutters = [];
     lines.slice().reverse().forEach((text, index) => {
-        const low = ENGRAVE_FLOOR
-            + index * (ENGRAVE_CAP_HEIGHT + ENGRAVE_LINE_GAP);
-        const high = low + ENGRAVE_CAP_HEIGHT;
-        if (high > ceiling) return;
+        const low = ENGRAVE_FLOOR + index * (cap + ENGRAVE_LINE_GAP);
         cutters.push(...buildLineCutters(
             outline,
             params,
@@ -718,18 +723,35 @@ export function buildEngravingCutters(outline, params) {
             // the band is padded by exactly the margin it will take back.
             {
                 low: low - EDGE_MARGIN,
-                high: high + EDGE_MARGIN,
-                height: ENGRAVE_CAP_HEIGHT + EDGE_MARGIN * 2
+                high: low + cap + EDGE_MARGIN,
+                height: cap + EDGE_MARGIN * 2
             },
             text,
-            {
-                capHeight: ENGRAVE_CAP_HEIGHT,
-                depth: ENGRAVE_DEPTH,
-                minBar: MIN_ENGRAVE_BAR
-            }
+            { capHeight: cap, depth: ENGRAVE_DEPTH, minBar: MIN_ENGRAVE_BAR }
         ));
     });
     return cutters;
+}
+
+/**
+ * How tall a capital can be on this plate, or 0 if lettering will not fit.
+ *
+ * Lettering lives on the solid clamp band and the wall pattern lives above
+ * it. That line is what keeps the two apart: before this, the pattern's
+ * band began at the clamp band while two engraved lines reached past it,
+ * so on every clamp band up to the default the two fought for the same
+ * stretch of wall and strokes were quietly dropped to keep the mesh shut.
+ */
+export function engravingCapHeight(params, lineCount = 1) {
+    const lines = Math.max(1, lineCount);
+    const room = Math.min(params.clampBand, params.height - params.wall)
+        - ENGRAVE_FLOOR
+        - ENGRAVE_HEADROOM
+        - (lines - 1) * ENGRAVE_LINE_GAP;
+    if (room <= 0) return 0;
+    const cap = Math.min(ENGRAVE_CAP_HEIGHT, room / lines);
+    // Too fine to print or to cut cleanly is the same as not fitting.
+    return cap * BAR_FRACTION / FONT_ROWS >= MIN_ENGRAVE_BAR ? cap : 0;
 }
 
 /**
@@ -743,13 +765,15 @@ export function buildWallLabelCutters(outline, params) {
     return buildLineCutters(outline, params, band, WALL_LABEL);
 }
 
-/** The tallest plate lettering can reach, given how the lines stack. */
-export function engravingHeightNeeded(lineCount) {
+/** The smallest clamp band that will hold this many lines, in mm. */
+export function engravingBandNeeded(lineCount) {
     const lines = Math.max(1, lineCount);
-    return ENGRAVE_FLOOR
-        + lines * ENGRAVE_CAP_HEIGHT
+    // The smallest capital that still cuts and prints, not the tallest.
+    const smallest = (MIN_ENGRAVE_BAR / BAR_FRACTION) * FONT_ROWS;
+    return Number((ENGRAVE_FLOOR
+        + lines * smallest
         + (lines - 1) * ENGRAVE_LINE_GAP
-        + 0.6;
+        + ENGRAVE_HEADROOM).toFixed(1));
 }
 
 /** Does this base carry any engraved lettering? */
