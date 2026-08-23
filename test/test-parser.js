@@ -51,6 +51,11 @@ vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
 
 const { parseScheduleText, generateIcs, migrateScheduleDescriptions, migrateScheduleTimes, alignStartTime, canonicalType, resolveBlockType } = sandbox;
+// Top-level `const`s don't land on the sandbox object, so pull them out by name.
+const evalInApp = (expr) => vm.runInContext(expr, sandbox);
+const BLOCK_TYPES = evalInApp('BLOCK_TYPES');
+const NON_POSTABLE_TYPES = evalInApp('NON_POSTABLE_TYPES');
+const TYPE_TO_DESC = evalInApp('TYPE_TO_DESC');
 
 // --- sample: exact rows from the user's two screenshots ---
 const sample = `
@@ -292,6 +297,63 @@ check('BLK-5CR (S→5) → SCREENING BLOCK', lvFind('2026-10-05') && lvFind('202
 check('EDUQOTHER → EDUCATION/OTHER BLOCK', lvFind('2026-10-06') && lvFind('2026-10-06').description === 'EDUCATION/OTHER BLOCK');
 check('CLINMOCKEBDS → MOCK BOARDS BLOCK', lvFind('2026-10-07') && lvFind('2026-10-07').description === 'MOCK BOARDS BLOCK');
 check('BLK-ShadyGrove ~~ → SHADY GROVE BLOCK', lvFind('2026-10-08') && lvFind('2026-10-08').description === 'SHADY GROVE BLOCK');
+
+// --- 2026-27 codes: Clerkship (not swappable), PG Perio (swappable), and the
+// course-numbered EDU codes. Rows copied from the axiUm screenshots. ---
+const newYearSample = `
+@CLERKSHIP    08/27/2026  08/27/2026  09:00 AM  12:00 PM  Th  No
+@BLK-ShadyGrove 08/31/2026 08/31/2026  01:00 PM  04:00 PM  M   Yes
+@EDU-P548     09/30/2026  09/30/2026  01:00 PM  04:00 PM  W   No
+@BLK-UCARE    10/13/2026  10/13/2026  09:00 AM  12:00 PM  T   Yes
+@BLK-PGPERIO  11/18/2026  11/18/2026  08:00 AM  12:00 PM  W   No
+@BLK-OS       12/01/2026  12/01/2026  09:00 AM  12:00 PM  T   Yes
+`;
+const ny = parseScheduleText(newYearSample);
+const nyFind = (d) => ny.entries.find((e) => e.date === d);
+console.log('\n2026-27 block-code checks:');
+console.log(`  Parsed: ${ny.entries.length} entries, ${ny.errors.length} errors (expected 6, 0)`);
+ny.errors.forEach((e) => console.log('  ERROR:', JSON.stringify(e)));
+check('CLERKSHIP → CLERKSHIP BLOCK', nyFind('2026-08-27') && nyFind('2026-08-27').description === 'CLERKSHIP BLOCK');
+check('BLK-ShadyGrove → SHADY GROVE BLOCK', nyFind('2026-08-31') && nyFind('2026-08-31').description === 'SHADY GROVE BLOCK');
+check('EDU-P548 → EDUCATION/OTHER BLOCK', nyFind('2026-09-30') && nyFind('2026-09-30').description === 'EDUCATION/OTHER BLOCK');
+check('BLK-UCARE stays URGENT CARE BLOCK', nyFind('2026-10-13') && nyFind('2026-10-13').description === 'URGENT CARE BLOCK');
+check('BLK-PGPERIO → PERIO BLOCK', nyFind('2026-11-18') && nyFind('2026-11-18').description === 'PERIO BLOCK');
+check('BLK-OS stays ORAL SURGERY BLOCK (distinct from Urgent Care)',
+  nyFind('2026-12-01') && nyFind('2026-12-01').description === 'ORAL SURGERY BLOCK');
+check('PG Perio 08:00 AM start is left alone (a real start time)',
+  nyFind('2026-11-18') && nyFind('2026-11-18').startTime === '08:00 AM');
+check('Oral Surgery and Urgent Care resolve to different types',
+  resolveBlockType('BLK-OS') !== resolveBlockType('BLK-UCARE'));
+check('Clerkship resolves to its own type', resolveBlockType('CLERKSHIP') === 'Clerkship');
+check('Perio resolves to its own type', resolveBlockType('BLK-PGPERIO') === 'Perio');
+check('Clerkship is NOT swappable', NON_POSTABLE_TYPES.has('Clerkship'));
+check('Perio IS swappable', !NON_POSTABLE_TYPES.has('Perio'));
+check('Oral Surgery and Urgent Care are both swappable',
+  !NON_POSTABLE_TYPES.has('Oral Surgery') && !NON_POSTABLE_TYPES.has('Urgent Care'));
+
+// OCR variants of the new codes.
+const newYearOcr = `
+@CLERK5HIP    01/05/2027  01/05/2027  01:00 PM  04:00 PM  T   No
+@CLERKSHIP |  01/06/2027  01/06/2027  09:00 AM  12:00 PM  W   No
+@BLKPGPERIO   01/07/2027  01/07/2027  08:00 AM  12:00 PM  Th  No
+@EDU-D621     01/08/2027  01/08/2027  01:00 PM  04:00 PM  F   No
+`;
+const nyo = parseScheduleText(newYearOcr);
+const nyoFind = (d) => nyo.entries.find((e) => e.date === d);
+console.log('\n2026-27 OCR-variant checks:');
+console.log(`  Parsed: ${nyo.entries.length} entries, ${nyo.errors.length} errors (expected 4, 0)`);
+nyo.errors.forEach((e) => console.log('  ERROR:', JSON.stringify(e)));
+check('CLERK5HIP (S→5) → CLERKSHIP BLOCK', nyoFind('2027-01-05') && nyoFind('2027-01-05').description === 'CLERKSHIP BLOCK');
+check('CLERKSHIP with trailing pipe → CLERKSHIP BLOCK', nyoFind('2027-01-06') && nyoFind('2027-01-06').description === 'CLERKSHIP BLOCK');
+check('BLKPGPERIO (no dash) → PERIO BLOCK', nyoFind('2027-01-07') && nyoFind('2027-01-07').description === 'PERIO BLOCK');
+check('EDU-D621 (other course number) → EDUCATION/OTHER BLOCK',
+  nyoFind('2027-01-08') && nyoFind('2027-01-08').description === 'EDUCATION/OTHER BLOCK');
+
+// Every canonical type must round-trip: type → description → type.
+console.log('\nType round-trip checks:');
+for (const t of BLOCK_TYPES) {
+  check(`${t} round-trips through its description`, resolveBlockType(TYPE_TO_DESC[t]) === t);
+}
 
 // canonicalType folds legacy posted-block type strings into their canonical
 // type so they still match the calendar filters.

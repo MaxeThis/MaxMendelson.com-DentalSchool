@@ -9,20 +9,26 @@ const BLOCK_TYPES = [
   'Ortho',
   'Special Care',
   'Peds',
+  'Perio',
   'Emergency',
   'On-Call',
   'Screening',
   'Hospital',
   'Pan',
   'Mock Boards',
+  'Clerkship',
   'Education/Other',
   'Shady Grove',
 ];
 
 // Block types that exist for schedule display + calendar filtering only. They
 // have no option in the Post form and are rejected on submit — students can't
-// list them for swap (same treatment Hospital has always had).
-const NON_POSTABLE_TYPES = new Set(['Hospital', 'Mock Boards', 'Education/Other', 'Shady Grove']);
+// list them for swap (same treatment Hospital has always had). Clerkship is
+// here because it's an assigned rotation, not a coverage block: it can't be
+// handed to another student.
+const NON_POSTABLE_TYPES = new Set([
+  'Hospital', 'Mock Boards', 'Clerkship', 'Education/Other', 'Shady Grove',
+]);
 
 // Types that only make sense in the admin calendar (schedule-derived, never
 // posted for swap). They're left out of BOTH the swap-calendar filter and the
@@ -65,6 +71,12 @@ const SCHEDULE_NAME_MAP = {
   'BLK-5PC3G':   'SPECIAL CARE BLOCK',  // OCR: S → 5, & → 3
   'BLK-5PCAG':   'SPECIAL CARE BLOCK',  // OCR: S → 5, & → a
   'BLK-PEDS':    'PEDS BLOCK',
+  'BLK-PGPERIO': 'PERIO BLOCK',
+  'BLK-PGPERI0': 'PERIO BLOCK',        // OCR: O → 0
+  'BLK-P6PERIO': 'PERIO BLOCK',        // OCR: G → 6
+  'CLERKSHIP':   'CLERKSHIP BLOCK',
+  'CLERK5HIP':   'CLERKSHIP BLOCK',    // OCR: S → 5
+  'CLERKSH1P':   'CLERKSHIP BLOCK',    // OCR: I → 1
   'CLIN-EMERG':  'EMERGENCY BLOCK',
   'BLK-ONCALL':  'ON-CALL BLOCK',
   'BLKONCALL':   'ON-CALL BLOCK',       // OCR: missing dash (also matches GBLKONCALL via fuzzy includes())
@@ -89,12 +101,14 @@ const TYPE_TO_DESC = {
   'Ortho':                 'ORTHO BLOCK',
   'Special Care':          'SPECIAL CARE BLOCK',
   'Peds':                  'PEDS BLOCK',
+  'Perio':                 'PERIO BLOCK',
   'Emergency':             'EMERGENCY BLOCK',
   'On-Call':               'ON-CALL BLOCK',
   'Screening':             'SCREENING BLOCK',
   'Hospital':              'HOSPITAL BLOCK',
   'Pan':                   'PAN BLOCK',
   'Mock Boards':           'MOCK BOARDS BLOCK',
+  'Clerkship':             'CLERKSHIP BLOCK',
   'Education/Other':       'EDUCATION/OTHER BLOCK',
   'Shady Grove':           'SHADY GROVE BLOCK',
 };
@@ -2247,6 +2261,9 @@ function cleanDescription(raw) {
   // Special Care & Geriatrics: the "&" gets OCR'd as 3/A/a/8/s/4 or dropped, and
   // the leading S read as 5. Anything shaped like BLK-?PC-?G is this block.
   if (/^BLK[5S]PC.{0,2}G$/.test(squashed)) return 'SPECIAL CARE BLOCK';
+  // Course-numbered education codes: "@EDU-P548", "@EDU-D621". The number
+  // changes every course, so match the shape rather than listing each one.
+  if (/^EDU[A-Z]?[0-9]{2,4}$/.test(squashed)) return 'EDUCATION/OTHER BLOCK';
   // Normalize an already-cleaned description (e.g. one imported before a label
   // change) to the current canonical description for its type; canonical
   // descriptions map to themselves. The retired merged "ORAL SURGERY/URG CARE
@@ -2760,7 +2777,12 @@ function renderScheduleRow(entry, opts = {}) {
   const actions = document.createElement('div');
   actions.className = 'sched-actions';
 
-  if (type && period) {
+  if (type && period && NON_POSTABLE_TYPES.has(type) && !postedBlock) {
+    const note = document.createElement('span');
+    note.className = 'small muted';
+    note.textContent = 'Not swappable';
+    actions.appendChild(note);
+  } else if (type && period) {
     if (postedBlock) {
       actions.appendChild(createUrgentToggleBtn(postedBlock));
       const unpost = document.createElement('button');
@@ -2825,7 +2847,7 @@ function renderScheduleRow(entry, opts = {}) {
 
 async function postScheduleEntry(entry, type, period, btn) {
   if (!state.profile) { toast('Sign in first.'); return; }
-  if (type === 'Hospital') { toast('Hospital blocks cannot be posted for swap.'); return; }
+  if (NON_POSTABLE_TYPES.has(type)) { toast(`${type} blocks cannot be posted for swap.`); return; }
   if (!rateLimitOk('post')) { toast('Too many posts — try again in a minute.'); return; }
   if (!isWeekday(entry.date)) { toast('Blocks are Monday–Friday only.'); return; }
 
