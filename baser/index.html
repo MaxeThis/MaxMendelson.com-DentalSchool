@@ -17,7 +17,7 @@
     <!-- Models, labels, fonts and geometry processing stay on this device.
          Optional anonymous counters never include model or label content. -->
     <link rel="stylesheet" href="./src/styles/fonts.css">
-    <link rel="stylesheet" href="./src/styles/main.css?v=20260907">
+    <link rel="stylesheet" href="./src/styles/main.css?v=20260907-2">
 </head>
 
 <body>
@@ -130,11 +130,11 @@
             <h3 class="panel-section-title">Engraving</h3>
             <div class="field-row field-row-text">
                 <label for="base-text-1">Line 1</label>
-                <input type="text" id="base-text-1" maxlength="22" placeholder="e.g. DEMO MODEL" autocomplete="off" spellcheck="false" aria-describedby="engraving-help engraving-hint">
+                <input type="text" id="base-text-1" maxlength="22" placeholder="e.g. DEMO MODEL" autocomplete="off" spellcheck="false" aria-describedby="engraving-help engraving-hint engraving-edit-status">
             </div>
             <div class="field-row field-row-text">
                 <label for="base-text-2">Line 2</label>
-                <input type="text" id="base-text-2" maxlength="22" placeholder="e.g. UPPER 09/26" autocomplete="off" spellcheck="false" aria-describedby="engraving-help engraving-hint">
+                <input type="text" id="base-text-2" maxlength="22" placeholder="e.g. UPPER 09/26" autocomplete="off" spellcheck="false" aria-describedby="engraving-help engraving-hint engraving-edit-status">
             </div>
             <div class="engraving-options">
                 <label for="base-text-size">Letter size
@@ -150,6 +150,8 @@
             </div>
             <p class="panel-hint" id="engraving-help">Up to 22 characters per line. A–Z, 0–9 and . , ' &amp; / + −. Accents become plain letters. Labels stay on this device.</p>
             <p class="panel-hint engraving-warning" id="engraving-hint" role="status" aria-live="polite"></p>
+            <button id="btn-apply-lettering" class="btn btn-ghost btn-block" type="button">Apply lettering</button>
+            <p class="panel-hint" id="engraving-edit-status">Preview updates as you type. Press Enter or Apply lettering to update the plate.</p>
             <button id="btn-view-lettering" class="btn btn-ghost btn-block" type="button">View back wall</button>
             <button id="btn-wall-design" class="btn btn-ghost btn-block" type="button">Choose wall design</button>
             <button id="btn-fit-base" class="btn btn-ghost btn-block" type="button">Center under model</button>
@@ -306,33 +308,34 @@
         "three/addons/": "./vendor/three/addons/",
         "three-bvh-csg": "./vendor/three-bvh-csg/index.module.js",
         "three-mesh-bvh": "./vendor/three-mesh-bvh/index.module.js",
-        "./src/ViewCube.js": "./src/ViewCube.js?v=20260907",
-        "./src/analytics.js": "./src/analytics.js?v=20260907",
-        "./src/base.js": "./src/base.js?v=20260907",
-        "./src/cameras.js": "./src/cameras.js?v=20260907",
-        "./src/character.js": "./src/character.js?v=20260907",
-        "./src/csg.js": "./src/csg.js?v=20260907",
-        "./src/debug.js": "./src/debug.js?v=20260907",
-        "./src/exporter.js": "./src/exporter.js?v=20260907",
-        "./src/geometry.js": "./src/geometry.js?v=20260907",
-        "./src/grid.js": "./src/grid.js?v=20260907",
-        "./src/importers.js": "./src/importers.js?v=20260907",
-        "./src/infill.js": "./src/infill.js?v=20260907",
-        "./src/interactions.js": "./src/interactions.js?v=20260907",
-        "./src/main.js": "./src/main.js?v=20260907",
-        "./src/patterned-shell.js": "./src/patterned-shell.js?v=20260907",
-        "./src/scene.js": "./src/scene.js?v=20260907",
-        "./src/settings.js": "./src/settings.js?v=20260907",
-        "./src/transforms.js": "./src/transforms.js?v=20260907",
-        "./src/tween.js": "./src/tween.js?v=20260907",
-        "./src/ui.js": "./src/ui.js?v=20260907",
-        "./src/undo.js": "./src/undo.js?v=20260907",
-        "../firebase-config.js": "../firebase-config.js?v=20260907",
-        "../usage-metrics.js": "../usage-metrics.js?v=20260907"
+        "./src/ViewCube.js": "./src/ViewCube.js?v=20260907-2",
+        "./src/analytics.js": "./src/analytics.js?v=20260907-2",
+        "./src/base.js": "./src/base.js?v=20260907-2",
+        "./src/cameras.js": "./src/cameras.js?v=20260907-2",
+        "./src/character.js": "./src/character.js?v=20260907-2",
+        "./src/csg.js": "./src/csg.js?v=20260907-2",
+        "./src/debug.js": "./src/debug.js?v=20260907-2",
+        "./src/exporter.js": "./src/exporter.js?v=20260907-2",
+        "./src/geometry.js": "./src/geometry.js?v=20260907-2",
+        "./src/grid.js": "./src/grid.js?v=20260907-2",
+        "./src/importers.js": "./src/importers.js?v=20260907-2",
+        "./src/infill.js": "./src/infill.js?v=20260907-2",
+        "./src/interactions.js": "./src/interactions.js?v=20260907-2",
+        "./src/main.js": "./src/main.js?v=20260907-2",
+        "./src/patterned-shell.js": "./src/patterned-shell.js?v=20260907-2",
+        "./src/scene.js": "./src/scene.js?v=20260907-2",
+        "./src/settings.js": "./src/settings.js?v=20260907-2",
+        "./src/transforms.js": "./src/transforms.js?v=20260907-2",
+        "./src/tween.js": "./src/tween.js?v=20260907-2",
+        "./src/ui.js": "./src/ui.js?v=20260907-2",
+        "./src/undo.js": "./src/undo.js?v=20260907-2",
+        "./src/world-bounds.js": "./src/world-bounds.js?v=20260907-2",
+        "../firebase-config.js": "../firebase-config.js?v=20260907-2",
+        "../usage-metrics.js": "../usage-metrics.js?v=20260907-2"
     }
 }
     </script>
-    <script type="module" src="./src/main.js?v=20260907"></script>
+    <script type="module" src="./src/main.js?v=20260907-2"></script>
 </body>
 
 </html>

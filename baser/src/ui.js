@@ -175,18 +175,27 @@ export function createUI({
     $('base-hollow').addEventListener('change', event => {
         if (!suppressEvents) onBaseHollow(event.target.checked);
     });
-    // Engraving. Typing repaints the wall, so the rebuild waits until the
-    // user pauses rather than firing on every keystroke.
+    // Typing only changes the inexpensive SVG proof. A pause in typing must
+    // never start a full mesh rebuild on the same thread as the next keypress.
     const textFields = [$('base-text-1'), $('base-text-2')];
     const textSize = $('base-text-size');
     const textAlign = $('base-text-align');
-    let engravingTimer = null;
+    let engravingDirty = false;
+    let forceEngravingSync = true;
     let currentBaseParams = null;
     const engravingValues = () => ({ textSize: Number(textSize.value), textAlign: textAlign.value });
     function flushEngraving() {
-        if (engravingTimer !== null) window.clearTimeout(engravingTimer);
-        engravingTimer = null;
+        engravingDirty = false;
         onEngraving(textFields[0].value, textFields[1].value, engravingValues());
+        const issue = currentBaseParams && engravingIssue(currentBaseParams, measureOutline(createBaseOutline(currentBaseParams)));
+        $('engraving-edit-status').textContent = issue
+            ? 'Adjust the label to fit before exporting.'
+            : 'Applied to the plate. Export also applies any new edits.';
+    }
+    function discardEngravingDraft() {
+        engravingDirty = false;
+        forceEngravingSync = true;
+        $('engraving-edit-status').textContent = 'Preview updates as you type. Press Enter or Apply lettering to update the plate.';
     }
     function paintEngraving(params) {
         if (!params) return;
@@ -204,6 +213,7 @@ export function createUI({
             : issue ? 'Adjust the label to fit before exporting'
                 : `${cap.toFixed(1)} mm letters · 0.6 mm recessed · back wall`;
         if (!lines.length || issue) return;
+        const strokes = document.createDocumentFragment();
         lines.forEach((line, index) => {
             const rowPitch = cap / 7;
             const columnPitch = Math.min(rowPitch, (width - 6) / (line.length * 6 - 1));
@@ -217,31 +227,43 @@ export function createUI({
                 rect.setAttribute('y', String(y + stroke.y * rowPitch));
                 rect.setAttribute('width', String(stroke.width * columnPitch));
                 rect.setAttribute('height', String(stroke.height * rowPitch));
-                svg.appendChild(rect);
+                strokes.appendChild(rect);
             }
         });
+        svg.appendChild(strokes);
+    }
+    function draftEngravingParams() {
+        return { ...currentBaseParams, ...engravingValues(),
+            textLine1: cleanEngravedText(textFields[0].value), textLine2: cleanEngravedText(textFields[1].value) };
+    }
+    function renderEngravingHint(text) {
+        const hint = $('engraving-hint');
+        hint.textContent = text;
+        hint.hidden = !text;
     }
     function paintDraft() {
         if (!currentBaseParams) return;
-        paintEngraving({ ...currentBaseParams, ...engravingValues(),
-            textLine1: cleanEngravedText(textFields[0].value), textLine2: cleanEngravedText(textFields[1].value) });
+        const draft = draftEngravingParams();
+        paintEngraving(draft);
+        renderEngravingHint(engravingIssue(draft, measureOutline(createBaseOutline(draft))));
+    }
+    function editEngraving() {
+        if (suppressEvents) return;
+        engravingDirty = true;
+        paintDraft();
+        $('engraving-edit-status').textContent = 'Preview only · press Enter or Apply lettering to update the plate.';
     }
     for (const field of textFields) {
-        field.addEventListener('input', () => {
-            if (suppressEvents) return;
-            paintDraft();
-            if (engravingTimer) window.clearTimeout(engravingTimer);
-            engravingTimer = window.setTimeout(flushEngraving, 400);
+        field.addEventListener('input', editEngraving);
+        field.addEventListener('keydown', event => {
+            if (event.key === 'Enter' && !event.isComposing) {
+                event.preventDefault();
+                flushEngraving();
+            }
         });
-        field.addEventListener('change', () => {
-            if (suppressEvents) return;
-            flushEngraving();
-        });
-        field.addEventListener('keydown', event => { if (event.key === 'Enter') field.blur(); });
     }
-    for (const field of [textSize, textAlign]) field.addEventListener('change', () => {
-        if (!suppressEvents) { paintDraft(); flushEngraving(); }
-    });
+    for (const field of [textSize, textAlign]) field.addEventListener('change', editEngraving);
+    $('btn-apply-lettering').addEventListener('click', flushEngraving);
     $('btn-view-lettering').addEventListener('click', () => { flushEngraving(); onViewLettering(); });
     $('btn-wall-design').addEventListener('click', () => {
         settingsPanel.hidden = false;
@@ -347,10 +369,11 @@ export function createUI({
     return {
         toast,
         flushEngraving,
+        discardEngravingDraft,
 
         showDropScreen() {
-            if (engravingTimer !== null) window.clearTimeout(engravingTimer);
-            engravingTimer = null;
+            engravingDirty = false;
+            forceEngravingSync = true;
             currentBaseParams = null;
             document.body.classList.remove('has-model');
             const card = dropScreen.querySelector('.drop-card');
@@ -424,22 +447,27 @@ export function createUI({
             setField(...baseFields.clampBand, params.clampBand);
             paintHeightStack(params.height, params.clampBand);
             $('base-hollow').checked = Boolean(params.hollow);
-            if (document.activeElement !== textFields[0]) {
+            if (!engravingDirty && (forceEngravingSync || document.activeElement !== textFields[0])) {
                 textFields[0].value = params.textLine1 ?? '';
             }
-            if (document.activeElement !== textFields[1]) {
+            if (!engravingDirty && (forceEngravingSync || document.activeElement !== textFields[1])) {
                 textFields[1].value = params.textLine2 ?? '';
             }
-            textSize.value = String(params.textSize ?? 4.2);
-            textAlign.value = params.textAlign ?? 'center';
-            paintEngraving(params);
+            if (!engravingDirty) {
+                textSize.value = String(params.textSize ?? 4.2);
+                textAlign.value = params.textAlign ?? 'center';
+                paintEngraving(params);
+                forceEngravingSync = false;
+            } else paintDraft();
             suppressEvents = false;
         },
 
         setEngravingHint(text) {
-            const hint = $('engraving-hint');
-            hint.textContent = text;
-            hint.hidden = !text;
+            if (engravingDirty && currentBaseParams) {
+                const draft = draftEngravingParams();
+                text = engravingIssue(draft, measureOutline(createBaseOutline(draft)));
+            }
+            renderEngravingHint(text);
         },
 
         syncModelRotation(degrees) {

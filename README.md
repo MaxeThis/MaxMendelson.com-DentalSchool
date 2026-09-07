@@ -16,9 +16,9 @@ Everything is static HTML/CSS/JS — deployable on GitHub Pages. Shared data liv
 
 ## Articulator Baser
 
-The browser app at `/baser/` imports STL/OBJ scans, fits an articulator base, and exports an STL. Scans and labels remain on the user's device. It includes Honeycomb, Diamond lattice, Chevron, and Wave filler designs alongside the original options, plus two-line stencil engraving with a live preview, size/alignment controls, and fit checks before export. The new designs construct closed walls directly around their openings; the original Round bars option still uses slower boolean geometry.
+The browser app at `/baser/` imports STL/OBJ scans, fits an articulator base, and exports an STL. Scans and labels remain on the user's device. It includes Honeycomb, Diamond lattice, Chevron, and Wave filler designs alongside the original options, plus two-line stencil engraving with a live preview, size/alignment controls, and fit checks before export. All wall designs construct their openings and engraved recesses directly, including Windows, MedStar OMFS, and Round bars.
 
-Solid wall and the four new designs build engraved recesses directly. The legacy designs retain boolean geometry and may block export when lettering cannot be cut cleanly.
+Typing updates the SVG label preview immediately. Press **Enter** or **Apply lettering** to update the 3D plate; **View back wall** and **Export STL** also apply the latest draft. Pausing or moving between fields keeps the draft intact without rebuilding the mesh.
 
 **Admin → Baser usage** shows anonymous browser/session counts, successful exports, errors, active time, and daily activity. Click **Email me a sign-in link** to verify the owner's email once on that browser. No filenames, models, or entered text are collected. Setup, privacy boundaries, and database deployment are documented in [ANALYTICS.md](ANALYTICS.md).
 
@@ -32,9 +32,10 @@ node test/test-usage.mjs
 node test/test-usage-lifecycle.mjs
 node test/test-admin-analytics.mjs
 node test/test-baser.mjs
+node test/test-world-bounds.mjs
 ```
 
-The Baser suite tests real closed meshes, engraving recesses, synthetic model unions, and binary STL round trips using the checked-in geometry libraries. `--legacy` additionally sweeps the older boolean-based designs and can be slow on thin Round bars. Database access tests use a separate local emulator; see the analytics guide.
+The Baser suite tests real closed meshes, engraving recesses, synthetic model unions, and binary STL round trips using the checked-in geometry libraries. The bounds suite checks exact model measurements after transforms and geometry changes. Database access tests use a separate local emulator; see the analytics guide.
 
 For browser acceptance checks, use Node 24, Playwright 1.62.1, and a local HTTP server. In one terminal, from the repository root:
 
@@ -53,6 +54,17 @@ node test/test-browser.mjs
 ```
 
 `TEST_ORIGIN` defaults to `http://127.0.0.1:8000` and must be local. `QA_PART=site` runs only the root/admin checks; `QA_PART=lettering` runs the narrower lettering/export check. The default runs all checks. Screenshots, a downloaded synthetic STL, and `report.json` are saved under `QA_OUTPUT`. Chrome runs in an isolated temporary profile. Root-site Firebase and admin records are synthetic fixtures; Baser checks assert that no model, text, or analytics requests leave localhost. The browser suite covers import, the four new patterns, engraving controls, undo, mobile layout, export, reset, and admin usage metrics.
+
+The interaction regression uses an 81,920-triangle synthetic model, measures rapid input and pause delays, and verifies every final letter stroke in the downloaded STL. It also checks explicit Apply, draft preservation across fields/settings, and stale-draft clearing on undo or replacement import:
+
+```sh
+PLAYWRIGHT_MODULE=/tmp/baser-browser-tools/node_modules/playwright \
+CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+QA_PATTERN=text QA_OUTPUT=/tmp/baser-interaction-qa \
+node test/test-baser-interaction.mjs
+```
+
+Repeat with `QA_PATTERN=wide` and `QA_PATTERN=bars` for the other original wall designs. Timing measurements, screenshots, and STL downloads are saved under `QA_OUTPUT`; no real model or account data is used. The test also requires every loaded application module to share the current cache version.
 
 ## 1. Firebase setup (one time, ~5 minutes)
 

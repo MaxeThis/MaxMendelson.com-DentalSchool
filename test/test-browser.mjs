@@ -78,10 +78,12 @@ try {
     await page.locator('#base-text-size').selectOption('3.7');
     for (const alignment of (scope === 'lettering' ? ['center'] : ['left', 'center', 'right'])) {
       await page.locator('#base-text-align').selectOption(alignment);
+      await page.locator('#btn-apply-lettering').click();
       await page.waitForFunction((value) => window.__ARTICULATOR_BASER__.summary().baseParams.textAlign === value, alignment);
       assert.ok(await page.locator('#engraving-preview rect').count() > 1);
     }
     await page.locator('#base-text-align').selectOption('center');
+    if (scope !== 'lettering') await page.locator('#btn-apply-lettering').click();
     assert.equal((await summary()).baseParams.textSize, 3.7);
     assert.equal(await page.locator('#engraving-hint').textContent(), '');
     await page.locator('#btn-view-lettering').click();
