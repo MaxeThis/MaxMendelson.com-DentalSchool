@@ -32,9 +32,9 @@ import { spawnSync } from 'node:child_process';
  * stored under them could be either Oral Surgery or Urgent Care, so the audit
  * flags them as UNKNOWN for manual re-typing instead of guessing a side. */
 const BLOCK_TYPES = [
-  'Oral Surgery', 'Urgent Care', 'Ortho', 'Special Care', 'Peds', 'Emergency',
+  'Oral Surgery', 'Urgent Care', 'Ortho', 'Special Care', 'Peds', 'Perio', 'Emergency',
   'On-Call', 'Screening', 'Hospital', 'Pan', 'Mock Boards', 'Education/Other',
-  'Shady Grove',
+  'Shady Grove', 'Clerkship',
 ];
 const TYPE_ALIASES = {
   'Oral Surgery (OS)': 'Oral Surgery',
@@ -43,6 +43,7 @@ const DESC_TO_TYPE = {
   'ORAL SURGERY BLOCK': 'Oral Surgery',
   'URGENT CARE BLOCK': 'Urgent Care',
   'ORTHO BLOCK': 'Ortho', 'SPECIAL CARE BLOCK': 'Special Care', 'PEDS BLOCK': 'Peds',
+  'PERIO BLOCK': 'Perio', 'CLERKSHIP BLOCK': 'Clerkship',
   'EMERGENCY BLOCK': 'Emergency', 'ON-CALL BLOCK': 'On-Call', 'SCREENING BLOCK': 'Screening',
   'HOSPITAL BLOCK': 'Hospital', 'PAN BLOCK': 'Pan', 'MOCK BOARDS BLOCK': 'Mock Boards',
   'EDUCATION/OTHER BLOCK': 'Education/Other', 'SHADY GROVE BLOCK': 'Shady Grove',

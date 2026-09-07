@@ -39,7 +39,20 @@ async function readText(file) {
 }
 
 export function parseSTL(arrayBuffer) {
-    const source = stlLoader.parse(arrayBuffer);
+    if (arrayBuffer.byteLength < 84) {
+        throw new Error('The STL file contains no triangles or is incomplete.');
+    }
+    const header = new TextDecoder().decode(new Uint8Array(arrayBuffer, 0, 80));
+    const faceCount = new DataView(arrayBuffer).getUint32(80, true);
+    if (!/^\s*solid\b/i.test(header) && 84 + faceCount * 50 > arrayBuffer.byteLength) {
+        throw new Error('The STL file is incomplete. Re-export it from your scan software.');
+    }
+    let source;
+    try {
+        source = stlLoader.parse(arrayBuffer);
+    } catch (error) {
+        throw new Error('The STL file is invalid or incomplete. Re-export it from your scan software.', { cause: error });
+    }
     try {
         return sanitizeGeometry(source);
     } finally {

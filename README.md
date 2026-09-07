@@ -2,7 +2,7 @@
 
 A static site for University of Maryland School of Dentistry students to swap blocks. Students register with their name, S# (5 digits, the `S` is added automatically), and phone number, then post blocks they want to give up. Other students can filter and view the calendar and reach out by phone or text.
 
-- Block types: Oral Surgery (BLK-SURGERY and BLK-OS), Urgent Care (BLK-UCARE), Ortho, Special Care, Peds, Emergency, On-Call, Screening, Hospital, Pan, Mock Boards, Education/Other, Shady Grove. Hospital, Mock Boards, and Education/Other are display/filter-only (can't be posted for swap); Shady Grove is admin-filter-only (kept out of the swap-calendar filter and post form since it's never posted)
+- Block types: Oral Surgery (BLK-SURGERY and BLK-OS), Urgent Care (BLK-UCARE), Ortho, Special Care, Peds, Perio, Emergency, On-Call, Screening, Hospital, Pan, Mock Boards, Clerkship, Education/Other, Shady Grove. Hospital, Mock Boards, Clerkship, and Education/Other are display/filter-only (can't be posted for swap); Shady Grove is admin-filter-only (kept out of the swap-calendar filter and post form since it's never posted)
 - Labels are self-healing: each axiUm code maps to a canonical name (`SCHEDULE_NAME_MAP`, with hyphen-insensitive + OCR-digit repair so `BLKOS`/`09:OO` still resolve) and each block type folds through `TYPE_ALIASES` to its canonical label. To rename or merge a type, edit those maps in one place — existing posted blocks and imported schedules are rewritten to match the next time their owner (or the admin) loads the app, so no manual database edits are needed. The one thing that can't self-heal is a *split*: records stored under the retired merged "Oral Surgery/Urg Care" label could be either type, so the audit (`tools/firestore-admin.mjs audit`) flags them for manual re-typing and students can fix their own rows by editing or re-importing their schedule
 - Mon–Fri, morning + afternoon
 - Download an `.ics` of your schedule (deterministic event IDs, so re-importing updates events in place instead of duplicating), or subscribe to a **live** auto-updating calendar feed (optional — deploy the Cloudflare Worker in [`worker/`](worker/README.md))
@@ -14,6 +14,46 @@ A static site for University of Maryland School of Dentistry students to swap bl
 
 Everything is static HTML/CSS/JS — deployable on GitHub Pages. Shared data lives in a free Firebase Firestore database.
 
+## Articulator Baser
+
+The browser app at `/baser/` imports STL/OBJ scans, fits an articulator base, and exports an STL. Scans and labels remain on the user's device. It includes Honeycomb, Diamond lattice, Chevron, and Wave filler designs alongside the original options, plus two-line stencil engraving with a live preview, size/alignment controls, and fit checks before export. The new designs construct closed walls directly around their openings; the original Round bars option still uses slower boolean geometry.
+
+Solid wall and the four new designs build engraved recesses directly. The legacy designs retain boolean geometry and may block export when lettering cannot be cut cleanly.
+
+**Admin → Baser usage** shows anonymous browser/session counts, successful exports, errors, active time, and daily activity. Click **Email me a sign-in link** to verify the owner's email once on that browser. No filenames, models, or entered text are collected. Setup, privacy boundaries, and database deployment are documented in [ANALYTICS.md](ANALYTICS.md).
+
+Run checks with Node 24:
+
+```sh
+node test/test-parser.js
+node test/test-site.js
+node test/test-calendar-worker.js
+node test/test-usage.mjs
+node test/test-usage-lifecycle.mjs
+node test/test-admin-analytics.mjs
+node test/test-baser.mjs
+```
+
+The Baser suite tests real closed meshes, engraving recesses, synthetic model unions, and binary STL round trips using the checked-in geometry libraries. `--legacy` additionally sweeps the older boolean-based designs and can be slow on thin Round bars. Database access tests use a separate local emulator; see the analytics guide.
+
+For browser acceptance checks, use Node 24, Playwright 1.62.1, and a local HTTP server. In one terminal, from the repository root:
+
+```sh
+python3 -m http.server 8000 --bind 127.0.0.1
+```
+
+In another terminal, install the test dependency outside the repository and run the suite. This example uses the installed macOS Chrome binary; change `CHROME_BIN` for another Chromium installation, or omit it if Playwright's Chromium is installed.
+
+```sh
+npm install --prefix /tmp/baser-browser-tools --no-save playwright@1.62.1
+PLAYWRIGHT_MODULE=/tmp/baser-browser-tools/node_modules/playwright \
+CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+QA_OUTPUT=/tmp/baser-browser-qa \
+node test/test-browser.mjs
+```
+
+`TEST_ORIGIN` defaults to `http://127.0.0.1:8000` and must be local. `QA_PART=site` runs only the root/admin checks; `QA_PART=lettering` runs the narrower lettering/export check. The default runs all checks. Screenshots, a downloaded synthetic STL, and `report.json` are saved under `QA_OUTPUT`. Chrome runs in an isolated temporary profile. Root-site Firebase and admin records are synthetic fixtures; Baser checks assert that no model, text, or analytics requests leave localhost. The browser suite covers import, the four new patterns, engraving controls, undo, mobile layout, export, reset, and admin usage metrics.
+
 ## 1. Firebase setup (one time, ~5 minutes)
 
 You need a Firebase project to store the shared blocks. It is free for this use case.
@@ -22,7 +62,7 @@ You need a Firebase project to store the shared blocks. It is free for this use 
 2. Inside the project, click the **`</>`** (Web) icon to register a web app. Give it a nickname and click **Register**. Firebase will show you a `firebaseConfig` object — copy those values.
 3. Open `firebase-config.js` in this repo and paste the values in place of the `REPLACE_ME_*` strings. Commit the change. These values are safe to commit.
 4. In the Firebase console, go to **Build → Firestore Database** and click **Create database**. Pick **Start in production mode** and a region close to Maryland (e.g. `us-east4`).
-5. Open the **Rules** tab of Firestore, replace everything with the rules below, and click **Publish**:
+5. Use the checked-in **[firestore.rules](firestore.rules)**, which includes the protected Baser analytics collection. For an existing deployment, use the change-preserving helper in [ANALYTICS.md](ANALYTICS.md). The example below describes the older ScheduleMaxer rules only; **do not replace the deployed rules with this incomplete example**:
 
    ```
    rules_version = '2';
@@ -44,7 +84,7 @@ You need a Firebase project to store the shared blocks. It is free for this use 
        function validType(t) {
          // 'Oral Surgery/Urg Care' is the retired merged label — kept valid so
          // legacy blocks stored under it can still be updated (urgent flag etc.).
-         return t in ['Oral Surgery/Urg Care','Oral Surgery','Urgent Care','Ortho','Special Care','Peds','Emergency','On-Call','Screening','Hospital','Pan','Mock Boards','Education/Other','Shady Grove'];
+         return t in ['Oral Surgery/Urg Care','Oral Surgery','Urgent Care','Ortho','Special Care','Peds','Perio','Emergency','On-Call','Screening','Hospital','Pan','Mock Boards','Clerkship','Education/Other','Shady Grove'];
        }
        function validTime(t) {
          return t == 'morning' || t == 'afternoon';
@@ -56,7 +96,7 @@ You need a Firebase project to store the shared blocks. It is free for this use 
        // User profiles, one doc per S#.
        match /users/{sNumber} {
          // Reads require an authenticated session (anonymous auth counts).
-         // Combined with App Check this blocks direct REST scraping.
+         // Anonymous auth and App Check do not prove a student's identity.
          allow read: if request.auth != null;
 
          allow create: if sNumber.matches('^S[0-9]{5}$')
@@ -68,8 +108,9 @@ You need a Firebase project to store the shared blocks. It is free for this use 
            && request.resource.data.createdAt is number
            && request.resource.data.updatedAt is number;
 
-         // Updates may change name/phone/updatedAt only; pinHash + sNumber +
-         // createdAt are locked. This prevents account takeover via update.
+         // pinHash + sNumber + createdAt are locked. These legacy rules
+         // do not check the requester owns the profile; other fields,
+         // including its schedule, can still be changed by other clients.
          allow update: if sNumber.matches('^S[0-9]{5}$')
            && request.resource.data.sNumber == resource.data.sNumber
            && request.resource.data.pinHash == resource.data.pinHash
@@ -163,8 +204,8 @@ You need a Firebase project to store the shared blocks. It is free for this use 
 
        // Session records so the admin view can compute usage
        // frequency, total time, and who is online right now.
-       // Reads require auth; writes are shape-checked to prevent
-       // clients from spamming arbitrary data.
+       // Reads require auth; legacy write validation does not establish
+       // who owns a session or enforce a server-side rate limit.
        match /sessions/{sessionId} {
          allow read: if request.auth != null;
          allow create: if request.resource.data.keys().hasAll(['sNumber','startedAt','lastActive'])
@@ -179,9 +220,9 @@ You need a Firebase project to store the shared blocks. It is free for this use 
          allow delete: if false;
        }
 
-       // Private site configuration (admin hash). The client reads
+       // Site configuration (admin hash). The client reads
        // it while bootstrapping the admin gate; only anon-signed-in
-       // users can read it so the hash isn't exposed via view-source.
+       // users can read it. It is not private to the administrator.
        // All writes happen manually in the Firebase console.
        match /config/{doc} {
          allow read: if request.auth != null;
@@ -190,7 +231,7 @@ You need a Firebase project to store the shared blocks. It is free for this use 
 
        // Client-side error reports so the site owner can diagnose
        // failures without asking users to open DevTools. Read only
-       // from the Firebase console; tight schema prevents abuse.
+       // from the Firebase console; field bounds alone do not prevent abuse.
        match /clientErrors/{errorId} {
          allow read, update, delete: if false;
          allow create: if request.resource.data.keys().hasAll(
@@ -279,22 +320,27 @@ The banner and footer link to `https://apps.apple.com/app/apple-store/id67620965
 
 ## Preventing spam / quota abuse
 
-Firestore's free tier (Spark plan) has **hard caps** — 50K reads, 20K writes, and 1 GB storage per day. You cannot be charged on this plan; the worst case is the site stops working for the rest of the day. Defenses layered on top of that:
+Check the Firebase console for the project's current billing plan and quotas. Daily read/write quotas can interrupt service; stored-data limits are separate from daily operation limits. Defenses layered on top of those quotas:
 
-1. **Firebase App Check with reCAPTCHA v3** — the single best defense. It blocks requests that don't come from your real site (curl, bots, automation). Free, no user friction.
+1. **Firebase App Check with reCAPTCHA v3** — reject requests without valid app attestation after enforcement is enabled. This reduces abuse but does not identify the student, enforce ownership, or prevent every bot/scraping request. See [Firebase's App Check security model](https://firebase.google.com/docs/app-check).
    - Firebase console → **Build → App Check**. Register your web app with reCAPTCHA v3, copy the site key.
    - Paste the site key into `firebase-config.js` → `RECAPTCHA_V3_SITE_KEY`.
    - Back in the App Check console, open **Firestore** under APIs and switch enforcement from "Unenforced" to **Enforced**.
    - Add your domains (the GitHub Pages URL and `maxmendelson.com`) under the reCAPTCHA admin console's "Domains" list.
-2. **Tight Firestore rules** — every field is type-checked and size-bounded, so a single write can't store a MB of data. See the rules above.
-3. **Narrow read query** — the client only subscribes to blocks from today onward, so a huge historical dataset wouldn't amplify reads per user. The Assist board uses the same `date >= today` range query and only subscribes while the Assist tab is open, so reads stay near zero when nobody is actively looking. Old blocks/assists can also be auto-expired: in the Firestore console, open **TTL** and add a policy on `blocks.createdAt` (and `assists.createdAt`) with a long-ish TTL (e.g., 180 days of milliseconds = 180\*24\*60\*60\*1000) if you want automatic cleanup. Or delete old rows manually.
+2. **Firestore rules** — validate permitted fields and enforce access using a trusted authenticated identity. The legacy ScheduleMaxer rules above have incomplete field restrictions and no per-student ownership check; see the security limitations below.
+3. **Narrow read queries** — the block subscription begins yesterday, while assists use `date >= today` and subscribe only while the Assist tab is open. These limit historical reads. Existing `createdAt` values are numeric milliseconds, so they cannot directly serve as Firestore TTL fields. Automatic cleanup requires a Date/Timestamp field (for example, `expireAt`) and a matching TTL policy. See [Firestore TTL requirements](https://firebase.google.com/docs/firestore/ttl).
 4. **Client-side rate limits** — in `app.js`, each browser tab is capped at 8 sign-in attempts/min and 6 posts/min. Doesn't stop a determined attacker but stops accidental loops.
 5. **Budget alerts** — Firebase console → **Usage and billing** → **Details & settings** → **Modify budget**. Set an alert to email you if traffic spikes unusually.
 
-If someone does start abusing the site, deleting the Firestore database and re-creating it with App Check enforced is usually enough to shut it down.
+If abuse occurs, preserve the data, inspect the affected collections and rules, and restrict the offending access path. Deleting the database loses user data and does not repair the authorization weakness.
 
 ## Notes and trade-offs
 
-- **No real auth.** The site trusts users to enter their own S#. This keeps the site free and one-click. Because the Firestore rules allow any delete, a bad actor could in theory delete others’ blocks — if that ever comes up, adding Firebase Auth (Google sign-in with `@umaryland.edu`) is the right next step.
-- **Phone numbers are public** to anyone with the site URL. The privacy policy makes this explicit and the sign-up form requires the user to agree.
+- **Legacy ScheduleMaxer identity is client-side.** The S#/PIN comparison and saved admin flag control the UI. Anonymous Firebase auth does not bind the requester to an S#. The rules above allow profile/schedule/post changes without verified ownership, open block/assist deletion, and authenticated reads of profile PIN hashes, schedules, and session data. A local admin unlock is not a server authorization boundary. These limits also mean legacy online/session statistics are approximate, client-reported values.
+- **Ownership migration requires an account transition.** Add a verified student sign-in method, assign an immutable owner UID through a trusted migration/account-linking process, then require matching `request.auth.uid` for private reads and writes. Move PIN verifiers out of client-readable documents and put admin access behind a trusted UID/custom claim. Test existing-account linking and rules in the emulator before enforcing them so current users retain access. Firebase documents the [owner-UID rule pattern](https://firebase.google.com/docs/firestore/security/rules-conditions).
+- **Phone numbers on posts are visible to site users.** Do not treat posted contact details, schedules, PIN verifiers, or legacy session records as protected by the current UI gates.
 - **Local cache only for convenience.** The source of truth for profiles and blocks is Firestore. Your browser just caches your current profile so you don’t re-enter your S# every visit.
+
+## Regression checks
+
+Run `node test/test-parser.js` and `node test/test-site.js` before deploying site changes. They cover schedule parsing/ICS generation, contact HTML escaping, calendar date validation, schedule synchronization, pending account/session operations, and registration races without accessing live user data.

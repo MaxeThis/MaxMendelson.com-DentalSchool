@@ -14,7 +14,7 @@ import {
     BASE_EMBED,
     BASE_LIMITS,
     MIN_PATTERN_BAND,
-    cleanEngravedText,
+    INFILL_PATTERNS,
     createBaseOutline,
     buildBaseGeometry,
     buildCavityCutterGeometry,
@@ -34,15 +34,15 @@ import {
     TEXT_MIN_BAND,
     hasEngraving,
     measureOutline,
-    getInfillBand,
-    buildEngravingCutters,
-    engravingBandNeeded,
-    maxLineCharacters
+    engravingIssue
 } from './infill.js';
+import { trackUsage, initUsageAnalytics } from './analytics.js';
 import { createUI } from './ui.js';
 import { createCharacter } from './character.js';
 import { loadSettings, saveSettings, resetSettings } from './settings.js';
 import { error as debugError, log } from './debug.js';
+
+initUsageAnalytics();
 
 // Orientation is baked into the geometry at import (see autoOrientGeometry),
 // so the mesh starts at identity and the rotation controls read absolute.
@@ -272,7 +272,7 @@ function baseGeometryKey(params) {
     return [
         params.width, params.depth, params.height, params.wall, params.hollow,
         params.infill, params.clampBand, params.cornerRadius,
-        params.textLine1, params.textLine2
+        params.textLine1, params.textLine2, params.textSize, params.textAlign
     ].join('|');
 }
 
@@ -302,10 +302,10 @@ function rebuildBaseIfNeeded() {
 
     // The build may normalize numbers, but the wall choice and lettering
     // stay whatever the user asked for, not whatever the preview used.
-    const { posX, posZ, infill, textLine1, textLine2 } = state.baseParams;
+    const { posX, posZ, infill, textLine1, textLine2, textSize, textAlign } = state.baseParams;
     const normalized = rebuildBaseMesh(state.base, effective);
     state.baseParams = {
-        ...normalized, posX, posZ, infill, textLine1, textLine2
+        ...normalized, posX, posZ, infill, textLine1, textLine2, textSize, textAlign
     };
     lastBuiltKey = key;
     interactions.refreshOutline();
@@ -486,7 +486,24 @@ async function handleFile(file) {
             return;
         }
 
+        const footprint = imported.geometry.boundingBox.getSize(new THREE.Vector3());
+        if (footprint.x > BASE_LIMITS.width.max || footprint.z > BASE_LIMITS.depth.max) {
+            imported.geometry.dispose();
+            throw new Error(`The scan is ${footprint.x.toFixed(1)} × ${footprint.z.toFixed(1)} mm. The largest base is ${BASE_LIMITS.width.max} × ${BASE_LIMITS.depth.max} mm; check the scan's units and orientation.`);
+        }
+        // Finish validating the replacement before removing the current work.
+        ui.updateProcessing('Preparing the mesh…');
+        await nextPaint();
+        let prepared;
+        try {
+            prepared = prepareGeometryForCSG(imported.geometry, { name: 'DentalModel' });
+        } catch (error) {
+            imported.geometry.dispose();
+            throw error;
+        }
+
         disposeCurrent();
+        state.preparedModel = prepared;
         state.filename = imported.filename;
         state.exported = false;
         state.sink = BASE_EMBED;
@@ -502,14 +519,6 @@ async function handleFile(file) {
         state.model.name = 'DentalModel';
         sceneContext.scene.add(state.model);
         state.model.updateMatrixWorld(true);
-
-        // Weld once now, while the loading overlay is up, so the export
-        // merge later skips this ~half-second step.
-        ui.updateProcessing('Preparing the mesh…');
-        await nextPaint();
-        state.preparedModel = prepareGeometryForCSG(imported.geometry, {
-            name: 'DentalModel'
-        });
 
         state.base = new THREE.Mesh(
             buildBaseGeometry(state.baseParams),
@@ -535,8 +544,10 @@ async function handleFile(file) {
         glideCameraToFit(state.model, 1.9);
 
         ui.toast('Aligned and centered. Export when it looks right.');
+        trackUsage('import_success');
         log('[Import] Loaded', imported.filename);
     } catch (error) {
+        trackUsage('import_error');
         debugError('[Import] Could not load model:', error);
         ui.toast(`Import failed: ${error.message}`);
     } finally {
@@ -580,19 +591,25 @@ function updateBaseParam(name, value, commit) {
     }
 }
 
-function updateEngraving(line1, line2) {
+function updateEngraving(line1, line2, options = {}) {
     if (!state.base || state.processed) return;
+    const next = normalizeBaseParams({ ...state.baseParams, ...options,
+        textLine1: line1, textLine2: line2 });
+    const changed = ['textLine1', 'textLine2', 'textSize', 'textAlign']
+        .some(key => next[key] !== state.baseParams[key]);
+    if (!changed) return;
     state.sizeOverride = true;
     state.previewPlain = false;
     state.baseParams = {
-        ...state.baseParams,
-        textLine1: cleanEngravedText(line1),
-        textLine2: cleanEngravedText(line2)
+        ...next
     };
     rebuildBaseIfNeeded();
     placeBase();
     syncReadouts();
     undoManager.commit();
+    if (hasEngraving(next) && !describeEngraving()) {
+        trackUsage('text_applied');
+    }
 }
 
 /**
@@ -605,21 +622,9 @@ function describeEngraving() {
     if (!params || !hasEngraving(params)) return '';
 
     const outline = measureOutline(createBaseOutline(params));
-    const cutters = buildEngravingCutters(outline, params);
-    cutters.forEach(cutter => cutter.dispose());
-    if (cutters.length) return '';
-
-    // Lettering that quietly fails to appear reads as a bug, so when it
-    // will not fit, say the one number that would fix it.
-    const lines = [params.textLine1, params.textLine2].filter(Boolean).length;
-    const fits = maxLineCharacters(outline);
-    const longest = Math.max(params.textLine1.length, params.textLine2.length);
-    if (fits > 0 && longest > fits) {
-        return `Too long. This plate holds ${fits} characters a line.`;
-    }
-    return `Raise the clamp band to ${
-        Math.ceil(engravingBandNeeded(lines))} mm to fit ${
-        lines > 1 ? 'two lines' : 'a line'}.`;
+    return engravingIssue(params, outline)
+        || (state.base?.geometry.userData.detailWarnings?.some(warning => warning.label === 'Lettering')
+            ? 'Some letter strokes could not be cut cleanly. Try a shorter label or larger letters before exporting.' : '');
 }
 
 function updateBaseHollow(checked) {
@@ -846,13 +851,32 @@ async function mergeGeometry() {
 
 async function handleExport() {
     if (!state.model || state.busy) return;
+    ui.flushEngraving();
+    rebuildBaseDebounced.flush();
+    state.previewPlain = false;
+    if (!state.processed) rebuildBaseIfNeeded();
+    const labelIssue = describeEngraving();
+    if (!state.processed && labelIssue) {
+        ui.toast(labelIssue, 5500);
+        interactions.select(state.base);
+        return;
+    }
+    if (!state.processed) {
+        const footprint = meshWorldBounds(state.model).getSize(new THREE.Vector3());
+        if (footprint.x > state.baseParams.width + 0.01 || footprint.z > state.baseParams.depth + 0.01) {
+            ui.toast('The rotated scan is larger than the base. Adjust the model orientation or base dimensions before exporting.', 5500);
+            return;
+        }
+    }
     if (!state.processed && !overlapExists()) {
         ui.toast('The base is not touching the model. Click the base and choose "Center under model".');
         return;
     }
 
     state.busy = true;
+    trackUsage('export_started');
     ui.setExportState('busy');
+    let fileSaved = false;
     try {
         const needsMerge = !state.processed;
         if (needsMerge) await mergeGeometry();
@@ -866,6 +890,10 @@ async function handleExport() {
             oneClick: true,
             onStatus: () => {}
         });
+        if (exportResult?.method !== 'cancelled') {
+            fileSaved = true;
+            trackUsage('export_success');
+        }
 
         if (needsMerge) {
             // The file is already on its way; polish the on-screen normals
@@ -898,10 +926,11 @@ async function handleExport() {
         }
         state.exported = true;
     } catch (error) {
+        if (!fileSaved) trackUsage('export_error');
         debugError('[Export] Failed:', error);
         ui.hideProcessing();
         ui.setExportState(state.processed ? 'exported' : 'ready');
-        ui.toast(`Export failed: ${error.message}`);
+        ui.toast(fileSaved ? 'STL downloaded. The preview could not finish updating.' : `Export failed: ${error.message}`);
     } finally {
         state.busy = false;
     }
@@ -938,7 +967,8 @@ const FOOTPRINT_SETTING_KEYS = [
  */
 /** Open wall the chosen pattern wants, in millimeters. */
 function requiredBand(infill) {
-    return infill === 'text' ? TEXT_MIN_BAND : MIN_PATTERN_BAND;
+    return infill === 'text' ? TEXT_MIN_BAND
+        : INFILL_PATTERNS.find(pattern => pattern.id === infill)?.band ?? MIN_PATTERN_BAND;
 }
 
 function ensureRoomForPattern() {
@@ -977,6 +1007,7 @@ function describeInfill() {
 }
 
 function applySettings(patch, commit) {
+    const patternChanged = commit && 'infill' in patch && patch.infill !== state.settings.infill;
     state.settings = { ...state.settings, ...patch };
     if (commit) state.settings = saveSettings(state.settings);
 
@@ -986,6 +1017,7 @@ function applySettings(patch, commit) {
             ui.toast(`Base raised to ${raised} mm so the pattern has wall to cut.`);
         }
     }
+    if (patternChanged) trackUsage('pattern_changed');
 
     ui.syncSettings(state.settings);
     ui.setInfillHint(describeInfill());
@@ -995,7 +1027,19 @@ function applySettings(patch, commit) {
     // something unrelated (like the greeter) must not wipe manual sizing.
     const touchesFootprint = FOOTPRINT_SETTING_KEYS.some(key => key in patch);
     if (state.base && !state.processed && touchesFootprint) {
-        state.sizeOverride = false;
+        state.previewPlain = !commit;
+        if (state.sizeOverride) {
+            const localPatch = Object.fromEntries(FOOTPRINT_SETTING_KEYS
+                .filter(key => key in patch && key !== 'autoGrow')
+                .map(key => [key, state.settings[key]]));
+            if ('infill' in patch && patch.infill !== 'solid') {
+                localPatch.height = Math.min(BASE_LIMITS.height.max, Math.max(
+                    state.baseParams.height,
+                    state.baseParams.clampBand + state.baseParams.wall + requiredBand(patch.infill)
+                ));
+            }
+            state.baseParams = normalizeBaseParams({ ...state.baseParams, ...localPatch });
+        }
         if (commit) {
             settleLayout();
             undoManager.commit();
@@ -1024,6 +1068,10 @@ const ui = createUI({
     onBaseParam: updateBaseParam,
     onBaseHollow: updateBaseHollow,
     onEngraving: updateEngraving,
+    onViewLettering: () => {
+        if (state.base) cameraManager.fitToObject(state.base, 1.25);
+        cameraManager.setCameraView('lettering');
+    },
     onFitBase: fitBase,
     onModelRotate: updateModelRotation,
     onRecenter: recenterModel,

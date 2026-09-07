@@ -1997,3 +1997,34 @@ button.primary:disabled { opacity: 0.55; cursor: not-allowed; filter: saturate(0
   .req-item-actions { width: 100%; justify-content: flex-end; }
   .req-class-head .req-points { margin-left: 0; width: 100%; }
 }
+/* Private, aggregate Baser usage in the existing admin panel. */
+.usage-heading { display: flex; justify-content: space-between; align-items: start; gap: 1rem; flex-wrap: wrap; }
+.usage-heading h3 { margin: 0 0 .4rem; }
+.usage-heading p { margin: 0 0 1rem; }
+.usage-heading label { display: flex; align-items: center; gap: .65rem; font-size: .875rem; }
+.usage-auth { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.usage-auth p { flex: 1; min-width: 220px; }
+.usage-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.usage-stats .admin-stat { min-width: 0; }
+.usage-empty { padding: 1rem; background: #edf4ff; border-radius: 12px; color: #24436b; }
+.usage-trend { padding: 1rem 0; }
+.usage-trend h4 { margin: 0 0 .65rem; }
+.usage-legend { display: flex; gap: 1rem; font-size: .8rem; }
+.usage-legend span::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 2px; background: #5279c5; }
+.usage-legend span + span::before { background: #24a394; }
+.usage-chart { display: flex; gap: 3px; height: 150px; border-bottom: 1px solid #dce2ec; align-items: end; }
+.usage-chart-day { flex: 1; min-width: 0; height: 100%; display: flex; gap: 1px; align-items: end; }
+.usage-bar { flex: 1; border-radius: 3px 3px 0 0; background: #5279c5; }
+.usage-bar-exports { background: #24a394; }
+.usage-events { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+.usage-events div { padding: .8rem 1rem; border: 1px solid #dce2ec; border-radius: 10px; }
+.usage-events dt { font-size: .8rem; color: #586579; }
+.usage-events dd { margin: .35rem 0 0; font-size: 1.35rem; font-weight: 650; }
+.usage-details { margin-top: 1.25rem; }
+.usage-details summary { cursor: pointer; font-weight: 600; }
+.usage-table-wrap { overflow-x: auto; max-height: 400px; margin-top: .75rem; }
+.usage-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.usage-table th, .usage-table td { padding: .6rem .8rem; border-bottom: 1px solid #e4e8f0; text-align: right; }
+.usage-table th:first-child, .usage-table td:first-child { text-align: left; }
+.usage-note { margin-top: 1.5rem; max-width: 850px; line-height: 1.6; }
+@media (max-width: 650px) { .usage-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .usage-events { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
