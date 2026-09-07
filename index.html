@@ -1,11 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script>
+    // Keep one-use email credentials in memory, and out of URLs/referrers/logs.
+    (() => {
+      const url = new URL(location.href);
+      if (url.searchParams.get('mode') !== 'signIn' || !url.searchParams.has('oobCode')) return;
+      window.BASER_USAGE_SIGNIN_LINK = url.href;
+      for (const key of ['oobCode', 'mode', 'apiKey', 'lang', 'continueUrl', 'authType', 'baserUsage']) url.searchParams.delete(key);
+      history.replaceState({}, '', url.pathname + url.search + url.hash);
+    })();
+  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ScheduleMaxer</title>
   <meta name="description" content="Post blocks you want to swap and find blocks other students are giving up." />
-  <link rel="stylesheet" href="styles.css?v=20260607i" />
+  <link rel="stylesheet" href="styles.css?v=20260907" />
 </head>
 <body>
   <div id="boot-loader" class="boot-loader" aria-hidden="true">
@@ -493,6 +503,7 @@
       <div class="admin-tabs">
         <button class="admin-tab active" data-admin-tab="users" type="button">Users</button>
         <button class="admin-tab" data-admin-tab="calendar" type="button">All blocks calendar</button>
+        <button class="admin-tab" data-admin-tab="baser" type="button">Baser usage</button>
         <div class="admin-tools">
           <button id="admin-refresh" class="text-btn" type="button">Refresh</button>
           <button id="admin-forget" class="text-btn danger" type="button">Forget admin</button>
@@ -566,6 +577,45 @@
         </div>
       </div>
 
+      <div id="admin-pane-baser" class="admin-pane hidden">
+        <div class="usage-heading">
+          <div><h3>Articulator Baser usage</h3><p class="muted">A little insight. No scans, filenames, or label text.</p></div>
+          <label>Period <select id="baser-usage-days"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select></label>
+        </div>
+        <div class="usage-auth">
+          <p id="baser-usage-status" class="small muted" role="status" aria-live="polite">Verify the owner’s email to view private usage counts.</p>
+          <button id="baser-usage-signin" class="btn" type="button">Email me a sign-in link</button>
+          <button id="baser-usage-signout" class="text-btn" type="button" hidden>Sign out of usage</button>
+        </div>
+        <div class="admin-stats usage-stats">
+          <div class="admin-stat"><span data-usage-metric="visitors">—</span><small>unique browsers</small></div>
+          <div class="admin-stat"><span data-usage-metric="sessions">—</span><small>sessions</small></div>
+          <div class="admin-stat"><span data-usage-metric="exports">—</span><small>successful exports</small></div>
+          <div class="admin-stat"><span data-usage-metric="online">—</span><small>active in last 2 min</small></div>
+          <div class="admin-stat"><span data-usage-metric="returning">—</span><small>browsers with repeat sessions</small></div>
+          <div class="admin-stat"><span data-usage-metric="frequency">—</span><small>sessions per browser</small></div>
+          <div class="admin-stat"><span data-usage-metric="active">—</span><small>active time</small></div>
+          <div class="admin-stat"><span data-usage-metric="success">—</span><small>completed export success rate</small></div>
+        </div>
+        <p id="baser-usage-empty" class="usage-empty" hidden>No usage recorded in this period yet. Counts begin with this release.</p>
+        <div class="usage-trend">
+          <h4>Daily activity</h4>
+          <p class="usage-legend"><span>Sessions</span><span>Exports</span></p>
+          <div id="baser-usage-chart" class="usage-chart" role="img"></div>
+          <p class="small muted">Oldest → newest · exports grouped by the session’s start date</p>
+        </div>
+        <dl class="usage-events">
+          <div><dt>Successful imports</dt><dd data-usage-metric="imports">—</dd></div>
+          <div><dt>Import errors</dt><dd data-usage-metric="importErrors">—</dd></div>
+          <div><dt>Export attempts</dt><dd data-usage-metric="attempts">—</dd></div>
+          <div><dt>Export errors</dt><dd data-usage-metric="exportErrors">—</dd></div>
+          <div><dt>Text applied</dt><dd data-usage-metric="text">—</dd></div>
+          <div><dt>Pattern changes</dt><dd data-usage-metric="patterns">—</dd></div>
+        </dl>
+        <details class="usage-details"><summary>Daily counts</summary><div class="usage-table-wrap"><table class="usage-table"><thead><tr><th scope="col">Date (UTC)</th><th scope="col">Browsers</th><th scope="col">Sessions</th><th scope="col">Exports</th></tr></thead><tbody id="baser-usage-daily"></tbody></table></div></details>
+        <p class="small muted usage-note">Users are estimated from anonymous browser IDs, not people or student accounts. A session starts on each page load or after 30 minutes idle. Active time counts foreground use with recent interaction. An export counts when a download is initiated; the browser cannot confirm the file was saved. Offline use, blockers, and opt-outs may reduce counts. <a href="privacy.html#baser-usage">What is collected</a></p>
+      </div>
+
       <div id="admin-banner" class="admin-banner">
         <div class="admin-banner-line">
           <a href="https://MaxMendelson.com" target="_blank" rel="noopener">MaxMendelson.com</a> Admin
@@ -592,7 +642,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="firebase-config.js?v=20260607i"></script>
-  <script src="app.js?v=20260607i"></script>
+  <script src="firebase-config.js?v=20260907"></script>
+  <script type="module" src="admin-analytics.js?v=20260907"></script>
+  <script src="app.js?v=20260907"></script>
 </body>
 </html>

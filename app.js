@@ -486,7 +486,9 @@ const state = {
   selectedDate: null,
   view: 'calendar',
   firestoreReady: false,
-  schedule: [],         // user's imported schedule (local-only, per-device)
+  schedule: [],         // user's imported schedule, cached locally and synced
+  profileVersion: 0,    // invalidates pending work when accounts change
+  scheduleRevision: 0,  // protects edits from an older background load
   myBlocksMode: 'display', // 'display' | 'edit' — sub-mode of the My Blocks view
   editingScheduleId: null, // id of schedule entry currently shown as an inline edit form
   editingBlockId: null,   // id of posted block currently shown as an inline edit form
@@ -519,12 +521,14 @@ const state = {
   },
 };
 
-/* Admin gate: the expected hash lives in Firestore at config/admin.hash
+/* Legacy admin UI gate (not server authorization): the expected hash lives
+ * in Firestore at config/admin.hash
  * (PBKDF2-SHA-256, 200k iterations, fixed salt). Reads are gated by
  * anonymous auth, so the hash isn't exposed to anyone loading the JS
  * bundle. Users bootstrap by visiting ?adminkey=<secret>; the client
  * signs in anon, fetches the hash, compares, and stores a localStorage
- * flag if it matches — admin stays unlocked on that browser only. */
+ * flag if it matches — admin stays unlocked on that browser only. Anyone
+ * with anonymous auth can read this verifier under the legacy rules. */
 const ADMIN_KDF_SALT = 'umsod-admin-v1';
 const ADMIN_KDF_ITERATIONS = 200000;
 const ADMIN_FLAG_KEY = 'umsod-admin-enabled-v1';
@@ -571,8 +575,11 @@ function ymd(date) {
 }
 
 function parseYmd(str) {
+  if (typeof str !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return new Date(NaN);
   const [y, m, d] = str.split('-').map(Number);
-  return new Date(y, m - 1, d);
+  const date = new Date(y, m - 1, d);
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d
+    ? date : new Date(NaN);
 }
 
 function prettyDate(str) {
@@ -581,7 +588,8 @@ function prettyDate(str) {
 }
 
 function formatPhone(raw) {
-  const digits = (raw || '').replace(/\D/g, '');
+  raw = typeof raw === 'string' ? raw : '';
+  const digits = raw.replace(/\D/g, '');
   if (digits.length === 10) {
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   }
@@ -591,8 +599,8 @@ function formatPhone(raw) {
   return raw;
 }
 
-function telHref(raw) { return `tel:${(raw || '').replace(/\D/g, '')}`; }
-function smsHref(raw) { return `sms:${(raw || '').replace(/\D/g, '')}`; }
+function telHref(raw) { return `tel:${phoneDigits(raw)}`; }
+function smsHref(raw) { return `sms:${phoneDigits(raw)}`; }
 
 function isWeekday(dateStr) {
   const d = parseYmd(dateStr).getDay();
@@ -600,13 +608,14 @@ function isWeekday(dateStr) {
 }
 
 function validSNumber(s) { return /^S\d{5}$/.test(s); }
-function phoneDigits(p) { return (p || '').replace(/\D/g, ''); }
+function phoneDigits(p) { return typeof p === 'string' ? p.replace(/\D/g, '') : ''; }
 function hasPhone(p) { return phoneDigits(p).length >= 10; }
 function validPhoneOrEmpty(p) {
+  if (typeof p !== 'string' || p.length > 25) return false;
   const d = phoneDigits(p);
   return d.length === 0 || d.length >= 10;
 }
-function validName(n) { return typeof n === 'string' && n.trim().length > 0; }
+function validName(n) { return typeof n === 'string' && n.trim().length > 0 && n.length <= 80; }
 function validPin(p) { return /^\d{4,6}$/.test(p || ''); }
 function profileValid(p) {
   return p && validName(p.name) && validSNumber(p.sNumber) && validPhoneOrEmpty(p.phone);
@@ -641,20 +650,57 @@ async function hashPin(sNumber, pin) {
 function loadLocalProfile() {
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
-    if (raw) state.profile = JSON.parse(raw);
+    const profile = raw ? JSON.parse(raw) : null;
+    if (profileValid(profile)) state.profile = profile;
   } catch (e) { /* ignore */ }
 }
 
 function cacheProfile(p) {
+  if (!state.profile || state.profile.sNumber !== p.sNumber) {
+    state.profileVersion++;
+    clearAdminCache();
+  }
   state.profile = p;
   state.calendarToken = undefined; // re-fetch the live-feed token for this profile
-  localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+  try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); }
+  catch (_) { /* The current session still works when browser storage is blocked. */ }
 }
 
 function clearLocalProfile() {
+  state.profileVersion++;
+  window.BaserAdminAnalytics?.signOut();
+  clearAdminCache();
   state.profile = null;
+  state.schedule = [];
+  state.editingScheduleId = null;
+  state.editingBlockId = null;
+  state.pendingSNumber = null;
   state.calendarToken = undefined;
-  localStorage.removeItem(PROFILE_KEY);
+  unsubscribeAssists();
+  stopAssistTick();
+  if (requirementsUnsub) { requirementsUnsub(); requirementsUnsub = null; }
+  state.requirements.entries = [];
+  state.requirements.loaded = false;
+  state.requirements.openFormKey = null;
+  try { localStorage.removeItem(PROFILE_KEY); } catch (_) { /* storage unavailable */ }
+}
+
+function clearAdminCache() {
+  state.isAdmin = false;
+  document.body.classList.remove('admin');
+  state.admin.loaded = false;
+  state.admin.users = [];
+  state.admin.sessions = [];
+  state.admin.allBlocks = [];
+  state.admin.unknownTypes = [];
+  state.admin.postedCount = 0;
+  state.admin.scheduleCount = 0;
+  state.admin.selectedUser = null;
+  state.admin.selectedDate = null;
+  state.admin.filterUser = '';
+  for (const id of ['admin-users-list', 'admin-calendar', 'admin-day-detail-list']) {
+    $(id)?.replaceChildren();
+  }
 }
 
 /* ----------------------------- firestore ----------------------------- */
@@ -671,11 +717,13 @@ function initFirestore() {
     return false;
   }
   try {
-    if (!firebase.apps.length) firebase.initializeApp(cfg);
+    // The private usage panel can initialize its named app first on an
+    // email-link return. It must not prevent the site's default app starting.
+    if (!firebase.apps.some((app) => app.name === '[DEFAULT]')) firebase.initializeApp(cfg);
 
-    // Optional: Firebase App Check with reCAPTCHA v3. When enabled it
-    // blocks writes that don't come from the real site (the #1 spam
-    // defense). Activated only if the site key is set in
+    // Optional: Firebase App Check with reCAPTCHA v3. With server-side
+    // enforcement it rejects requests without valid app attestation;
+    // it does not establish student identity. Activated if the key is set in
     // firebase-config.js and the App Check compat SDK loaded.
     if (window.RECAPTCHA_V3_SITE_KEY && firebase.appCheck) {
       try {
@@ -749,13 +797,21 @@ async function fetchUserDoc(sNumber) {
 
 async function createUserDoc(user) {
   const now = Date.now();
-  await db.collection('users').doc(user.sNumber).set({
-    sNumber: user.sNumber,
-    name: user.name,
-    phone: user.phone,
-    pinHash: user.pinHash,
-    createdAt: now,
-    updatedAt: now,
+  const ref = db.collection('users').doc(user.sNumber);
+  await db.runTransaction(async (transaction) => {
+    if ((await transaction.get(ref)).exists) {
+      const error = new Error('An account already exists for this S#.');
+      error.code = 'account-exists';
+      throw error;
+    }
+    transaction.set(ref, {
+      sNumber: user.sNumber,
+      name: user.name,
+      phone: user.phone,
+      pinHash: user.pinHash,
+      createdAt: now,
+      updatedAt: now,
+    });
   });
 }
 
@@ -768,19 +824,26 @@ async function updateUserDoc(profile) {
 }
 
 async function propagateProfileToBlocks(profile) {
-  // Update name + phone on blocks the user has already posted, so contact
-  // info stays current. Date/time/type/sNumber stay the same.
+  return propagateProfileToPosts('blocks', profile);
+}
+
+async function propagateProfileToPosts(collection, profile) {
   if (!state.firestoreReady) return;
-  const mine = state.blocks.filter((b) => b.sNumber === profile.sNumber);
-  if (mine.length === 0) return;
-  const batch = db.batch();
-  for (const b of mine) {
-    batch.update(db.collection('blocks').doc(b.id), {
-      name: profile.name,
-      phone: profile.phone,
-    });
+  // Account editing leaves the Assist view and clears its subscription cache.
+  // Query the owner's posts so updated contact details reach both boards.
+  const snapshot = await db.collection(collection).where('sNumber', '==', profile.sNumber).get();
+  const today = ymd(new Date());
+  const upcoming = [];
+  snapshot.forEach((doc) => {
+    if (doc.data().date >= today) upcoming.push(doc.ref);
+  });
+  for (let i = 0; i < upcoming.length; i += 450) {
+    const batch = db.batch();
+    for (const ref of upcoming.slice(i, i + 450)) {
+      batch.update(ref, { name: profile.name, phone: profile.phone });
+    }
+    await batch.commit();
   }
-  await batch.commit();
 }
 
 // Self-healing for block labels. Rewrites any block whose stored `type` is a
@@ -1095,21 +1158,7 @@ async function deleteAssistDoc(id) {
 }
 
 async function propagateProfileToAssists(profile) {
-  // Mirror propagateProfileToBlocks: only updates assists currently in our
-  // local cache (i.e. the user is on the Assist tab when they edit profile).
-  // Assists are short-lived (auto-drop by date), so we accept that posts
-  // outside the cache keep stale contact info until they expire.
-  if (!state.firestoreReady) return;
-  const mine = state.assists.filter((a) => a.sNumber === profile.sNumber);
-  if (mine.length === 0) return;
-  const batch = db.batch();
-  for (const a of mine) {
-    batch.update(db.collection('assists').doc(a.id), {
-      name: profile.name,
-      phone: profile.phone,
-    });
-  }
-  await batch.commit();
+  return propagateProfileToPosts('assists', profile);
 }
 
 /* ----------------------------- admin gate ----------------------------- */
@@ -1173,14 +1222,16 @@ async function maybeBootstrapAdmin() {
  * ADMIN_SNUMBER. Any of those missing and the admin class is stripped. */
 function refreshAdminState() {
   const authed = typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser;
-  const flag = localStorage.getItem(ADMIN_FLAG_KEY) === '1';
+  let flag = false;
+  try { flag = localStorage.getItem(ADMIN_FLAG_KEY) === '1'; } catch (_) { /* optional browser unlock */ }
   const correctUser = !!(state.profile && state.profile.sNumber === ADMIN_SNUMBER);
   state.isAdmin = !!(authed && flag && correctUser);
   document.body.classList.toggle('admin', state.isAdmin);
 }
 
 function forgetAdmin() {
-  localStorage.removeItem(ADMIN_FLAG_KEY);
+  window.BaserAdminAnalytics?.signOut();
+  try { localStorage.removeItem(ADMIN_FLAG_KEY); } catch (_) { /* storage unavailable */ }
   state.isAdmin = false;
   document.body.classList.remove('admin');
   toast('Admin access removed from this browser.');
@@ -1191,9 +1242,9 @@ function forgetAdmin() {
 
 /* Firebase Anonymous Auth. Used as a lightweight "someone is using the
  * real app" marker so Firestore rules can require request.auth != null
- * for reads — this blocks direct REST scraping without having to run
- * the full client. It is NOT user-level auth (anyone can get an anon
- * token), but paired with App Check it meaningfully raises the bar.
+ * for reads. It is NOT user-level auth: anyone can request an anonymous
+ * token, including a REST client. App Check adds a separate attestation
+ * check when enforcement is configured.
  *
  * If it fails (e.g. anon sign-in not enabled yet in the Firebase
  * console, or reCAPTCHA blocked), we bail out to the sign-in screen
@@ -1245,7 +1296,8 @@ function handleAuthLoss(reason) {
  * visible, one final update on unload. Hidden tabs stop heart-
  * beating so an idle browser costs nothing. */
 async function startSession() {
-  if (!state.firestoreReady || !state.profile) return;
+  if (!state.firestoreReady || !state.profile || state.sessionId) return;
+  const profileVersion = state.profileVersion;
   // Pre-generate the doc ID so a retried write that fires after the original
   // succeeded server-side (flaky network) doesn't strand the session: the
   // SDK would otherwise retry with the same ID and fail with already-exists,
@@ -1259,6 +1311,7 @@ async function startSession() {
       lastActive: Date.now(),
     });
   } catch (err) {
+    if (profileVersion !== state.profileVersion || state.sessionId !== ref.id) return;
     if (err && err.code === 'already-exists') {
       // Original write reached the server; SDK retry collided. The doc
       // exists with our ID, so heartbeats still work — proceed.
@@ -1268,16 +1321,17 @@ async function startSession() {
       return;
     }
   }
+  if (profileVersion !== state.profileVersion || state.sessionId !== ref.id) return;
   stopHeartbeat();
   state.heartbeatTimer = setInterval(() => {
     if (document.visibilityState === 'visible') heartbeat();
   }, HEARTBEAT_INTERVAL_MS);
 }
 
-async function heartbeat() {
-  if (!state.firestoreReady || !state.sessionId) return;
+async function heartbeat(sessionId = state.sessionId) {
+  if (!state.firestoreReady || !sessionId) return;
   try {
-    await db.collection('sessions').doc(state.sessionId).update({
+    await db.collection('sessions').doc(sessionId).update({
       lastActive: Date.now(),
     });
   } catch (_) { /* best-effort */ }
@@ -1292,8 +1346,9 @@ function stopHeartbeat() {
 
 async function endSession() {
   stopHeartbeat();
-  await heartbeat();
+  const sessionId = state.sessionId;
   state.sessionId = null;
+  await heartbeat(sessionId);
 }
 
 /* Log a client-side error to Firestore so the site owner can diagnose
@@ -1313,7 +1368,8 @@ async function logClientError(context, err) {
       code: err && err.code ? String(err.code).slice(0, 60) : '',
       sNumber: sNumber ? String(sNumber).slice(0, 6) : '',
       userAgent: String(navigator.userAgent || '').slice(0, 300),
-      url: String(location.href || '').slice(0, 200),
+      // Query strings can contain private calendar tokens or an admin key.
+      url: String(location.origin + location.pathname).slice(0, 200),
       timestamp: Date.now(),
     });
   } catch (_) {
@@ -1453,7 +1509,12 @@ function showApp() {
   loadSchedule();
   handleReminderToggle();
   refreshAdminState();
-  ensureAnonAuth().then(() => {
+  const profileVersion = state.profileVersion;
+  ensureAnonAuth().then((user) => {
+    if (!user || !state.profile || profileVersion !== state.profileVersion) return;
+    // Boot can return early during a network outage. Recover its board
+    // subscription when a subsequent sign-in succeeds.
+    if (!blocksUnsub) subscribeBlocks();
     if (!state.sessionId) startSession();
   });
   const knownViews = new Set(['calendar', 'my-blocks', 'post', 'assist', 'profile', 'admin', 'requirements']);
@@ -1461,6 +1522,7 @@ function showApp() {
 }
 
 function showSignIn() {
+  signInAttempt++;
   setAuthMode(false);
   refreshAdminState();
   setGate('signin');
@@ -1491,12 +1553,15 @@ function showPinPrompt(sNumber) {
 
 /* ----------------------------- sign-in / setup ----------------------------- */
 
+let signInAttempt = 0;
+
 async function handleSignInSubmit(e) {
   e.preventDefault();
   if (!rateLimitOk('signIn')) { toast('Slow down — try again in a minute.'); return; }
   const snum = $('signin-snum').value.trim();
   if (!/^\d{5}$/.test(snum)) { toast('S# must be 5 digits.'); return; }
   const sNumber = 'S' + snum;
+  const attempt = ++signInAttempt;
 
   if (!state.firestoreReady) {
     toast('Data storage is not configured yet. See README.');
@@ -1518,6 +1583,7 @@ async function handleSignInSubmit(e) {
       }
     }
     const user = await fetchUserDoc(sNumber);
+    if (attempt !== signInAttempt) return;
     if (user && validName(user.name) && validPhoneOrEmpty(user.phone) && user.pinHash) {
       showPinPrompt(sNumber);
     } else {
@@ -1544,6 +1610,7 @@ async function handlePinSubmit(e) {
   if (!validPin(pin)) { toast('PIN must be 4–6 digits.'); return; }
   const sNumber = state.pendingSNumber;
   if (!sNumber) { showSignIn(); return; }
+  const attempt = signInAttempt;
 
   const btn = $('pin-submit');
   btn.disabled = true;
@@ -1552,6 +1619,7 @@ async function handlePinSubmit(e) {
       fetchUserDoc(sNumber),
       hashPin(sNumber, pin),
     ]);
+    if (attempt !== signInAttempt || state.pendingSNumber !== sNumber) return;
     if (!user || !user.pinHash || user.pinHash !== hash) {
       toast('Incorrect PIN.');
       $('pin-input').select();
@@ -1588,17 +1656,27 @@ async function handleSetupSubmit(e) {
   if (pin !== pin2) { toast('PINs don’t match.'); return; }
 
   const sNumber = state.pendingSNumber;
+  if (!validSNumber(sNumber)) { showSignIn(); return; }
+  const attempt = signInAttempt;
   const btn = e.target.querySelector('button[type="submit"]');
   btn.disabled = true;
   try {
     const pinHash = await hashPin(sNumber, pin);
     const profile = { name, sNumber, phone };
+    if (attempt !== signInAttempt || state.pendingSNumber !== sNumber) return;
     await createUserDoc({ ...profile, pinHash });
+    if (attempt !== signInAttempt || state.pendingSNumber !== sNumber) return;
     cacheProfile(profile);
     toast('Account created — welcome, ' + name.split(' ')[0] + '.');
     state.pendingSNumber = null;
     showApp();
   } catch (err) {
+    if (attempt !== signInAttempt || state.pendingSNumber !== sNumber) return;
+    if (err && err.code === 'account-exists') {
+      toast('This S# already has an account. Sign in with its PIN.');
+      showPinPrompt(sNumber);
+      return;
+    }
     console.error(err);
     logClientError('account-create', err);
     const codeSuffix = err && err.code ? ' (' + err.code + ')' : '';
@@ -1844,7 +1922,7 @@ function renderBlockCard(b, opts = {}) {
     if (hasPhone(b.phone)) {
       const phone = formatPhone(b.phone);
       contact.innerHTML = `<div>Contact:</div>
-        <div><a href="${telHref(b.phone)}">${phone}</a></div>
+        <div><a href="${telHref(b.phone)}">${escapeHtml(phone)}</a></div>
         <div><a href="${smsHref(b.phone)}">Send text</a></div>`;
     } else {
       contact.innerHTML = `<div class="small muted">No phone on file — reach out via GroupMe.</div>`;
@@ -2170,24 +2248,31 @@ function fillProfileEditForm() {
 
 async function handleProfileEditSubmit(e) {
   e.preventDefault();
+  if (!state.profile) { showSignIn(); return; }
   const name = $('edit-name').value.trim();
   const phone = $('edit-phone').value.trim();
   if (!validName(name)) { toast('Enter your full name.'); return; }
   if (!validPhoneOrEmpty(phone)) { toast('Phone number needs 10 digits or leave it blank.'); return; }
 
   const profile = { name, sNumber: state.profile.sNumber, phone };
+  const profileVersion = state.profileVersion;
   const btn = e.target.querySelector('button[type="submit"]');
   btn.disabled = true;
   try {
     await updateUserDoc(profile);
+    if (profileVersion === state.profileVersion) cacheProfile(profile);
+    let contactSyncFailed = false;
     await propagateProfileToBlocks(profile).catch((err) => {
+      contactSyncFailed = true;
       console.warn('Could not propagate profile changes to existing blocks:', err);
     });
     await propagateProfileToAssists(profile).catch((err) => {
+      contactSyncFailed = true;
       console.warn('Could not propagate profile changes to existing assists:', err);
     });
-    cacheProfile(profile);
-    toast('Account updated.');
+    if (profileVersion === state.profileVersion) {
+      toast(contactSyncFailed ? 'Account saved. Some posted contact details could not sync; save again to retry.' : 'Account updated.');
+    }
   } catch (err) {
     console.error(err);
     logClientError('account-update', err);
@@ -2226,6 +2311,7 @@ function parseMmDdYyyy(str) {
   let yyyy = parseInt(m[3], 10);
   if (yyyy < 100) yyyy += 2000;
   if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  if (isNaN(parseYmd(`${yyyy}-${pad2(mm)}-${pad2(dd)}`).getTime())) return null;
   return { yyyy, mm, dd, ymd: `${yyyy}-${pad2(mm)}-${pad2(dd)}`, display: `${pad2(mm)}/${pad2(dd)}/${yyyy}` };
 }
 
@@ -2429,30 +2515,48 @@ function migrateScheduleEntries(entries) {
   return descChanged || timeChanged;
 }
 
+let scheduleLoadId = 0;
+
+function readableSchedule(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries.filter((entry) => entry && typeof entry.description === 'string'
+    && typeof entry.startTime === 'string' && typeof entry.endTime === 'string'
+    && !isNaN(parseYmd(entry.date).getTime()));
+}
+
 function loadSchedule() {
   const key = scheduleKey();
   if (!key) { state.schedule = []; return; }
+  const profileVersion = state.profileVersion;
+  const revision = state.scheduleRevision;
+  const loadId = ++scheduleLoadId;
+  const sNumber = state.profile.sNumber;
+  let pendingSync = false;
   try {
     const raw = localStorage.getItem(key);
-    state.schedule = raw ? JSON.parse(raw) : [];
+    state.schedule = readableSchedule(raw ? JSON.parse(raw) : []);
+    pendingSync = localStorage.getItem(key + ':pending') !== null;
   } catch (e) {
     state.schedule = [];
   }
-  if (migrateScheduleEntries(state.schedule)) saveSchedule();
-  // Sync with Firestore in background. If the cloud has a schedule, pull it
-  // down. Otherwise, if we have a local schedule, push it up (this handles
-  // users who imported before schedule-sync existed).
+  migrateScheduleEntries(state.schedule);
+  // Retry a locally saved edit that did not reach Firestore. Pulling an older
+  // cloud snapshot first would silently discard that edit on the next visit.
+  if (pendingSync) { saveSchedule(); return; }
+  // Only an absent cloud field means this is a legacy local-only schedule.
+  // An empty cloud array is an intentional clear and must stay empty.
   if (state.firestoreReady && state.profile) {
-    db.collection('users').doc(state.profile.sNumber).get().then((snap) => {
-      const cloud = snap.exists && Array.isArray(snap.data().schedule) ? snap.data().schedule : [];
-      if (cloud.length > 0) {
-        state.schedule = cloud;
+    return db.collection('users').doc(sNumber).get().then((snap) => {
+      if (profileVersion !== state.profileVersion || revision !== state.scheduleRevision || loadId !== scheduleLoadId) return;
+      const cloud = snap.exists ? snap.data().schedule : undefined;
+      if (Array.isArray(cloud)) {
+        state.schedule = readableSchedule(cloud);
         if (migrateScheduleEntries(state.schedule)) {
           saveSchedule();
         } else {
-          localStorage.setItem(key, JSON.stringify(state.schedule));
+          try { localStorage.setItem(key, JSON.stringify(state.schedule)); } catch (_) { /* optional cache */ }
         }
-        if (state.view === 'schedule') renderSchedule();
+        if (state.view === 'my-blocks') renderMyBlocksView();
       } else if (state.schedule.length > 0) {
         saveSchedule();
       }
@@ -2463,13 +2567,35 @@ function loadSchedule() {
 function saveSchedule() {
   const key = scheduleKey();
   if (!key) return;
-  localStorage.setItem(key, JSON.stringify(state.schedule));
+  state.scheduleRevision++;
+  const profileVersion = state.profileVersion;
+  const serialized = JSON.stringify(state.schedule);
+  const pendingId = Date.now() + ':' + Math.random().toString(36).slice(2);
+  let cached = false;
+  try {
+    localStorage.setItem(key, serialized);
+    localStorage.setItem(key + ':pending', pendingId);
+    cached = true;
+  } catch (_) { /* Cloud sync can still succeed when browser storage is full. */ }
   if (state.firestoreReady && state.profile) {
-    db.collection('users').doc(state.profile.sNumber).update({
-      schedule: state.schedule,
+    return db.collection('users').doc(state.profile.sNumber).update({
+      schedule: JSON.parse(serialized),
       updatedAt: Date.now(),
-    }).catch(() => {});
+    }).then(() => {
+      try {
+        if (localStorage.getItem(key + ':pending') === pendingId) localStorage.removeItem(key + ':pending');
+      } catch (_) { /* optional cache */ }
+      return true;
+    }).catch((err) => {
+      console.warn('Schedule sync failed:', err);
+      if (profileVersion === state.profileVersion) {
+        toast(cached ? 'Schedule saved on this device. Cloud sync failed; it will retry on your next sign-in.'
+          : 'Schedule could not be saved. Keep this page open and try again.');
+      }
+      return false;
+    });
   }
+  if (!cached) toast('Schedule could not be saved. Keep this page open and try again.');
 }
 
 function mergeScheduleEntries(newEntries) {
@@ -2516,9 +2642,9 @@ async function ocrImage(file) {
 /* ----------------------------- schedule: ICS ----------------------------- */
 
 function icsEscape(s) {
-  return (s || '')
+  return String(s || '')
     .replace(/\\/g, '\\\\')
-    .replace(/\r?\n/g, '\\n')
+    .replace(/\r\n|\r|\n/g, '\\n')
     .replace(/,/g, '\\,')
     .replace(/;/g, '\\;');
 }
@@ -2864,7 +2990,7 @@ async function postScheduleEntry(entry, type, period, btn) {
 
   btn.disabled = true;
   try {
-    await postBlockDoc(block);
+    if (!await postBlockDoc(block)) return;
     toast(`Posted: ${entry.description} on ${entry.dateDisplay}.`);
   } catch (err) {
     console.error(err);
@@ -2884,6 +3010,8 @@ async function handleScreenshotUpload(e) {
 
 async function processScreenshotFiles(files) {
   if (files.length === 0) return;
+  if (!state.profile) { toast('Sign in first.'); return; }
+  const profileVersion = state.profileVersion;
   const status = $('import-status');
   renderImportErrors([]);
   status.textContent = 'Loading OCR engine (first time only, ~10 MB)…';
@@ -2894,14 +3022,13 @@ async function processScreenshotFiles(files) {
     let text;
     try {
       text = await ocrImage(files[i]);
+      if (profileVersion !== state.profileVersion) return;
     } catch (err) {
       console.error('OCR failed on image', i + 1, err);
       status.textContent = `OCR failed on image ${i + 1}.`;
       return;
     }
-    console.log(`[Schedule OCR] Image ${i + 1} raw text:\n${text}`);
     const { entries, errors } = parseScheduleText(text);
-    console.log(`[Schedule parser] Image ${i + 1}:`, entries, errors.length ? errors : '(no errors)');
     const added = mergeScheduleEntries(entries);
     totalAdded += added;
     for (const line of errors) failedLines.push(line);
@@ -2994,7 +3121,12 @@ function calendarFeedUrls(token) {
   return { httpsUrl, webcalUrl, googleUrl };
 }
 
+let calendarSubscriptionRender = 0;
+let calendarFeedSaving = false;
+
 async function renderCalendarSubscription() {
+  const renderId = ++calendarSubscriptionRender;
+  const profileVersion = state.profileVersion;
   const panel = $('calendar-sub-panel');
   const box = $('calendar-sub');
   if (!box) return;
@@ -3023,9 +3155,12 @@ async function renderCalendarSubscription() {
     box.appendChild(note('Loading…'));
     try {
       const snap = await db.collection('users').doc(state.profile.sNumber).get();
+      if (profileVersion !== state.profileVersion || renderId !== calendarSubscriptionRender) return;
       state.calendarToken = (snap.exists && snap.data().calendarToken) || null;
     } catch (e) {
-      state.calendarToken = null;
+      if (profileVersion !== state.profileVersion || renderId !== calendarSubscriptionRender) return;
+      box.replaceChildren(note('Could not load your calendar link. Reopen this view to retry.'));
+      return;
     }
     box.replaceChildren();
   }
@@ -3097,12 +3232,17 @@ async function renderCalendarSubscription() {
 async function enableCalendarFeed(isReset) {
   if (!CALENDAR_FEED_BASE) return;
   if (!state.profile || !state.firestoreReady) { toast('Sign in first.'); return; }
+  if (calendarFeedSaving) return;
+  calendarFeedSaving = true;
+  calendarSubscriptionRender++;
+  const profileVersion = state.profileVersion;
   const token = newCalendarToken();
   try {
     await db.collection('users').doc(state.profile.sNumber).update({
       calendarToken: token,
       updatedAt: Date.now(),
     });
+    if (profileVersion !== state.profileVersion) return;
     state.calendarToken = token;
     renderCalendarSubscription();
     toast(isReset ? 'New link generated.' : 'Live calendar enabled.');
@@ -3110,6 +3250,8 @@ async function enableCalendarFeed(isReset) {
     console.error(err);
     logClientError('calendar-feed-enable', err);
     toast('Could not update your calendar link.');
+  } finally {
+    calendarFeedSaving = false;
   }
 }
 
@@ -3244,7 +3386,7 @@ function renderAssistCard(a, opts) {
     if (hasPhone(a.phone)) {
       const phone = formatPhone(a.phone);
       contact.innerHTML = `<div>Contact:</div>
-        <div><a href="${telHref(a.phone)}">${phone}</a></div>
+        <div><a href="${telHref(a.phone)}">${escapeHtml(phone)}</a></div>
         <div><a href="${smsHref(a.phone)}">Send text</a></div>`;
     } else {
       contact.innerHTML = `<div class="small muted">No phone on file \u2014 reach out via GroupMe.</div>`;
@@ -3448,6 +3590,8 @@ async function enterAdminView() {
 /* One-shot fetches so the admin view doesn't pay for a live subscription
  * on potentially-large collections. A Refresh button re-runs this. */
 async function loadAdminData() {
+  if (!state.isAdmin) return;
+  const profileVersion = state.profileVersion;
   if (!state.firestoreReady) {
     toast('Data storage not ready.');
     return;
@@ -3461,6 +3605,7 @@ async function loadAdminData() {
       db.collection('sessions').where('startedAt', '>=', thirtyDaysAgo).get(),
       db.collection('blocks').get(),
     ]);
+    if (!state.isAdmin || profileVersion !== state.profileVersion) return;
     state.admin.users = [];
     usersSnap.forEach((doc) => state.admin.users.push({ id: doc.id, ...doc.data() }));
     state.admin.sessions = [];
@@ -3474,6 +3619,7 @@ async function loadAdminData() {
     // for manual review rather than guessed.
     canonicalizeBlockTypes(posted)
       .then(({ fixed, unknown }) => {
+        if (!state.isAdmin || profileVersion !== state.profileVersion) return;
         if (fixed) console.log(`[admin] corrected ${fixed} mislabeled block type(s) in the database.`);
         state.admin.unknownTypes = unknown;
         if (unknown.length) {
@@ -3532,12 +3678,16 @@ async function loadAdminData() {
 }
 
 function setAdminSubView(sub) {
+  if (!state.isAdmin) return;
+  if (!['users', 'calendar', 'baser'].includes(sub)) sub = 'users';
   state.admin.subView = sub;
   document.querySelectorAll('#view-admin .admin-tab').forEach((b) => {
     b.classList.toggle('active', b.dataset.adminTab === sub);
   });
   $('admin-pane-users').classList.toggle('hidden', sub !== 'users');
   $('admin-pane-calendar').classList.toggle('hidden', sub !== 'calendar');
+  $('admin-pane-baser').classList.toggle('hidden', sub !== 'baser');
+  if (sub === 'baser') window.BaserAdminAnalytics?.enter();
   if (sub === 'users') renderAdminUsers();
   else if (sub === 'calendar') {
     if (!state.admin.calMonth) {
@@ -4434,11 +4584,24 @@ function wireEvents() {
   });
 
   /* ------- admin view wiring ------- */
+  window.addEventListener('baser-usage-signed-in', () => {
+    if (state.isAdmin) {
+      state.admin.subView = 'baser';
+      setView('admin');
+    } else toast('Usage sign-in complete. Open Admin → Baser usage after signing into ScheduleMaxer.');
+  });
+  window.addEventListener('baser-admin-ready', () => {
+    if (state.isAdmin && state.admin.subView === 'baser') window.BaserAdminAnalytics?.enter();
+  });
   document.querySelectorAll('#view-admin .admin-tab').forEach((b) => {
     b.addEventListener('click', () => setAdminSubView(b.dataset.adminTab));
   });
   const refreshBtn = $('admin-refresh');
   if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+    if (state.admin.subView === 'baser') {
+      await window.BaserAdminAnalytics?.refresh();
+      return;
+    }
     await loadAdminData();
     setAdminSubView(state.admin.subView || 'users');
   });
@@ -4547,10 +4710,13 @@ async function boot() {
 
   if (profileValid(state.profile) && state.firestoreReady) {
     showApp();
+    const sNumber = state.profile.sNumber;
+    const profileVersion = state.profileVersion;
     try {
-      const fresh = await fetchUserDoc(state.profile.sNumber);
+      const fresh = await fetchUserDoc(sNumber);
+      if (profileVersion !== state.profileVersion) return;
       if (fresh && validName(fresh.name) && validPhoneOrEmpty(fresh.phone)) {
-        cacheProfile({ name: fresh.name, sNumber: state.profile.sNumber, phone: fresh.phone });
+        cacheProfile({ name: fresh.name, sNumber, phone: fresh.phone });
         if (state.view === 'profile') fillProfileEditForm();
       }
     } catch (e) { /* ignore */ }

@@ -5,8 +5,12 @@ import { log, warn } from './debug.js';
 const stlExporter = new STLExporter();
 
 export function createBinarySTL(mesh) {
-    if (!mesh?.geometry?.getAttribute('position')?.count) {
+    const position = mesh?.geometry?.getAttribute('position');
+    if (!position || (mesh.geometry.index?.count ?? position.count) < 3) {
         throw new Error('The model has no geometry to export.');
+    }
+    for (const value of position.array) {
+        if (!Number.isFinite(value)) throw new Error('The model contains invalid coordinates.');
     }
 
     mesh.updateMatrixWorld(true);
@@ -16,10 +20,12 @@ export function createBinarySTL(mesh) {
     // Keep the source app's matching export correction: imports are shown at
     // -90 degrees X, then exported at +90 degrees X for slicer orientation.
     geometry.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
-    const exportMesh = new THREE.Mesh(geometry, mesh.material);
-    const result = stlExporter.parse(exportMesh, { binary: true });
-    geometry.dispose();
-    return result;
+    try {
+        const exportMesh = new THREE.Mesh(geometry, mesh.material);
+        return stlExporter.parse(exportMesh, { binary: true });
+    } finally {
+        geometry.dispose();
+    }
 }
 
 export function binaryResultToBytes(result) {

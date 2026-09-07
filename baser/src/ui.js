@@ -1,5 +1,6 @@
 import { isSupportedModelFile } from './importers.js';
-import { INFILL_PATTERNS } from './base.js';
+import { INFILL_PATTERNS, cleanEngravedText, createBaseOutline } from './base.js';
+import { engravingPreviewRectangles, engravingCapHeight, engravingIssue, measureOutline } from './infill.js';
 
 const $ = id => document.getElementById(id);
 
@@ -53,6 +54,7 @@ export function createUI({
     onBaseParam,
     onBaseHollow,
     onEngraving,
+    onViewLettering,
     onFitBase,
     onModelRotate,
     onRecenter,
@@ -176,21 +178,75 @@ export function createUI({
     // Engraving. Typing repaints the wall, so the rebuild waits until the
     // user pauses rather than firing on every keystroke.
     const textFields = [$('base-text-1'), $('base-text-2')];
+    const textSize = $('base-text-size');
+    const textAlign = $('base-text-align');
     let engravingTimer = null;
+    let currentBaseParams = null;
+    const engravingValues = () => ({ textSize: Number(textSize.value), textAlign: textAlign.value });
+    function flushEngraving() {
+        if (engravingTimer !== null) window.clearTimeout(engravingTimer);
+        engravingTimer = null;
+        onEngraving(textFields[0].value, textFields[1].value, engravingValues());
+    }
+    function paintEngraving(params) {
+        if (!params) return;
+        const svg = $('engraving-preview');
+        svg.replaceChildren();
+        const lines = [params.textLine1, params.textLine2].filter(Boolean);
+        const outline = measureOutline(createBaseOutline(params));
+        const cap = engravingCapHeight(params, lines.length);
+        const width = outline.chordLength;
+        const height = Math.max(10, params.clampBand);
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        const issue = engravingIssue(params, outline);
+        $('engraving-proof').classList.toggle('has-error', Boolean(issue));
+        $('engraving-caption').textContent = !lines.length ? 'Your label, engraved into the back wall'
+            : issue ? 'Adjust the label to fit before exporting'
+                : `${cap.toFixed(1)} mm letters · 0.6 mm recessed · back wall`;
+        if (!lines.length || issue) return;
+        lines.forEach((line, index) => {
+            const rowPitch = cap / 7;
+            const columnPitch = Math.min(rowPitch, (width - 6) / (line.length * 6 - 1));
+            const lineWidth = (line.length * 6 - 1) * columnPitch;
+            const x = params.textAlign === 'left' ? 3 : params.textAlign === 'right'
+                ? width - 3 - lineWidth : (width - lineWidth) / 2;
+            const y = height - 1.5 - cap - (lines.length - index - 1) * (cap + 1);
+            for (const stroke of engravingPreviewRectangles(line)) {
+                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rect.setAttribute('x', String(x + stroke.x * columnPitch));
+                rect.setAttribute('y', String(y + stroke.y * rowPitch));
+                rect.setAttribute('width', String(stroke.width * columnPitch));
+                rect.setAttribute('height', String(stroke.height * rowPitch));
+                svg.appendChild(rect);
+            }
+        });
+    }
+    function paintDraft() {
+        if (!currentBaseParams) return;
+        paintEngraving({ ...currentBaseParams, ...engravingValues(),
+            textLine1: cleanEngravedText(textFields[0].value), textLine2: cleanEngravedText(textFields[1].value) });
+    }
     for (const field of textFields) {
         field.addEventListener('input', () => {
             if (suppressEvents) return;
+            paintDraft();
             if (engravingTimer) window.clearTimeout(engravingTimer);
-            engravingTimer = window.setTimeout(() => {
-                onEngraving(textFields[0].value, textFields[1].value);
-            }, 400);
+            engravingTimer = window.setTimeout(flushEngraving, 400);
         });
         field.addEventListener('change', () => {
             if (suppressEvents) return;
-            if (engravingTimer) window.clearTimeout(engravingTimer);
-            onEngraving(textFields[0].value, textFields[1].value);
+            flushEngraving();
         });
+        field.addEventListener('keydown', event => { if (event.key === 'Enter') field.blur(); });
     }
+    for (const field of [textSize, textAlign]) field.addEventListener('change', () => {
+        if (!suppressEvents) { paintDraft(); flushEngraving(); }
+    });
+    $('btn-view-lettering').addEventListener('click', () => { flushEngraving(); onViewLettering(); });
+    $('btn-wall-design').addEventListener('click', () => {
+        settingsPanel.hidden = false;
+        $('pattern-gallery').scrollIntoView({ block: 'nearest' });
+    });
 
     $('btn-fit-base').addEventListener('click', () => onFitBase());
 
@@ -218,11 +274,34 @@ export function createUI({
     };
 
     const infillSelect = $('setting-infill');
+    const patternButtons = [];
+    // Decorative silhouettes only; the actual cuts are built by infill.js.
+    const previews = {
+        solid: '<path d="M12 23H112" stroke-width="3" opacity=".35"/>',
+        honeycomb: '<path d="m12 12 5-7h10l5 7-5 7H17Zm28 0 5-7h10l5 7-5 7H45Zm28 0 5-7h10l5 7-5 7H73Zm28 0 5-7h10l5 7-5 7h-10ZM26 32l5-7h10l5 7-5 7H31Zm28 0 5-7h10l5 7-5 7H59Zm28 0 5-7h10l5 7-5 7H87Z"/>',
+        diamond: '<path d="m10 12 9-9 9 9-9 9Zm29 0 9-9 9 9-9 9Zm29 0 9-9 9 9-9 9Zm29 0 9-9 9 9-9 9ZM24 33l9-9 9 9-9 9Zm29 0 9-9 9 9-9 9Zm29 0 9-9 9 9-9 9Z"/>',
+        chevron: '<path d="m9 29 10-15 10 15m9-15 10 15 10-15m9 15 10-15 10 15m9-15 10 15 10-15" fill="none" stroke-width="5"/>',
+        wave: '<path d="M8 29c7 0 7-15 15-15s8 15 15 15m6-15c7 0 7 15 15 15s8-15 15-15m6 15c7 0 7-15 15-15s8 15 15 15" fill="none" stroke-width="5" stroke-linecap="round"/>',
+        bars: '<path d="M15 8h14v28H15Zm27 0h14v28H42Zm27 0h14v28H69Zm27 0h14v28H96Z"/><path d="M22 8v28M49 8v28M76 8v28M103 8v28" stroke="var(--navy)" stroke-width="4"/>',
+        wide: '<path d="M13 9h20v26H13Zm38 0h20v26H51Zm38 0h20v26H89Z"/>',
+        text: '<text x="62" y="27" text-anchor="middle" font-family="monospace" font-size="12" stroke="none">MEDSTAR OMFS</text>'
+    };
     for (const pattern of INFILL_PATTERNS) {
         const option = document.createElement('option');
         option.value = pattern.id;
         option.textContent = pattern.label;
         infillSelect.appendChild(option);
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'pattern-card';
+        button.dataset.pattern = pattern.id;
+        button.setAttribute('aria-pressed', 'false');
+        button.setAttribute('aria-label', `${pattern.label}. ${pattern.description}`);
+        button.innerHTML = `<svg viewBox="0 0 124 44" aria-hidden="true">${previews[pattern.id]}</svg><span class="pattern-name">${pattern.label}${pattern.fresh ? '<small>New</small>' : ''}</span>`;
+        button.title = pattern.description;
+        button.addEventListener('click', () => onSettingsChange({ infill: pattern.id }, true));
+        $('pattern-gallery').appendChild(button);
+        patternButtons.push(button);
     }
     infillSelect.addEventListener('change', event => {
         if (!suppressEvents) onSettingsChange({ infill: event.target.value }, true);
@@ -267,8 +346,12 @@ export function createUI({
 
     return {
         toast,
+        flushEngraving,
 
         showDropScreen() {
+            if (engravingTimer !== null) window.clearTimeout(engravingTimer);
+            engravingTimer = null;
+            currentBaseParams = null;
             document.body.classList.remove('has-model');
             const card = dropScreen.querySelector('.drop-card');
             card.classList.remove('leaving');
@@ -330,6 +413,7 @@ export function createUI({
 
         syncBaseControls(params) {
             suppressEvents = true;
+            currentBaseParams = { ...params };
             setField(...baseFields.width, params.width);
             setField(...baseFields.depth, params.depth);
             setField(...baseFields.height, params.height);
@@ -346,6 +430,9 @@ export function createUI({
             if (document.activeElement !== textFields[1]) {
                 textFields[1].value = params.textLine2 ?? '';
             }
+            textSize.value = String(params.textSize ?? 4.2);
+            textAlign.value = params.textAlign ?? 'center';
+            paintEngraving(params);
             suppressEvents = false;
         },
 
@@ -371,6 +458,7 @@ export function createUI({
             setField(...settingFields.wall, settings.wall);
             setField(...settingFields.clampBand, settings.clampBand);
             infillSelect.value = settings.infill;
+            for (const button of patternButtons) button.setAttribute('aria-pressed', String(button.dataset.pattern === settings.infill));
             $('setting-hollow').checked = Boolean(settings.hollow);
             $('setting-autogrow').checked = Boolean(settings.autoGrow);
             $('setting-greeter').checked = Boolean(settings.showGreeter);

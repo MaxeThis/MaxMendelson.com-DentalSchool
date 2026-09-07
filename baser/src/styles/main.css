@@ -238,6 +238,29 @@ a:focus-visible {
     outline-offset: 2px;
 }
 
+select:focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+}
+
+.drop-privacy a { color: inherit; text-underline-offset: 3px; }
+.panel-hint a { color: var(--navy); text-underline-offset: 3px; }
+.pattern-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0 16px; }
+.pattern-card { padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); cursor: pointer; text-align: left; }
+.pattern-card:hover { border-color: var(--blue); background: var(--paper-2); }
+.pattern-card[aria-pressed="true"] { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); background: #eaf3f6; }
+.pattern-card svg { display: block; width: 100%; height: 42px; padding: 3px; background: var(--navy); border-radius: 5px; fill: #dae8f2; stroke: #dae8f2; stroke-width: 0; }
+.pattern-name { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: 6px; font-size: 0.73rem; font-weight: 600; }
+.pattern-name small { color: #00608a; font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.engraving-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }
+.engraving-options label { font-size: 0.72rem; color: var(--ink-soft); }
+.engraving-options select { display: block; width: 100%; margin-top: 5px; padding: 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink); font: inherit; }
+.engraving-proof { padding: 10px 12px; border-radius: 9px; background: #e5e9e8; border: 1px solid #c8d3d3; text-align: center; }
+.engraving-proof svg { display: block; width: 100%; height: 56px; fill: #1c4258; }
+.engraving-proof span { display: block; font-size: 0.64rem; line-height: 1.4; color: #45616e; }
+.engraving-proof.has-error { border-color: #bd791f; background: #fff0d8; }
+.engraving-warning { color: #92580c !important; font-weight: 600; }
+
 #topbar button:focus-visible {
     outline-color: var(--yellow);
 }
@@ -402,6 +425,8 @@ body.drag-active .drop-card {
 
 #inspector {
     bottom: 96px;
+    max-height: calc(100dvh - 180px);
+    overflow-y: auto;
 }
 
 .panel-head {

@@ -70,6 +70,10 @@ export function createCameraManager({ canvas, renderer, scene }) {
             switch (view) {
                 case 'front': endPosition.set(endTarget.x, endTarget.y, endTarget.z + distance); break;
                 case 'back': endPosition.set(endTarget.x, endTarget.y, endTarget.z - distance); break;
+                // A shallow recess disappears in a perfectly face-on,
+                // shadow-free view: its backing has the wall's normal.
+                // Show both sidewalls so the actual engraved depth reads.
+                case 'lettering': endPosition.set(endTarget.x + distance * 0.35, endTarget.y + distance * 0.22, endTarget.z - distance); break;
                 case 'left': endPosition.set(endTarget.x - distance, endTarget.y, endTarget.z); break;
                 case 'right': endPosition.set(endTarget.x + distance, endTarget.y, endTarget.z); break;
                 case 'top':

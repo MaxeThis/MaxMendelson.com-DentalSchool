@@ -19,54 +19,58 @@ let cachedToken = null; // { value, exp } — reused across requests in this iso
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders() });
+      return feedResponse(null, 204);
     }
     if (request.method !== 'GET') {
-      return new Response('Method not allowed', { status: 405 });
+      return feedResponse('Method not allowed', 405, { Allow: 'GET, OPTIONS' });
     }
     const url = new URL(request.url);
     if (!/^\/calendar(\.ics)?$/.test(url.pathname)) {
-      return new Response('Not found', { status: 404 });
+      return feedResponse('Not found', 404);
     }
 
     const u = (url.searchParams.get('u') || '').toUpperCase();
     const k = url.searchParams.get('k') || '';
     const reminder = url.searchParams.get('reminder') || '';
-    if (!/^S\d{5}$/.test(u) || !k) {
-      return new Response('Bad request — use ?u=S##### & k=<token>', { status: 400 });
+    if (!/^S\d{5}$/.test(u) || !/^[a-f0-9]{32}$/.test(k)) {
+      return feedResponse('Bad request — use ?u=S##### & k=<token>', 400);
     }
 
     try {
       const accessToken = await getAccessToken(env);
       const doc = await getUserDoc(env, accessToken, u);
-      if (!doc) return new Response('No such user', { status: 404 });
-
-      const fields = doc.fields || {};
+      const fields = (doc && doc.fields) || {};
       const token = fields.calendarToken && fields.calendarToken.stringValue;
-      if (!token || token !== k) {
-        return new Response('Invalid or missing key', { status: 403 });
+      if (typeof token !== 'string' || !/^[a-f0-9]{32}$/.test(token)
+          || !crypto.subtle.timingSafeEqual(new TextEncoder().encode(token), new TextEncoder().encode(k))) {
+        // A missing account and an incorrect key have the same response.
+        return feedResponse('Invalid or missing key', 403);
       }
 
       const name = (fields.name && fields.name.stringValue) || 'Block';
       const schedule = parseSchedule(fields.schedule);
       const ics = buildIcs(name, schedule, reminder);
-      return new Response(ics, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/calendar; charset=utf-8',
-          'Cache-Control': 'public, max-age=3600',
-          'Content-Disposition': 'inline; filename="umsod-blocks.ics"',
-          ...corsHeaders(),
-        },
+      return feedResponse(ics, 200, {
+        'Content-Type': 'text/calendar; charset=utf-8',
+        'Content-Disposition': 'inline; filename="umsod-blocks.ics"',
       });
-    } catch (err) {
-      return new Response('Server error: ' + ((err && err.message) || err), { status: 500 });
+    } catch (_) {
+      return feedResponse('Calendar temporarily unavailable. Please retry later.', 503);
     }
   },
 };
 
-function corsHeaders() {
-  return { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET' };
+function feedResponse(body, status, headers = {}) {
+  return new Response(body, { status, headers: {
+    'Content-Type': 'text/plain; charset=utf-8',
+    // Shared caching could keep a revoked calendar URL working after reset.
+    'Cache-Control': 'private, no-store',
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    ...headers,
+  } });
 }
 
 /* ----------------------------- Google auth ----------------------------- */
@@ -144,9 +148,9 @@ function parseSchedule(scheduleField) {
   if (!Array.isArray(values)) return [];
   const out = [];
   for (const v of values) {
-    const f = v.mapValue && v.mapValue.fields;
+    const f = v && v.mapValue && v.mapValue.fields;
     if (!f) continue;
-    const get = (key) => (f[key] && f[key].stringValue) || '';
+    const get = (key) => (f[key] && typeof f[key].stringValue === 'string' && f[key].stringValue) || '';
     const date = get('date');
     const startTime = get('startTime');
     const endTime = get('endTime');
@@ -162,22 +166,31 @@ function parseSchedule(scheduleField) {
 function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 
 function icsEscape(s) {
-  return (s || '')
+  return String(s || '')
     .replace(/\\/g, '\\\\')
-    .replace(/\r?\n/g, '\\n')
+    .replace(/\r\n|\r|\n/g, '\\n')
     .replace(/,/g, '\\,')
     .replace(/;/g, '\\;');
 }
 
 function parseTime12(t) {
-  const m = (t || '').trim().match(/^(\d{1,2}):(\d{2})\s*([AaPp])[Mm]?$/);
+  if (typeof t !== 'string') return null;
+  const m = t.trim().match(/^(\d{1,2}):(\d{2})\s*([AaPp])[Mm]?$/);
   if (!m) return null;
   let h = parseInt(m[1], 10);
   const min = parseInt(m[2], 10);
+  if (h < 1 || h > 12 || min < 0 || min > 59) return null;
   const ap = m[3].toUpperCase();
   if (h === 12) h = 0;
   if (ap === 'P') h += 12;
   return { h, min };
+}
+
+function validDate(date) {
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const [y, mo, d] = date.split('-').map(Number);
+  const parsed = new Date(Date.UTC(y, mo - 1, d));
+  return parsed.getUTCFullYear() === y && parsed.getUTCMonth() === mo - 1 && parsed.getUTCDate() === d;
 }
 
 // Floating local time (no Z / no TZID), exactly like app.js icsDateTime().
@@ -223,11 +236,12 @@ function buildIcs(name, schedule, reminderParam) {
   ];
   const dtstamp = utcStamp(new Date());
 
-  const items = schedule
+  const items = (Array.isArray(schedule) ? schedule : [])
     .map((ev) => {
+      if (!ev || !validDate(ev.date)) return null;
       const s = parseTime12(ev.startTime);
       const e = parseTime12(ev.endTime);
-      return s && e ? { ev, s, e } : null;
+      return s && e && e.h * 60 + e.min > s.h * 60 + s.min ? { ev, s, e } : null;
     })
     .filter(Boolean)
     .sort((a, b) => {

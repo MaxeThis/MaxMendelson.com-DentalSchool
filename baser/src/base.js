@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { subtractGeometries, unionGeometries, getEdgeTopologyStats } from './csg.js';
 import { warn } from './debug.js';
+import { buildPatternedShell } from './patterned-shell.js';
 import {
     buildInfillCutterPieces,
     buildEngravingCutters,
@@ -38,10 +39,14 @@ export const BASE_LIMITS = Object.freeze({
  * pattern only opens the wall above that line.
  */
 export const INFILL_PATTERNS = Object.freeze([
-    { id: 'solid', label: 'Solid wall' },
-    { id: 'bars', label: 'Prison bars' },
-    { id: 'wide', label: 'Windows' },
-    { id: 'text', label: 'MedStar OMFS' }
+    { id: 'solid', label: 'Solid wall', description: 'Clean and uninterrupted', band: 0 },
+    { id: 'honeycomb', label: 'Honeycomb', description: 'Staggered hexagonal cells', band: 9, fresh: true },
+    { id: 'diamond', label: 'Diamonds', description: 'Faceted, architectural rhythm', band: 9, fresh: true },
+    { id: 'chevron', label: 'Chevron', description: 'Crisp repeating arrow cuts', band: 8, fresh: true },
+    { id: 'wave', label: 'Wave', description: 'Flowing sculpted channels', band: 8, fresh: true },
+    { id: 'bars', label: 'Round bars', description: 'Classic vertical posts', band: 5 },
+    { id: 'wide', label: 'Windows', description: 'Wide open wall slots', band: 5 },
+    { id: 'text', label: 'MedStar OMFS', description: 'Lettered back wall', band: 12.9 }
 ]);
 
 const INFILL_IDS = INFILL_PATTERNS.map(pattern => pattern.id);
@@ -67,6 +72,8 @@ export const DEFAULT_BASE_PARAMS = Object.freeze({
     // Lettering cut into the flat back wall, centered. Empty means none.
     textLine1: '',
     textLine2: '',
+    textSize: 4.2,
+    textAlign: 'center',
     // The clamp grips the lower part of the base; keep it solid.
     clampBand: 10,
     posX: 0,
@@ -86,10 +93,13 @@ export const MAX_ENGRAVED_CHARACTERS = 22;
 export function cleanEngravedText(value) {
     if (typeof value !== 'string') return '';
     return value
+        .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[’‘]/g, "'").replace(/[–—−]/g, '-')
+        .replace(/\s+/g, ' ')
         .toUpperCase()
         .replace(/[^A-Z0-9 .,'&/+-]/g, '')
         .replace(/\s+/g, ' ')
-        .trimStart()
+        .trim()
         .slice(0, MAX_ENGRAVED_CHARACTERS);
 }
 
@@ -159,6 +169,8 @@ export function normalizeBaseParams(params = {}) {
             : DEFAULT_BASE_PARAMS.infill,
         textLine1: cleanEngravedText(params.textLine1),
         textLine2: cleanEngravedText(params.textLine2),
+        textSize: clamp(finiteNumber(params.textSize, DEFAULT_BASE_PARAMS.textSize), 3.2, 4.2),
+        textAlign: ['left', 'center', 'right'].includes(params.textAlign) ? params.textAlign : 'center',
         // The clamp band is a safety value: the wall the articulator screw
         // bites on. It is never trimmed to make room for a pattern. If the
         // base is too short to fit both, the pattern is the thing that
@@ -327,6 +339,10 @@ function extrudeBaseShape(
 }
 
 function buildSolidBaseGeometry(params) {
+    if (['honeycomb', 'diamond', 'chevron', 'wave'].includes(params.infill)
+        || (params.infill === 'solid' && hasEngraving(params))) {
+        return buildStitchedHollowGeometry(params);
+    }
     return extrudeBaseShape(
         createOuterHalfDisc(params.width, params.depth, params.cornerRadius),
         params.height,
@@ -382,6 +398,10 @@ function buildStitchedHollowGeometry(params) {
         params.wall,
         params.cornerRadius
     );
+    if (['honeycomb', 'diamond', 'chevron', 'wave'].includes(params.infill)
+        || (params.infill === 'solid' && hasEngraving(params))) {
+        return buildPatternedShell(params, outer, inner);
+    }
     const ringSize = outer.length;
     const vertices = [];
     const indices = [];
@@ -461,6 +481,7 @@ function buildStitchedHollowGeometry(params) {
  */
 function cutWallPattern(baseGeometry, normalized) {
     if (normalized.infill === 'solid') return baseGeometry;
+    if (['honeycomb', 'diamond', 'chevron', 'wave'].includes(normalized.infill)) return baseGeometry;
     const outline = createHalfDiscPerimeter(
         normalized.width / 2,
         normalized.depth,
@@ -484,6 +505,7 @@ function cutWallPattern(baseGeometry, normalized) {
  * has to share a boolean with them.
  */
 function cutEngraving(baseGeometry, normalized) {
+    if (baseGeometry.userData.engravingBuilt) return baseGeometry;
     const outline = measureOutline(createHalfDiscPerimeter(
         normalized.width / 2,
         normalized.depth,
@@ -518,6 +540,7 @@ const PIECE_BATCH = 8;
 function applyPieces(baseGeometry, pieces, operate, label) {
     let geometry = baseGeometry;
     let dropped = 0;
+    const detailWarnings = [...(baseGeometry.userData.detailWarnings ?? [])];
 
     const step = piece => {
         let candidate = null;
@@ -566,7 +589,9 @@ function applyPieces(baseGeometry, pieces, operate, label) {
     if (dropped) {
         warn(`[Base] ${dropped} of ${pieces.length} pieces of ${label} were `
             + 'left out to keep the plate closed.');
+        detailWarnings.push({ label, dropped, total: pieces.length });
     }
+    geometry.userData.detailWarnings = detailWarnings;
     if (geometry !== baseGeometry) baseGeometry.dispose();
     return geometry;
 }

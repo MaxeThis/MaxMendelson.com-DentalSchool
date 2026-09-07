@@ -21,10 +21,10 @@
 
   <main class="container">
     <section class="panel">
-      <p><strong>Last updated:</strong> <span id="updated"></span></p>
+      <p><strong>Last updated:</strong> September 7, 2026</p>
 
       <h2>The short version</h2>
-      <p><strong>Nothing you put into this site is private.</strong> Treat everything you enter as public info that other students can see. I'm not responsible for anything that happens with that info. Use the site at your own risk.</p>
+      <p>ScheduleMaxer shares your profile and posted blocks with other students. Treat that information as public. Articulator Baser processes scans and label text locally on your computer; those files and labels are not included in usage tracking.</p>
 
       <h2>Who runs this</h2>
       <p>Max Mendelson. This site is a personal side project — it's not affiliated with, endorsed by, or operated by any school or institution.</p>
@@ -45,14 +45,25 @@
         <li>Anti-bot protection uses Google reCAPTCHA v3, which collects standard device/browser signals to tell humans from scripts. See <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google's privacy policy</a>.</li>
       </ul>
 
+      <h2 id="baser-usage">Articulator Baser usage counts</h2>
+      <p>Baser sends limited usage counts to my Google Firebase project so I can see whether the app is useful and whether importing and exporting work. A separate, randomly assigned browser ID estimates unique and returning browsers. It is not linked to a student account.</p>
+      <ul>
+        <li>Collected: a random browser ID and session ID, session start and last activity times, approximate active seconds, and counts of successful or failed imports and exports, export attempts, text changes applied, and pattern changes.</li>
+        <li>Not collected by Baser usage tracking: scans, model geometry, filenames, label text, screenshots, student IDs, names, contact details, precise location, page URLs, or raw error messages. Scans and generated STL files remain on your computer.</li>
+        <li>Counts are stored in Firebase. Database rules restrict reading usage records to the site owner’s verified account. Hosting, Firebase authentication, and reCAPTCHA still process normal connection and anti-abuse information under Google’s policies.</li>
+        <li>You can turn off <em>Share anonymous usage counts</em> in Baser’s Settings. Baser also respects Global Privacy Control and Do Not Track. Turning it off stops future counts; it does not remove counts already sent.</li>
+        <li>Blocking storage or network requests can reduce counts. Clearing browser data starts a new anonymous identity. The dashboard displays the last 7, 30, or 90 days; this display window is not an automatic deletion schedule.</li>
+      </ul>
+      <p>ScheduleMaxer also stores sign-in session times so the existing admin panel can show usage frequency and recent activity.</p>
+
       <h2>What I don't do</h2>
-      <p>I don't sell your data. I don't run analytics or advertising tracking on you. The PerioMaxer link is a plain link to the App Store.</p>
+      <p>I don't sell your data or use advertising trackers. The PerioMaxer link is a plain link to the App Store.</p>
 
       <h2>No guarantees</h2>
       <ul>
         <li>No warranty of any kind. The site may go down, lose data, get scraped, or otherwise misbehave without warning.</li>
         <li>I'm not responsible for any harm, loss, or consequence from using this site — including but not limited to missed blocks, miscommunications, or anything involving the info you or anyone else posts here.</li>
-        <li>Don't put anything sensitive in here. If you wouldn't write it on a whiteboard in the hallway, don't put it on this site.</li>
+        <li>Don't put sensitive information into ScheduleMaxer profiles, notes, or posts.</li>
         <li>By using the site you agree to the above.</li>
       </ul>
 
@@ -75,7 +86,6 @@
 
   <script>
     document.getElementById('year').textContent = new Date().getFullYear();
-    document.getElementById('updated').textContent = new Date().toLocaleDateString();
   </script>
 </body>
 </html>

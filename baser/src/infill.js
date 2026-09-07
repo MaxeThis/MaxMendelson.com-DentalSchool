@@ -156,7 +156,7 @@ export function measureOutline(points) {
  * returns the [low, high] height pair at t in 0..1, which is what gives a
  * pattern its silhouette.
  */
-function buildSweptPrism(outline, arcStart, arcEnd, wall, profile, innerDepth) {
+function buildSweptPrism(outline, arcStart, arcEnd, wall, profile, innerDepth, minimumHeight = MIN_PROFILE_HEIGHT) {
     const span = arcEnd - arcStart;
     const outer = PIERCE_OVERSHOOT;
     const inner = innerDepth ?? (wall + PIERCE_OVERSHOOT);
@@ -194,10 +194,10 @@ function buildSweptPrism(outline, arcStart, arcEnd, wall, profile, innerDepth) {
         const t = span === 0 ? 0 : (arcs[index] - arcStart) / span;
         const sample = outline.at(arcs[index]);
         let [low, high] = profile(t);
-        if (high - low < MIN_PROFILE_HEIGHT) {
+        if (high - low < minimumHeight) {
             const middle = (low + high) / 2;
-            low = middle - MIN_PROFILE_HEIGHT / 2;
-            high = middle + MIN_PROFILE_HEIGHT / 2;
+            low = middle - minimumHeight / 2;
+            high = middle + minimumHeight / 2;
         }
 
         const outerPoint = new THREE.Vector2()
@@ -270,6 +270,42 @@ function signedVolume(positions) {
             + az * (bx * cy - by * cx);
     }
     return volume / 6;
+}
+
+/** A shaped opening extruded straight through the wall's local tangent.
+ * Keeping planar cap triangulation in ShapeGeometry avoids coplanar strips
+ * across every profile station, which produce unstable boolean seams.
+ * The curvature guard in buildSlotCutters limits the chord's deviation.
+ */
+function buildProfilePrism(outline, from, to, wall, profile) {
+    const steps = 12;
+    const points = [];
+    for (let step = 0; step <= steps; step += 1) {
+        const t = step / steps;
+        points.push(new THREE.Vector2((t - 0.5) * (to - from), profile(t)[0]));
+    }
+    for (let step = steps; step >= 0; step -= 1) {
+        const t = step / steps;
+        points.push(new THREE.Vector2((t - 0.5) * (to - from), profile(t)[1]));
+    }
+    // A straight edge needs only its endpoints, especially at hex shoulders.
+    const corners = points.filter((point, index) => {
+        const before = points[(index - 1 + points.length) % points.length];
+        const after = points[(index + 1) % points.length];
+        return Math.abs((point.x - before.x) * (after.y - point.y)
+            - (point.y - before.y) * (after.x - point.x)) > 1e-8;
+    });
+    const geometry = new THREE.ExtrudeGeometry(new THREE.Shape(corners), {
+        depth: wall + PIERCE_OVERSHOOT * 2, bevelEnabled: false, steps: 1
+    });
+    geometry.translate(0, 0, -wall - PIERCE_OVERSHOOT);
+    const sample = outline.at((from + to) / 2);
+    geometry.rotateY(Math.atan2(sample.normal.x, sample.normal.y));
+    geometry.translate(sample.position.x, 0, sample.position.y);
+    for (const name of Object.keys(geometry.attributes)) {
+        if (name !== 'position') geometry.deleteAttribute(name);
+    }
+    return geometry;
 }
 
 function flipWinding(geometry) {
@@ -435,6 +471,8 @@ export function buildSlotCutters(outline, params, band, {
     rowGap: rowGapOption,
     stagger = true,
     phase = 0,
+    windowsOnly = false,
+    profileStations = [0, 0.5, 1],
     profile: profileShape = null
 }) {
     const low = band.low + EDGE_MARGIN;
@@ -460,7 +498,8 @@ export function buildSlotCutters(outline, params, band, {
 
         for (let index = 0; index < count; index += 1) {
             // Start half a step in so no cut straddles the outline's seam.
-            const centre = step / 2 + shift + phase * step + index * step;
+            const centre = (step / 2 + shift + phase * step + index * step) % outline.perimeter;
+            if (centre - slotWidth / 2 <= 0 || centre + slotWidth / 2 >= outline.perimeter) continue;
             // Leave the tight posterior fillets solid. A cut spanning that
             // much curvature cannot be squared cleanly through the wall,
             // and a solid corner is the part most likely to take a knock.
@@ -477,7 +516,11 @@ export function buildSlotCutters(outline, params, band, {
             const profile = profileShape
                 ? t => profileShape(t, rowLow, rowHigh, index)
                 : () => [rowLow, rowHigh];
-            cutters.push(buildSweptPrism(
+            if (windowsOnly) {
+                cutters.push({ from, to, profile, stations: profileStations });
+                continue;
+            }
+            cutters.push(profileShape ? buildProfilePrism(outline, from, to, params.wall, profile) : buildSweptPrism(
                 outline,
                 from,
                 to,
@@ -555,6 +598,18 @@ export function maxLineCharacters(outline) {
     return Math.max(0, Math.floor((cells + 1) / (FONT_COLUMNS + 1)));
 }
 
+/** Same strokes used by the mesh, for the live label proof in the inspector. */
+export function engravingPreviewRectangles(text) {
+    return Array.from(text).flatMap((character, index) =>
+        glyphRectangles(FONT[character] ?? FONT[' ']).map(rect => ({
+            x: index * (FONT_COLUMNS + 1) + rect.column + 0.15,
+            y: rect.row + 0.15,
+            width: rect.width - 0.3,
+            height: rect.height - 0.3
+        }))
+    );
+}
+
 /**
  * Break a glyph into as few rectangles as will cover it, merging downward
  * as well as across.
@@ -617,7 +672,8 @@ function buildLineCutters(outline, params, band, text, options = {}) {
         capHeight = null,
         // How far into the wall to cut. Null cuts clean through.
         depth = null,
-        minBar = MIN_TEXT_BAR
+        minBar = MIN_TEXT_BAR,
+        windowsOnly = false
     } = options;
 
     const usableHeight = band.height - EDGE_MARGIN * 2;
@@ -651,7 +707,11 @@ function buildLineCutters(outline, params, band, text, options = {}) {
     // standing outside sees +X on their left. So the line is laid out
     // from the right end of the chord backwards, which puts it the right
     // way round without mirroring any geometry.
-    const rightArc = outline.chordLength / 2 + totalWidth / 2;
+    const rightArc = params.textAlign === 'left' && depth !== null
+        ? outline.chordLength - 3
+        : params.textAlign === 'right' && depth !== null
+            ? totalWidth + 3
+            : outline.chordLength / 2 + totalWidth / 2;
     const bottom = band.low + (band.height - FONT_ROWS * rowPitch) / 2;
     const inset = columnPitch * 0.15;
     // A prism is measured from PIERCE_OVERSHOOT outside the surface, so a
@@ -685,13 +745,22 @@ function buildLineCutters(outline, params, band, text, options = {}) {
                 + (FONT_ROWS - rect.row - rect.height) * rowPitch
                 + rowGap / 2;
 
+            if (windowsOnly) {
+                cutters.push({ from, to, profile: () => [low, top], depth, stations: [0, 1] });
+                continue;
+            }
+
             cutters.push(buildSweptPrism(
                 outline,
                 from,
                 to,
                 params.wall,
                 () => [low, top],
-                innerDepth
+                innerDepth,
+                // Letter bars have already passed the printable minimum.
+                // Inflating them to the pattern's 0.45 mm tip minimum
+                // squeezes the intentional gaps between separate strokes.
+                minBar
             ));
         }
     }
@@ -704,7 +773,7 @@ function buildLineCutters(outline, params, band, text, options = {}) {
  * flat back wall. Two lines split the band between them with a gap, so a
  * second line always shrinks the first rather than colliding with it.
  */
-export function buildEngravingCutters(outline, params) {
+export function buildEngravingCutters(outline, params, { windowsOnly = false } = {}) {
     const lines = [params.textLine1, params.textLine2].filter(Boolean);
     if (!lines.length) return [];
 
@@ -727,7 +796,7 @@ export function buildEngravingCutters(outline, params) {
                 height: cap + EDGE_MARGIN * 2
             },
             text,
-            { capHeight: cap, depth: ENGRAVE_DEPTH, minBar: MIN_ENGRAVE_BAR }
+            { capHeight: cap, depth: ENGRAVE_DEPTH, minBar: MIN_ENGRAVE_BAR, windowsOnly }
         ));
     });
     return cutters;
@@ -749,9 +818,10 @@ export function engravingCapHeight(params, lineCount = 1) {
         - ENGRAVE_HEADROOM
         - (lines - 1) * ENGRAVE_LINE_GAP;
     if (room <= 0) return 0;
-    const cap = Math.min(ENGRAVE_CAP_HEIGHT, room / lines);
+    const cap = Math.min(params.textSize ?? ENGRAVE_CAP_HEIGHT, ENGRAVE_CAP_HEIGHT, room / lines);
     // Too fine to print or to cut cleanly is the same as not fitting.
-    return cap * BAR_FRACTION / FONT_ROWS >= MIN_ENGRAVE_BAR ? cap : 0;
+    return cap * BAR_FRACTION / FONT_ROWS >= MIN_ENGRAVE_BAR
+        && cap / FONT_ROWS >= MIN_COLUMN_PITCH ? cap : 0;
 }
 
 /**
@@ -769,11 +839,25 @@ export function buildWallLabelCutters(outline, params) {
 export function engravingBandNeeded(lineCount) {
     const lines = Math.max(1, lineCount);
     // The smallest capital that still cuts and prints, not the tallest.
-    const smallest = (MIN_ENGRAVE_BAR / BAR_FRACTION) * FONT_ROWS;
+    const smallest = Math.max(MIN_ENGRAVE_BAR / BAR_FRACTION, MIN_COLUMN_PITCH) * FONT_ROWS;
     return Number((ENGRAVE_FLOOR
         + lines * smallest
         + (lines - 1) * ENGRAVE_LINE_GAP
-        + ENGRAVE_HEADROOM).toFixed(1));
+        + ENGRAVE_HEADROOM + 0.01).toFixed(1));
+}
+
+/** Validate every requested line; one fitting line must not hide another missing one. */
+export function engravingIssue(params, outline) {
+    const lines = [params.textLine1, params.textLine2].filter(Boolean);
+    if (!lines.length) return '';
+    const fits = maxLineCharacters(outline);
+    if (lines.some(line => line.length > fits)) {
+        return `This plate fits ${fits} characters per line. Shorten the label or widen the base.`;
+    }
+    if (!engravingCapHeight(params, lines.length)) {
+        return `Lettering needs at least ${Math.ceil(engravingBandNeeded(lines.length))} mm of clamp band and enough base height above it.`;
+    }
+    return '';
 }
 
 /** Does this base carry any engraved lettering? */
@@ -812,7 +896,7 @@ export function buildInfillCutterGeometry(params, outlinePoints, attempt = {}) {
  * The wall pattern as separate cuts. Each goes into the wall on its own,
  * so one awkward slot costs one slot rather than the whole plate.
  */
-export function buildInfillCutterPieces(params, outlinePoints, { lift = 0, phase = 0, widthScale = 1 } = {}) {
+export function buildInfillCutterPieces(params, outlinePoints, { lift = 0, phase = 0, widthScale = 1, windowsOnly = false } = {}) {
     if (!params.infill || params.infill === 'solid') return [];
 
     const raw = getInfillBand(params);
@@ -836,7 +920,45 @@ export function buildInfillCutterPieces(params, outlinePoints, { lift = 0, phase
     const spacing = width + MIN_LIGAMENT + SNAP_ALLOWANCE;
     let cutters = [];
 
-    if (params.infill === 'bars') {
+    if (params.infill === 'honeycomb' || params.infill === 'diamond') {
+        const hex = params.infill === 'honeycomb';
+        cutters = buildSlotCutters(outline, params, band, {
+            slotWidth: width,
+            pitch: spacing,
+            rows: 2,
+            rowGap: 1.5,
+            phase,
+            windowsOnly,
+            profileStations: hex ? [0, 1 / 3, 2 / 3, 1] : [0, 0.5, 1],
+            profile(t, low, high) {
+                const middle = (low + high) / 2;
+                // Small flat tips preserve printable material and avoid
+                // zero-area triangles at the points of a cell.
+                const taper = hex ? Math.min(1, 3 * Math.min(t, 1 - t))
+                    : 1 - Math.abs(2 * t - 1);
+                const half = 0.3 + (Math.max(0.3, (high - low) / 2) - 0.3) * taper;
+                return [middle - half, middle + half];
+            }
+        });
+    } else if (params.infill === 'chevron' || params.infill === 'wave') {
+        const wave = params.infill === 'wave';
+        cutters = buildSlotCutters(outline, params, band, {
+            slotWidth: width,
+            pitch: spacing,
+            phase,
+            windowsOnly,
+            profileStations: wave ? Array.from({ length: 13 }, (_, i) => i / 12) : [0, 0.5, 1],
+            profile(t, low, high, index) {
+                const thickness = Math.min(1.8, (high - low) * 0.36);
+                const shape = wave
+                    ? (Math.sin((t - 0.25) * Math.PI * 2) + 1) / 2
+                    : 1 - Math.abs(2 * t - 1);
+                const direction = index % 2 ? 1 - shape : shape;
+                const bottom = low + (high - low - thickness) * direction;
+                return [bottom, bottom + thickness];
+            }
+        });
+    } else if (params.infill === 'bars') {
         // Prison bars: the same wide openings as the window pattern, with a
         // round bar standing in each one. The bars are added back as solids
         // afterwards, so only the openings are cut here.
@@ -868,6 +990,10 @@ export function buildInfillCutterPieces(params, outlinePoints, { lift = 0, phase
     // far edge always sits well above the chord.
     if (hasEngraving(params) || params.infill === 'text') {
         cutters = cutters.filter(cutter => {
+            if (windowsOnly) {
+                return outline.at(cutter.from).position.y > outline.chordZ + CHORD_CLEARANCE
+                    && outline.at(cutter.to).position.y > outline.chordZ + CHORD_CLEARANCE;
+            }
             cutter.computeBoundingBox();
             const keep = cutter.boundingBox.min.z > outline.chordZ + CHORD_CLEARANCE;
             if (!keep) cutter.dispose();

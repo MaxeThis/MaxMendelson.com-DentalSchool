@@ -57,6 +57,13 @@ export function sanitizeGeometry(
     source,
     { weldTolerance = DEFAULT_WELD_TOLERANCE } = {}
 ) {
+    const position = source.getAttribute('position');
+    if (!position || position.count < 3) throw new Error('The file contains no triangles.');
+    for (let index = 0; index < position.array.length; index += 1) {
+        if (!Number.isFinite(position.array[index])) {
+            throw new Error('The file contains invalid coordinates. Re-export it from your scan software.');
+        }
+    }
     const working = keepPositionOnly(source.clone());
     let geometry;
     try {
@@ -65,6 +72,10 @@ export function sanitizeGeometry(
         working.dispose();
     }
     removeDegenerateTriangles(geometry);
+    if (!geometry.index?.count) {
+        geometry.dispose();
+        throw new Error('The file contains no usable triangles.');
+    }
     geometry.computeVertexNormals();
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();

@@ -1,0 +1,28 @@
+name: Site checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Schedule, privacy, and calendar regressions
+        run: |
+          node test/test-parser.js
+          node test/test-site.js
+          node test/test-calendar-worker.js
+          node test/test-usage.mjs
+          node test/test-usage-lifecycle.mjs
+          node test/test-admin-analytics.mjs
+      - name: Geometry, engraving, and STL regressions
+        run: node test/test-baser.mjs

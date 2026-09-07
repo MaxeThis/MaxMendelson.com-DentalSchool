@@ -5,7 +5,7 @@
 // 3. Paste the values below, replacing the REPLACE_ME_ strings.
 // 4. In the Firebase console, open "Build → Firestore Database" and click
 //    "Create database" → Start in production mode. Pick a region close to you.
-// 5. Open the "Rules" tab and paste the rules from README.md, then Publish.
+// 5. Deploy firestore.rules using the guarded helper documented in ANALYTICS.md.
 //
 // The values below are PUBLIC by design — it's fine to commit them. Security
 // is enforced by your Firestore rules, not by hiding these keys.

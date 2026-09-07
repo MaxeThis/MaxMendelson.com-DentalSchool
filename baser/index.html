@@ -14,11 +14,10 @@
     <meta name="theme-color" content="#002664">
     <link rel="apple-touch-icon" href="./public/icons/apple-touch-icon.png">
     <meta name="application-name" content="Articulator Baser">
-    <!-- Fonts ship with the app. Nothing here reaches out to a server, so
-         a scan, a patient name and even the fact that someone opened the
-         page all stay on the machine it runs on. -->
+    <!-- Models, labels, fonts and geometry processing stay on this device.
+         Optional anonymous counters never include model or label content. -->
     <link rel="stylesheet" href="./src/styles/fonts.css">
-    <link rel="stylesheet" href="./src/styles/main.css">
+    <link rel="stylesheet" href="./src/styles/main.css?v=20260907">
 </head>
 
 <body>
@@ -67,7 +66,8 @@
             <h1 class="drop-title">Drop your scan here</h1>
             <p class="drop-sub">STL or OBJ &middot; the articulator base is added automatically</p>
             <button id="btn-browse" class="btn btn-primary" type="button">Browse files</button>
-            <p class="drop-privacy">Scans stay on this computer. Nothing is uploaded.</p>
+            <p class="drop-privacy">Scans and labels stay on this computer. Anonymous usage counts help improve the app.
+                <a href="../privacy.html#baser-usage" target="_blank" rel="noopener">Privacy details</a></p>
         </div>
     </main>
 
@@ -130,13 +130,28 @@
             <h3 class="panel-section-title">Engraving</h3>
             <div class="field-row field-row-text">
                 <label for="base-text-1">Line 1</label>
-                <input type="text" id="base-text-1" maxlength="22" placeholder="e.g. SMITH, J." autocomplete="off">
+                <input type="text" id="base-text-1" maxlength="22" placeholder="e.g. DEMO MODEL" autocomplete="off" spellcheck="false" aria-describedby="engraving-help engraving-hint">
             </div>
             <div class="field-row field-row-text">
                 <label for="base-text-2">Line 2</label>
-                <input type="text" id="base-text-2" maxlength="22" placeholder="e.g. UPPER 03/26" autocomplete="off">
+                <input type="text" id="base-text-2" maxlength="22" placeholder="e.g. UPPER 09/26" autocomplete="off" spellcheck="false" aria-describedby="engraving-help engraving-hint">
             </div>
-            <p class="panel-hint" id="engraving-hint"></p>
+            <div class="engraving-options">
+                <label for="base-text-size">Letter size
+                    <select id="base-text-size"><option value="3.2">Small</option><option value="3.7">Medium</option><option value="4.2">Large</option></select>
+                </label>
+                <label for="base-text-align">Alignment
+                    <select id="base-text-align"><option value="left">Left</option><option value="center" selected>Center</option><option value="right">Right</option></select>
+                </label>
+            </div>
+            <div class="engraving-proof" id="engraving-proof">
+                <svg id="engraving-preview" aria-label="Engraving preview on the back wall" role="img"></svg>
+                <span id="engraving-caption">Your label, engraved into the back wall</span>
+            </div>
+            <p class="panel-hint" id="engraving-help">Up to 22 characters per line. A–Z, 0–9 and . , ' &amp; / + −. Accents become plain letters. Labels stay on this device.</p>
+            <p class="panel-hint engraving-warning" id="engraving-hint" role="status" aria-live="polite"></p>
+            <button id="btn-view-lettering" class="btn btn-ghost btn-block" type="button">View back wall</button>
+            <button id="btn-wall-design" class="btn btn-ghost btn-block" type="button">Choose wall design</button>
             <button id="btn-fit-base" class="btn btn-ghost btn-block" type="button">Center under model</button>
         </div>
 
@@ -196,6 +211,7 @@
             <label for="setting-infill">Pattern</label>
             <select id="setting-infill"></select>
         </div>
+        <div id="pattern-gallery" class="pattern-gallery" role="group" aria-label="Wall designs"></div>
         <div class="field-row">
             <label for="setting-clampband">Clamp</label>
             <input type="range" id="setting-clampband" min="0" max="25" step="0.5">
@@ -214,6 +230,11 @@
             <input type="checkbox" id="setting-greeter">
             <span>Show Max in the corner</span>
         </label>
+        <label class="check-row" for="usage-analytics-enabled">
+            <input type="checkbox" id="usage-analytics-enabled" checked>
+            <span>Share anonymous usage counts</span>
+        </label>
+        <p class="panel-hint">Counts include visits and exports, never scans or labels. <a href="../privacy.html#baser-usage" target="_blank" rel="noopener">Privacy details</a></p>
         <button id="btn-settings-reset" class="btn btn-ghost btn-block" type="button">Restore factory
             defaults</button>
         <p class="panel-hint">Saved on this device, and used for every scan.</p>
@@ -277,17 +298,41 @@
 
     <input type="file" id="file-input" accept=".stl,.obj" hidden>
 
+    <!-- Version local modules together so returning visitors cannot mix releases. -->
     <script type="importmap">
     {
-        "imports": {
-            "three": "./vendor/three/three.module.js",
-            "three/addons/": "./vendor/three/addons/",
-            "three-bvh-csg": "./vendor/three-bvh-csg/index.module.js",
-            "three-mesh-bvh": "./vendor/three-mesh-bvh/index.module.js"
-        }
+    "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/addons/": "./vendor/three/addons/",
+        "three-bvh-csg": "./vendor/three-bvh-csg/index.module.js",
+        "three-mesh-bvh": "./vendor/three-mesh-bvh/index.module.js",
+        "./src/ViewCube.js": "./src/ViewCube.js?v=20260907",
+        "./src/analytics.js": "./src/analytics.js?v=20260907",
+        "./src/base.js": "./src/base.js?v=20260907",
+        "./src/cameras.js": "./src/cameras.js?v=20260907",
+        "./src/character.js": "./src/character.js?v=20260907",
+        "./src/csg.js": "./src/csg.js?v=20260907",
+        "./src/debug.js": "./src/debug.js?v=20260907",
+        "./src/exporter.js": "./src/exporter.js?v=20260907",
+        "./src/geometry.js": "./src/geometry.js?v=20260907",
+        "./src/grid.js": "./src/grid.js?v=20260907",
+        "./src/importers.js": "./src/importers.js?v=20260907",
+        "./src/infill.js": "./src/infill.js?v=20260907",
+        "./src/interactions.js": "./src/interactions.js?v=20260907",
+        "./src/main.js": "./src/main.js?v=20260907",
+        "./src/patterned-shell.js": "./src/patterned-shell.js?v=20260907",
+        "./src/scene.js": "./src/scene.js?v=20260907",
+        "./src/settings.js": "./src/settings.js?v=20260907",
+        "./src/transforms.js": "./src/transforms.js?v=20260907",
+        "./src/tween.js": "./src/tween.js?v=20260907",
+        "./src/ui.js": "./src/ui.js?v=20260907",
+        "./src/undo.js": "./src/undo.js?v=20260907",
+        "../firebase-config.js": "../firebase-config.js?v=20260907",
+        "../usage-metrics.js": "../usage-metrics.js?v=20260907"
     }
+}
     </script>
-    <script type="module" src="./src/main.js"></script>
+    <script type="module" src="./src/main.js?v=20260907"></script>
 </body>
 
 </html>
