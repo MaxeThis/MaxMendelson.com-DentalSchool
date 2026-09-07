@@ -41,6 +41,7 @@ import { createUI } from './ui.js';
 import { createCharacter } from './character.js';
 import { loadSettings, saveSettings, resetSettings } from './settings.js';
 import { error as debugError, log } from './debug.js';
+import { createWorldBoundsReader } from './world-bounds.js';
 
 initUsageAnalytics();
 
@@ -123,18 +124,7 @@ const viewCube = new ViewCube(
  * the local bounding box, rotation cannot inflate it — the embed math
  * depends on a true min.y or a tilted model would float above its base.
  */
-const boundsScratch = new THREE.Vector3();
-function meshWorldBounds(mesh) {
-    mesh.updateMatrixWorld(true);
-    const bounds = new THREE.Box3();
-    const position = mesh.geometry.getAttribute('position');
-    for (let i = 0; i < position.count; i += 1) {
-        boundsScratch.fromBufferAttribute(position, i)
-            .applyMatrix4(mesh.matrixWorld);
-        bounds.expandByPoint(boundsScratch);
-    }
-    return bounds;
-}
+const meshWorldBounds = createWorldBoundsReader();
 
 function computeFootprintParams(modelBounds) {
     const size = modelBounds.getSize(new THREE.Vector3());
@@ -279,10 +269,8 @@ function baseGeometryKey(params) {
 /**
  * What to actually build right now.
  *
- * While a size slider is being dragged the wall pattern and the lettering
- * are dropped: each costs a boolean per rebuild, and the thing being
- * judged mid-drag is the plate's size, not its wall. They come back the
- * moment the slider is released.
+ * A plain shell keeps continuous size-slider previews light. Wall openings
+ * and lettering return when the slider is released.
  */
 function effectiveBaseParams() {
     if (!state.previewPlain) return state.baseParams;
@@ -366,6 +354,7 @@ function captureSnapshot() {
 
 function restoreSnapshot(snapshot) {
     if (!snapshot || !state.model || !state.base) return;
+    ui.discardEngravingDraft();
     state.model.position.fromArray(snapshot.modelPosition);
     state.model.rotation.set(...snapshot.modelRotation);
     state.model.updateMatrixWorld(true);
@@ -452,6 +441,7 @@ function glideCameraToFit(object, padding, duration = 850) {
 
 function disposeCurrent() {
     rebuildBaseDebounced.cancel();
+    ui.discardEngravingDraft();
     interactions.setEnabled(false);
     transformManager.detach();
     ui.setSelection(null);

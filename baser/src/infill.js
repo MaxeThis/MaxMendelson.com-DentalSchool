@@ -473,6 +473,7 @@ export function buildSlotCutters(outline, params, band, {
     phase = 0,
     windowsOnly = false,
     profileStations = [0, 0.5, 1],
+    snapEdges = true,
     profile: profileShape = null
 }) {
     const low = band.low + EDGE_MARGIN;
@@ -509,8 +510,8 @@ export function buildSlotCutters(outline, params, band, {
                 continue;
             }
 
-            const from = outline.snap(centre - slotWidth / 2);
-            const to = outline.snap(centre + slotWidth / 2);
+            const from = snapEdges ? outline.snap(centre - slotWidth / 2) : centre - slotWidth / 2;
+            const to = snapEdges ? outline.snap(centre + slotWidth / 2) : centre + slotWidth / 2;
             if (to - from < 1) continue;
 
             const profile = profileShape
@@ -828,11 +829,11 @@ export function engravingCapHeight(params, lineCount = 1) {
  * The wall pattern that writes the clinic's name through the wall, as a
  * list of separate strokes rather than one merged cutter.
  */
-export function buildWallLabelCutters(outline, params) {
+export function buildWallLabelCutters(outline, params, { windowsOnly = false } = {}) {
     if (params.infill !== 'text') return [];
     const band = getInfillBand(params);
     if (band.height < MIN_BAND_HEIGHT) return [];
-    return buildLineCutters(outline, params, band, WALL_LABEL);
+    return buildLineCutters(outline, params, band, WALL_LABEL, { windowsOnly });
 }
 
 /** The smallest clamp band that will hold this many lines, in mm. */
@@ -959,14 +960,15 @@ export function buildInfillCutterPieces(params, outlinePoints, { lift = 0, phase
             }
         });
     } else if (params.infill === 'bars') {
-        // Prison bars: the same wide openings as the window pattern, with a
-        // round bar standing in each one. The bars are added back as solids
-        // afterwards, so only the openings are cut here.
+        // The shell builder joins a circular post into each opening's
+        // lower and upper ledges. This descriptor defines the opening.
         const bold = maxSlotWidth(params) * widthScale;
         cutters = buildSlotCutters(outline, params, band, {
             slotWidth: bold,
             pitch: bold + MIN_LIGAMENT + SNAP_ALLOWANCE,
-            phase
+            phase,
+            windowsOnly,
+            snapEdges: !windowsOnly
         });
     } else if (params.infill === 'wide') {
         // As wide as the arch's curvature will take, which is the most
@@ -976,12 +978,12 @@ export function buildInfillCutterPieces(params, outlinePoints, { lift = 0, phase
         cutters = buildSlotCutters(outline, params, band, {
             slotWidth: bold,
             pitch: bold + MIN_LIGAMENT + SNAP_ALLOWANCE,
-            phase
+            phase,
+            windowsOnly
         });
     }
-    // The lettered wall is not built here. Letters are many small cuts,
-    // and small cuts go in one at a time, through the same path as the
-    // operator's own lines.
+    // The fixed clinic label and personal engraving have separate glyph
+    // descriptors, combined with these openings by the shell builder.
 
     // Lettering and wall cuts must never share ground: two cuts that meet
     // tear the mesh between them. The flat back belongs to the lettering,

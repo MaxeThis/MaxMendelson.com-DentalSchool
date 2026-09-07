@@ -1,18 +1,6 @@
 import * as THREE from 'three';
-import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
-import { subtractGeometries, unionGeometries, getEdgeTopologyStats } from './csg.js';
-import { warn } from './debug.js';
 import { buildPatternedShell } from './patterned-shell.js';
-import {
-    buildInfillCutterPieces,
-    buildEngravingCutters,
-    buildWallLabelCutters,
-    hasEngraving,
-    measureOutline,
-    getInfillBand,
-    buildWallBars,
-    getBarSpec
-} from './infill.js';
+import { hasEngraving } from './infill.js';
 
 // Flip between 0 and Math.PI if a future scan convention reverses the arch.
 export const BASE_ROTATION_Y = Math.PI;
@@ -339,8 +327,7 @@ function extrudeBaseShape(
 }
 
 function buildSolidBaseGeometry(params) {
-    if (['honeycomb', 'diamond', 'chevron', 'wave'].includes(params.infill)
-        || (params.infill === 'solid' && hasEngraving(params))) {
+    if (params.infill !== 'solid' || hasEngraving(params)) {
         return buildStitchedHollowGeometry(params);
     }
     return extrudeBaseShape(
@@ -398,8 +385,7 @@ function buildStitchedHollowGeometry(params) {
         params.wall,
         params.cornerRadius
     );
-    if (['honeycomb', 'diamond', 'chevron', 'wave'].includes(params.infill)
-        || (params.infill === 'solid' && hasEngraving(params))) {
+    if (params.infill !== 'solid' || hasEngraving(params)) {
         return buildPatternedShell(params, outer, inner);
     }
     const ringSize = outer.length;
@@ -471,177 +457,14 @@ function buildStitchedHollowGeometry(params) {
  * scale is involved, so wall and deck thickness remain constant in mm.
  */
 
-/**
- * Cut the wall pattern into the shell.
- *
- * Whether a given cut tears the shell depends on how its faces happen to
- * land against the vertices already there, which is not worth predicting.
- * Each cut is made on its own and kept only if the shell is still closed
- * afterwards, so the pattern can lose a slot but never the plate.
- */
-function cutWallPattern(baseGeometry, normalized) {
-    if (normalized.infill === 'solid') return baseGeometry;
-    if (['honeycomb', 'diamond', 'chevron', 'wave'].includes(normalized.infill)) return baseGeometry;
-    const outline = createHalfDiscPerimeter(
-        normalized.width / 2,
-        normalized.depth,
-        0,
-        normalized.cornerRadius
-    );
-
-    // This used to merge every slot into one cutter and, when that tore,
-    // try again with the pattern nudged and rescaled, nine times over,
-    // keeping the least torn result even when all nine tore. The slots go
-    // in one at a time now, and any slot that will not cut is left out, so
-    // there is nothing left for the retries to rescue.
-    const pieces = buildInfillCutterPieces(normalized, outline);
-    if (!pieces.length) return baseGeometry;
-    return applyPieces(baseGeometry, pieces, subtractGeometries, 'Wall pattern');
-}
-
-/**
- * Cut the operator's own two lines into the flat back of a finished wall.
- * Runs on its own, after any pattern and any bars, so the lettering never
- * has to share a boolean with them.
- */
-function cutEngraving(baseGeometry, normalized) {
-    if (baseGeometry.userData.engravingBuilt) return baseGeometry;
-    const outline = measureOutline(createHalfDiscPerimeter(
-        normalized.width / 2,
-        normalized.depth,
-        0,
-        normalized.cornerRadius
-    ));
-    // The clinic's name in the wall and the operator's own lines are the
-    // same problem, so they take the same road.
-    const cutters = [
-        ...buildWallLabelCutters(outline, normalized),
-        ...buildEngravingCutters(outline, normalized)
-    ];
-    if (!cutters.length) return baseGeometry;
-    return applyPieces(baseGeometry, cutters, subtractGeometries, 'Lettering');
-}
-
-// How many pieces to try in one go. Small enough that the boolean stays
-// reliable, large enough that a full line does not cost a hundred passes.
-const PIECE_BATCH = 8;
-
-/**
- * Work many small pieces into a mesh, a few at a time, keeping only what
- * leaves it closed.
- *
- * Handing this boolean a hundred small boxes merged into one operand is
- * the unkindest thing it ever sees: that is what tore the wall and took
- * ten seconds doing it. A few at a time is both reliable and quick, and
- * anything that still will not go in is retried on its own and, at the
- * last, left out. So the plate that leaves here is closed every time,
- * which matters more than any single stroke or bar.
- */
-function applyPieces(baseGeometry, pieces, operate, label) {
-    let geometry = baseGeometry;
-    let dropped = 0;
-    const detailWarnings = [...(baseGeometry.userData.detailWarnings ?? [])];
-
-    const step = piece => {
-        let candidate = null;
-        try {
-            candidate = operate(geometry, piece, {
-                firstName: 'Base',
-                secondName: label
-            });
-        } catch (error) {
-            warn(`[Base] A piece of ${label} would not go in.`, error);
-            return false;
-        }
-        if (!getEdgeTopologyStats(candidate).isTwoManifold) {
-            candidate.dispose();
-            return false;
-        }
-        if (geometry !== baseGeometry) geometry.dispose();
-        geometry = candidate;
-        return true;
-    };
-
-    for (let start = 0; start < pieces.length; start += PIECE_BATCH) {
-        const batch = pieces.slice(start, start + PIECE_BATCH);
-        let merged = null;
-        try {
-            merged = BufferGeometryUtils.mergeGeometries(batch, false);
-        } catch (error) {
-            warn(`[Base] Could not merge a batch of ${label}.`, error);
-        }
-
-        if (merged && step(merged)) {
-            merged.dispose();
-            batch.forEach(part => part.dispose());
-            continue;
-        }
-        merged?.dispose();
-
-        // The batch as a whole did not land. Try its pieces one by one, so
-        // one awkward letter costs one letter and not the whole word.
-        for (const piece of batch) {
-            if (!step(piece)) dropped += 1;
-            piece.dispose();
-        }
-    }
-
-    if (dropped) {
-        warn(`[Base] ${dropped} of ${pieces.length} pieces of ${label} were `
-            + 'left out to keep the plate closed.');
-        detailWarnings.push({ label, dropped, total: pieces.length });
-    }
-    geometry.userData.detailWarnings = detailWarnings;
-    if (geometry !== baseGeometry) baseGeometry.dispose();
-    return geometry;
-}
-
-
-
-/**
- * Stand a round bar in each opening. Tried at a couple of diameters: which
- * one lands cleanly depends on where the bar's surface falls against the
- * cut faces, so the first closed result wins.
- */
-function addWallBars(baseGeometry, normalized) {
-    const outline = createHalfDiscPerimeter(
-        normalized.width / 2,
-        normalized.depth,
-        0,
-        normalized.cornerRadius
-    );
-    const spec = getBarSpec(normalized);
-    const bars = buildWallBars(normalized, outline, spec);
-    if (!bars || !bars.length) return baseGeometry;
-
-    // The bars used to go in as one merged solid, with six different
-    // diameters tried in turn and the least torn result kept even when
-    // every one of them tore. Measured across wall thickness, that left
-    // the plate open on any wall under 3 mm. They go in one at a time now,
-    // on the same terms as the lettering: what will not union cleanly is
-    // left out, and the plate stays closed.
-    return applyPieces(baseGeometry, bars, unionGeometries, 'Wall bars');
-}
-
 export function buildBaseGeometry(params = DEFAULT_BASE_PARAMS) {
     const normalized = normalizeBaseParams(params);
-    let geometry = normalized.hollow
+    const geometry = normalized.hollow
         ? buildHollowBaseGeometry(normalized)
         : buildSolidBaseGeometry(normalized);
 
-    // The wall pattern is cut here so the shape on screen and the shape in
-    // the exported file can never drift apart.
-    geometry = cutWallPattern(geometry, normalized);
-    if (normalized.infill === 'bars') {
-        geometry = addWallBars(geometry, normalized);
-    }
-    // Lettering goes on last, and on purpose. Cutting it earlier leaves
-    // the wall finely divided where the bars then have to meet it, and the
-    // union tears along those new edges. Cut into a finished wall, on the
-    // flat back the bars never reach, it comes out clean.
-    // Renamed for what it now does: the clinic's name and the operator's
-    // own lines both come through here.
-    geometry = cutEngraving(geometry, normalized);
+    // Patterns, posts and both forms of lettering are part of the shell's
+    // boundary mesh; no small boolean cuts or unions can omit a detail.
 
     geometry.name = normalized.hollow ? 'HollowBaseGeometry' : 'SolidBaseGeometry';
     geometry.userData.baseParams = { ...normalized };
