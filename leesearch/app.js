@@ -333,7 +333,7 @@
   }
   function renderHome() {
     const main = $('#main');
-    const tiles = S.papers.map((p) => {
+    const tiles = S.papers.filter((p) => !p.hidden).map((p) => {
       const st = paperStats(p.id);
       const pb = st.total ? Math.round((st.both / st.total) * 100) : 0;
       const po = st.total ? Math.round((st.one / st.total) * 100) : 0;
