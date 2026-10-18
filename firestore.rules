@@ -228,6 +228,10 @@ service cloud.firestore {
     match /leesearch_presence/{doc=**} {
       allow read, write: if request.auth != null && request.auth.uid in ['wy82P1S4uxTAcyzdlKf6C82xt713', '69fwyvdenOb8Iykn9jFBehzYDvu1'];
     }
+    // Max only: his source verdicts, his notes key, Lee Review state. Dr. Lee's account can't read it.
+    match /leesearch_private/max/{doc=**} {
+      allow read, write: if request.auth != null && request.auth.uid == 'wy82P1S4uxTAcyzdlKf6C82xt713';
+    }
     // The file vault key. Only the two accounts can read it; only the admin tool writes it.
     match /leesearch_secrets/{doc} {
       allow read: if request.auth != null && request.auth.uid in ['wy82P1S4uxTAcyzdlKf6C82xt713', '69fwyvdenOb8Iykn9jFBehzYDvu1'];

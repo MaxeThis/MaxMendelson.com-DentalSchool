@@ -383,3 +383,18 @@ mark.cmt { border-bottom: 3px solid var(--c); }
 
 /* Sources tab: the source-review page in a full-height frame under the header */
 .sources-frame { position: fixed; left: 0; right: 0; bottom: 0; top: var(--top-h, 58px); border: 0; width: 100%; height: calc(100vh - var(--top-h, 58px)); background: var(--bg); }
+
+/* Lee Review (Max only): button by Sign out with a red count bubble */
+.lee-review { position: relative; font-family: var(--ui); font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+  color: #fff; background: var(--lee); border: 2px solid #d97f00; border-bottom-width: 4px; border-radius: 12px; padding: 5px 12px; cursor: pointer; }
+.lee-review:active { transform: translateY(2px); border-bottom-width: 2px; }
+.lee-review .bubble:not(:empty) { position: absolute; top: -9px; right: -9px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 99px;
+  background: #ff3b30; color: #fff; border: 2px solid #fff; font-size: 11px; font-weight: 900; line-height: 16px; text-align: center; letter-spacing: 0; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.modal.leerev { max-width: 720px; }
+.lee-feed { max-height: 60vh; overflow: auto; }
+.lee-feed li > div { flex: 1; }
+.lee-feed li .btn { align-self: center; }
+.lee-detail { margin-top: 4px; font-size: 13px; color: var(--ink-2, #555); }
+.websync { font-size: 12px; font-weight: 800; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.websync.publishing, .websync.waiting { color: var(--blue, #1cb0f6); }
+.websync.error { color: var(--red, #ff4b4b); }

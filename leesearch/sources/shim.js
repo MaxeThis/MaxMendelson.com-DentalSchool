@@ -36,7 +36,7 @@ window.LS = (function () {
     });
     const who = document.getElementById('lsuser');
     if (who) who.textContent = 'Signed in as ' + bridge.name(bridge.me);
-    bridge.watchVerdicts((key, V) => window.LS_remote && window.LS_remote(key, V));
+    bridge.watchVerdicts((key, V, who) => window.LS_remote && window.LS_remote(key, V, who));
   })();
 
   function fileKey(url) {
@@ -68,7 +68,7 @@ window.LS = (function () {
     if (parts[0] === 'exhibits') return json(bundle.exhibits);
     if (parts.length === 3) {
       const key = parts[0] + '/' + parts[1];
-      if (parts[2] === 'data' && bundle.data[key]) return json({ ...bundle.data[key], verdicts: await bridge.loadVerdicts(key) });
+      if (parts[2] === 'data' && bundle.data[key]) return json({ ...bundle.data[key], verdicts: await bridge.loadVerdicts(key), lee_verdicts: await bridge.loadLee(key) });
       if (parts[2] === 'draft' && bundle.drafts[key]) return json(bundle.drafts[key]);
     }
     return json({}, 404);

@@ -77,7 +77,14 @@ details.sidenote p{margin:6px 0}.it.gone .nm,h2.gone{text-decoration:line-throug
 .badge.use{background:var(--green)}.badge.maybe{background:var(--yellow)}.badge.drop{background:var(--red)}
 .tag{display:inline-block;font-size:11px;font-weight:800;padding:0 7px;border-radius:99px;background:var(--soft);color:var(--muted);margin-left:4px}
 .tag.alt{color:var(--blue)}
+.tag.rw{color:var(--yellow-d);background:transparent;border:2px solid var(--yellow)}.tag.rw.done{color:var(--green);border-color:var(--green)}
 .tag.num{color:var(--blue);background:color-mix(in srgb,var(--blue) 14%,var(--panel))}
+.tag.lee{color:#fff;background:#c2410c}
+.bt .wr{font-size:11px;color:var(--muted);font-weight:800;white-space:nowrap}
+.card.leebox{border-color:#c2410c;background:color-mix(in srgb,#c2410c 6%,var(--panel))}
+.card.leebox>b{color:#c2410c}.card.leebox>small{color:var(--muted);font-weight:700}
+.lq{margin:8px 0 0;font-size:14px;font-weight:600}.lq small{display:block;color:var(--muted);font-weight:800;font-size:12px}
+.pill.lee{display:inline-block;margin-top:6px;padding:2px 10px;border-radius:99px;font-weight:900;font-size:13px;border:2px solid #c2410c;color:#c2410c}
 .reflist{margin:26px 0 0;border-top:2px solid var(--line);padding-top:12px}
 .reflist h3{margin:0 0 4px}
 .rl{display:flex;gap:10px;align-items:baseline;padding:7px 8px;border-radius:12px;cursor:pointer}
@@ -135,6 +142,10 @@ details.otheruses summary::before{color:var(--blue)}
 textarea,input[type=text],input[type=number],select{width:100%;font:600 14px Nunito,sans-serif;padding:9px 11px;border:2px solid var(--line);border-radius:12px;background:var(--soft);color:var(--ink);margin-top:8px;outline:none}
 textarea:focus,input:focus,select:focus{border-color:var(--blue)}
 textarea{min-height:46px;resize:vertical}
+textarea.reword{border-color:var(--yellow);background:color-mix(in srgb,var(--yellow) 12%,var(--panel))}
+.rw{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px;font-weight:800;color:var(--muted);cursor:pointer;user-select:none}
+.rw input{width:18px;height:18px;margin:0;accent-color:var(--yellow-d);cursor:pointer}.rw.on{color:var(--yellow-d)}.rw.done{color:var(--green)}.rw.done input{accent-color:var(--green)}.pill.reworded{background:var(--green);color:#fff;border:2px solid var(--green)}
+textarea.reword.done{border-color:var(--green);background:color-mix(in srgb,var(--green) 10%,var(--panel))}.rw.hide{display:none}
 .earlier{font-size:13px;color:var(--muted);margin-top:8px;white-space:pre-wrap}
 .opt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:2px solid var(--line);border-bottom-width:4px;border-radius:14px;margin:8px 0;cursor:pointer}
 .opt.on{border-color:var(--blue);background:color-mix(in srgb,var(--blue) 10%,var(--panel))}
@@ -250,7 +261,7 @@ a{color:var(--blue)}
   </section>
 </main>
 <div id="modal"><div class="box" id="mcard"></div></div>
-<script src="shim.js"></script>
+<script src="shim.js?v=2"></script>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const $ = s => document.querySelector(s);
@@ -262,6 +273,9 @@ const OLD = {valid:"use", partly:"maybe", reject:"drop"};          // earlier ve
 const CALL = {use:"Use", maybe:"Maybe", drop:"Don't use"};
 const ICON = {use:"✓", maybe:"?", drop:"✕"};
 const REL = {better:"Better", contradicts:"Contradicts", broader:"Review", current:"Current"};
+// On Leesearch (window.LS) the page knows who is signed in. Dr. Lee keeps his own review (call, notes, ratings)
+// and has no Claude chat; Max also sees Dr. Lee's review on each card. Standalone, it is always Max.
+const ROLE = (window.LS && LS.me) || "max", IS_LEE = ROLE === "lee";
 
 /* ---------- columns: widths you drag, remembered; sources column collapses to the left ---------- */
 const W = store.get("widths", {nav: 270, paper: 420, notes: 440});
@@ -292,25 +306,41 @@ async function init(){
     const dr = await (await fetch(`/api/${b.key}/draft`)).json();
     D.draft = dr.text || ""; D.draftName = dr.name || ""; D.cites = dr.citations || []; D.paperDir = dr.paper || ""; D.notes = dr.notes || [];
     D.sig = draftSig(dr);
-    const rawV = D.verdicts || {}, V = {}, byUid = {};
-    for (const val of Object.values(rawV)) if (val && val._uid) byUid[val._uid] = val;
-    for (const it of D.items){
-      const entry = (it.uid && byUid[it.uid]) || rawV[it.id] || {};
-      if (it.uid) entry._uid = it.uid;
-      V[it.id] = entry;
-    }
-    B[b.key] = {D, V, open: true};
+    // every batch starts folded; click a batch to open it
+    B[b.key] = {D, V: remapV(D, D.verdicts), L: remapV(D, D.lee_verdicts), open: false};
   }
   for (const b of BATCHES) B[b.key].D.others = othersOf(B[b.key].D);
   let want = store.get("cur", null);
+  const jump = store.get("jump", null);   // set by Leesearch's "Lee Review" list to open one card
+  if (jump && B[jump.b]){ want = jump; B[jump.b].open = true; }
+  try { localStorage.removeItem("jump"); } catch(e){}
   if (want && B[want.b] && want.uid){
     const byU = B[want.b].D.items.find(i => i.uid === want.uid);
     if (byU) want.id = byU.id;
   }
-  const last = BATCHES[BATCHES.length-1].key;
+  const last = [...BATCHES].sort((p, q) => (q.written || 0) - (p.written || 0))[0].key;   // the newest batch
   if (!(want && B[want.b] && [...B[want.b].D.items, ...B[want.b].D.others].some(i => i.id === want.id))) want = {b:last, id:B[last].D.items[0].id};
   show(want.b, want.id);
 }
+// verdicts are keyed by card id; a card renumbered since keeps its entry through its uid
+function remapV(D, rawV){
+  rawV = rawV || {}; const V = {}, byUid = {};
+  for (const val of Object.values(rawV)) if (val && val._uid) byUid[val._uid] = val;
+  for (const it of D.items){
+    const entry = (it.uid && byUid[it.uid]) || rawV[it.id] || {};
+    if (it.uid) entry._uid = it.uid;
+    V[it.id] = entry;
+  }
+  return V;
+}
+// Leesearch tells the page when the other side (or another tab) saved: who = "lee" for Dr. Lee's review
+window.LS_remote = (k, V, who) => {
+  if (!B[k]) return;
+  if (who === "lee" && !IS_LEE) B[k].L = remapV(B[k].D, V); else B[k].V = remapV(B[k].D, V);
+  nav();
+  const a = document.activeElement;
+  if (cur && cur.b === k && !(a && /TEXTAREA|INPUT|SELECT/.test(a.tagName))) show(cur.b, cur.id, true);
+};
 /* ---------- live update: when Claude edits a batch's DRAFT_*.md (or its citations/notes), redraw "Our paper"
    within a few seconds, keeping the reader's place ---------- */
 const draftSig = dr => JSON.stringify([dr.name, dr.text, dr.citations, dr.notes]);
@@ -362,7 +392,7 @@ function nav(){
   let all = 0, done = 0;
   $("#list").innerHTML = BATCHES.map(bt => {
     const S = B[bt.key], L = S.D.items.filter(i => !i.not_used), n = L.length, d = L.filter(i => callOf(S.V[i.id])).length; all += n; done += d;
-    return `<div class="batch"><div class="bt" data-b="${bt.key}"><span>${S.open?"▾":"▸"}</span><b>${esc(bt.title)}</b><span class="bar"><i style="width:${100*d/n}%"></i></span><span class="n">${d}/${n}</span></div>` +
+    return `<div class="batch"><div class="bt" data-b="${bt.key}"><span>${S.open?"▾":"▸"}</span><b>${esc(bt.title)}</b>${bt.written?`<span class="wr" title="We wrote and reviewed the sections in this order">#${bt.written} written</span>`:""}<span class="bar"><i style="width:${100*d/n}%"></i></span><span class="n">${d}/${n}</span></div>` +
       (S.open ? navItems(bt, S) : "") + `</div>`;
   }).join("");
   $("#allbar").style.width = (100*done/Math.max(all,1)) + "%"; $("#allcount").textContent = `${done} of ${all} reviewed`;
@@ -385,12 +415,33 @@ function navItems(bt, S){
     group("gone", "Not cited in this section", "Moved elsewhere; reviewed where they are used.", gone, it => card(bt, S, it)) +
     group("other", "Other sources", "Policies, data and regulations cited directly, not studies, so no review card.", others, other);
 }
+const leeHas = x => !!x && (!!(x.note || "").trim() || Object.values(x.passage_notes || {}).some(t => (t || "").trim())
+  || (x.page_notes || []).length > 0 || Object.values(x.ratings || {}).some(r => r && (r.score || (r.why || "").trim())) || (!!x.choice && x.choice !== "current"));
+// Max's view: Dr. Lee's call, note, comments, page notes and ratings for this card (read-only)
+function leeCard(b, it){
+  if (IS_LEE) return "";
+  const x = (B[b].L || {})[it.id], c = callOf(x);
+  if (!c && !leeHas(x)) return "";
+  const at = x._at ? new Date(x._at).toLocaleString([], {month:"short", day:"numeric", hour:"numeric", minute:"2-digit"}) : "";
+  const alt = x.choice && x.choice !== "current" ? (it.alternatives || []).find(a => a.pmid === x.choice) : null;
+  const pn = Object.entries(x.passage_notes || {}).filter(([, t]) => (t || "").trim()).map(([i, t]) => { const q = (it.found || [])[+i] || {};
+    return `<div class="lq"><small>On “${esc((q.text || "").slice(0, 90))}${(q.text || "").length > 90 ? "…" : ""}”${q.page ? ` · p. ${q.page}` : ""}</small>${esc(t.trim())}</div>`; }).join("");
+  const pg = (x.page_notes || []).map(n => `<div class="lq"><small>Note on page ${esc(n.page)}</small>${esc(n.text)}</div>`).join("");
+  const rt = Object.entries(x.ratings || {}).filter(([, r]) => r && (r.score || (r.why || "").trim())).map(([k, r]) => {
+    const cr = (B[b].D.rubric?.criteria || []).find(z => z.key === k);
+    return `<div class="lq"><small>Rating · ${esc(cr ? cr.label : k)}: ${r.score ?? "–"}/5</small>${esc(r.why || "")}</div>`; }).join("");
+  return `<div class="card leebox"><b>Dr. Lee's review</b>${at ? ` <small>· ${esc(at)}</small>` : ""}
+    ${c ? `<div><span class="pill lee">${ICON[c]} ${CALL[c]}</span></div>` : ""}
+    ${(x.note || "").trim() ? `<div class="lq">${esc(x.note).replace(/\n/g, "<br>")}</div>` : ""}
+    ${alt ? `<div class="lq"><small>Prefers an alternative</small>${esc(alt.first_author || "")} ${esc(alt.year || "")}: ${esc((alt.title || "").slice(0, 90))}</div>` : ""}
+    ${pn}${pg}${rt}</div>`;
+}
 function card(bt, S, it){
       {
         const c = callOf(S.V[it.id]), x = S.V[it.id] || {}, other = elsewhere(bt.key, it), nalt = (it.alternatives||[]).length;
         const st = it.not_used ? "Not used here" : !it.pdf_out ? "PDF needed" : (c ? CALL[c] : "Not reviewed") + (x.choice && x.choice !== "current" ? " · alternative picked" : "");
         return `<button class="it ${cur && cur.b===bt.key && cur.id===it.id?"on":""} ${it.not_used?"gone":""}" title="${esc(it.not_used||"")}" data-b="${bt.key}" data-id="${it.id}"><span class="badge ${c}">${ICON[c]||esc(it.id.replace(/\D/g,""))}</span>
-          <span><span class="nm">${esc(it.id)} · ${esc(it.key)}${star(it)}</span>${(nums => nums.length ? `<span class="tag num" title="Its citation number in this batch's text">[${nums.map(esc).join("], [")}]</span>` : "")(numsForCard(S.D, it))}${other.length?`<span class="tag" title="Also used in ${esc(other.map(o=>o.where+" "+o.id).join(", "))}">↔ ${other.map(o=>esc(o.id)).join(", ")}</span>`:""}${nalt?`<span class="tag alt">+${nalt} alt</span>`:""}<span class="st">${esc(st)}</span></span></button>`;
+          <span><span class="nm">${esc(it.id)} · ${esc(it.key)}${star(it)}</span>${(nums => nums.length ? `<span class="tag num" title="Its citation number in this batch's text">[${nums.map(esc).join("], [")}]</span>` : "")(numsForCard(S.D, it))}${other.length?`<span class="tag" title="Also used in ${esc(other.map(o=>o.where+" "+o.id).join(", "))}">↔ ${other.map(o=>esc(o.id)).join(", ")}</span>`:""}${nalt?`<span class="tag alt">+${nalt} alt</span>`:""}${(lx => { const lc = callOf(lx); return !IS_LEE && (lc || leeHas(lx)) ? `<span class="tag lee" title="Dr. Lee reviewed this card">Dr. Lee${lc ? ": " + CALL[lc] : " ✎"}</span>` : ""; })((S.L || {})[it.id])}${x.reword&&(x.note||"").trim()?(x.reworded?`<span class="tag rw done" title="Reworded: ${esc(x.note)}">✓ Reworded</span>`:`<span class="tag rw" title="${esc(x.note)}">✎ Reword</span>`):""}<span class="st">${esc(st)}</span></span></button>`;
       }
 }
 
@@ -531,7 +582,7 @@ function show(b, id, keepScroll){
   const searches = (D.searches||{})[it.claim_id] || [];
   const batchDone = D.items.every(i => callOf(S.V[i.id]));
   $("#info").innerHTML = `
-    ${batchDone?`<div class="done">🎉 Batch complete! Tell Claude "review done".</div>`:""}
+    ${batchDone && !IS_LEE?`<div class="done">🎉 Batch complete! Tell Claude "review done".</div>`:""}
     <h2 class="${it.not_used?"gone":""}">${esc(it.id)} · ${esc(it.label)}${star(it)}</h2>
     ${it.not_used?`<div class="gonenote">${esc(it.not_used)} It has no sentence in this batch's text, so nothing is highlighted.</div>`:""}
     ${it.lee_sent?`<div class="sub">⭐ Dr. Lee sent you this paper.</div>`:""}
@@ -542,9 +593,11 @@ function show(b, id, keepScroll){
     ${vsTable(D, it)}
     ${formTables(D, it)}
 
+    ${leeCard(b, it)}
     <div class="card call"><b>Your call</b>
       <div class="calls">${["use","maybe","drop"].map(k=>`<button class="cb ${k} ${callOf(x)===k?"on":""}" data-call="${k}">${CALL[k]}</button>`).join("")}</div>
-      <textarea data-f="note" placeholder="One note (optional): how to reword it, or why">${esc(x.note||"")}</textarea>
+      <textarea data-f="note" class="${x.reword?"reword":""} ${x.reword&&x.reworded?"done":""}" placeholder="${IS_LEE ? "Your note for Max (optional): how to reword it, or why" : "One note (optional): how to reword it, or why"}">${esc(x.note||"")}</textarea>
+      <label class="rw ${x.reword?"on":""} ${x.reword&&x.reworded?"done":""} ${(x.note||"").trim()?"":"hide"}" title="Checked: Claude rewrites our sentence as this note says. Unchecked: it's just a note."><input type="checkbox" id="rwbox" ${x.reword?"checked":""}>${x.reword&&x.reworded?`<span class="pill reworded">✓ Reworded</span>Done in our paper`:`<span class="pill reword">Reword</span>Reword our sentence this way`}</label>
       ${earlier?`<div class="earlier"><b>Your earlier notes:</b>\n${esc(earlier)}</div>`:""}</div>
 
     <h3>Where the paper says it · tap to jump</h3>
@@ -572,9 +625,9 @@ function show(b, id, keepScroll){
       ${searches.length?`<details><summary>How we searched (${searches.length})</summary><div class="sub">${searches.map(s=>esc(s)).join("<br>")}</div></details>`:""}
     </div>
 
-    <h3>Back-and-forth</h3>
+    ${IS_LEE ? "" : `<h3>Back-and-forth</h3>
     ${thread.length ? thread.map(t => `<div class="msg ${t.who==="Claude"?"cl":"mx"}"><small>${t.who} · ${when(t.when)}</small>${esc(t.text).replace(/\n/g,"<br>")}</div>`).join("") : `<p class="sub">Nothing yet.</p>`}
-    <input type="text" id="tt" placeholder="Reply or ask Claude (Enter)">
+    <input type="text" id="tt" placeholder="Reply or ask Claude (Enter)">`}
 
     <details><summary><b>Ratings</b> · Claude ${avg(cr)}/5 · change only where you disagree</summary>
       ${(D.rubric?.criteria||[]).map(c => { const a = cr[c.key]||{}, m = x.ratings[c.key]||{}; const differ = m.score && a.score && +m.score !== +a.score;
@@ -607,7 +660,11 @@ function show(b, id, keepScroll){
   };
   const ou = I.querySelector("#otheruses"); if (ou) ou.ontoggle = () => store.set("otherusesOpen", ou.open);
   I.querySelectorAll(".cb").forEach(btn => btn.onclick = () => { const k = btn.dataset.call; x.call = callOf(x) === k ? "" : k; if (!x.call) delete x.verdict; save(); show(b, id); });
-  I.querySelectorAll("textarea[data-f]").forEach(t => t.oninput = () => { x[t.dataset.f] = t.value; save(); });
+  I.querySelectorAll("textarea[data-f]").forEach(t => t.oninput = () => { x[t.dataset.f] = t.value;
+    if (t.dataset.f === "note"){ const has = !!t.value.trim(); I.querySelector(".rw").classList.toggle("hide", !has); if (!has && x.reword){ delete x.reword; delete x.reworded; I.querySelector("#rwbox").checked = false; I.querySelector(".rw").classList.remove("on"); t.classList.remove("reword"); } }
+    save(); });
+  // a typed note can be flagged as a reword (Claude rewrites our sentence); otherwise it's just a note
+  I.querySelector("#rwbox").onchange = e => { if (e.target.checked) x.reword = true; else { delete x.reword; delete x.reworded; } save(); show(b, id, true); };
   I.querySelectorAll("textarea[data-pn]").forEach(t => t.oninput = () => { x.passage_notes[t.dataset.pn] = t.value; save(); });
   I.querySelectorAll("textarea[data-rk]").forEach(t => t.oninput = () => { (x.ratings[t.dataset.rk] ||= {}).why = t.value; save(); });
   I.querySelectorAll("select[data-rs]").forEach(sel => sel.onchange = () => { (x.ratings[sel.dataset.rs] ||= {}).score = sel.value ? +sel.value : null; save(); show(b, id); openDetails("Ratings"); });
@@ -619,7 +676,7 @@ function show(b, id, keepScroll){
   I.querySelectorAll("[data-go]").forEach(a => a.onclick = () => { const [bb, ii] = a.dataset.go.split("|"); B[bb].open = true; show(bb, ii); });
   I.querySelectorAll(".pnote .x").forEach(btn => btn.onclick = () => { x.page_notes.splice(+btn.dataset.i,1); save(); show(b, id); openDetails("Notes"); });
   $("#nt").onkeydown = e => { if (e.key==="Enter" && $("#nt").value.trim()) { x.page_notes.push({page:+$("#np").value||1, text:$("#nt").value.trim()}); save(); show(b, id); openDetails("Notes"); } };
-  $("#tt").onkeydown = e => { if (e.key==="Enter" && $("#tt").value.trim()) { x.thread.push({when:new Date().toISOString(), by:LS.me, text:$("#tt").value.trim()}); save(); show(b, id); } };
+  if ($("#tt")) $("#tt").onkeydown = e => { if (e.key==="Enter" && $("#tt").value.trim()) { x.thread.push({when:new Date().toISOString(), by:LS.me, text:$("#tt").value.trim()}); save(); show(b, id); } };
   render(it);
 }
 /* policy/form comparison tables (docs/source_review/form_tables.json), on each card whose key is in show_for; its own column is outlined */
@@ -803,8 +860,6 @@ function save(){
     catch(e){ $("#saved").textContent = "NOT SAVED: is the review server running?"; $("#saved").classList.add("bad"); }
   }, 400);
 }
-window.LS_remote = (k, V) => { if (!B[k]) return; B[k].V = V; nav();
-  const a = document.activeElement; if (cur && cur.b === k && !(a && /TEXTAREA|INPUT|SELECT/.test(a.tagName))) show(cur.b, cur.id); };
 LS.ready.then(init);
 </script>
 </body>

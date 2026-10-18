@@ -11,10 +11,13 @@
   };
   const PEOPLE = ['max', 'lee'];
   const ROOT = 'leesearch_papers';
+  const PRIV = 'leesearch_private/max';     // Max-only: his source verdicts, his Claude notes key, Lee Review state
+  const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
+  const TAB = Math.random().toString(36).slice(2, 10);   // tells this tab's own saves apart from other tabs
   const EDITABLE = new Set(['p', 'h1', 'h2', 'ref']);
 
   const S = {
-    me: null, uid: null, key: null,
+    me: null, uid: null, key: null, maxKey: null, maxIds: new Set(), leeSeen: null,
     manifest: [], papers: [],
     data: {},            // pid -> {blocks, suggestions, notes, done, edits, activity}
     presence: {},
@@ -71,16 +74,21 @@
     await keyStore('put', k);
     return k;
   }
-  async function decryptBytes(buf) {
+  // Max's own key for the Max-only files (Claude's chat and notes, source log); Dr. Lee's account can't read it.
+  async function remoteMaxKey() {
+    const d = await DB.get(PRIV).catch(() => null);
+    return d && d.key ? crypto.subtle.importKey('raw', b64d(d.key), 'AES-GCM', false, ['decrypt']) : null;
+  }
+  async function decryptBytes(buf, key = S.key) {
     const u = new Uint8Array(buf);
-    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, S.key, u.slice(12));
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, key, u.slice(12));
   }
   async function fetchFile(id) {
     if (S.fileCache.has(id)) return S.fileCache.get(id);
     const p = (async () => {
       const r = await fetch(`vault/f/${id}.bin`);
       if (!r.ok) throw new Error('missing file');
-      return decryptBytes(await r.arrayBuffer());
+      return decryptBytes(await r.arrayBuffer(), S.maxIds.has(id) ? S.maxKey : S.key);
     })();
     S.fileCache.set(id, p);
     return p;
@@ -156,6 +164,7 @@
     S.unsubs.forEach((u) => u()); S.unsubs = [];
     S.unsubs.push(DB.listen(ROOT, (docs) => { S.papers = docs.sort((a, b) => (a.order || 0) - (b.order || 0)); subscribePapers(); render(); }, permError));
     S.unsubs.push(DB.listen('leesearch_presence', (docs) => { S.presence = Object.fromEntries(docs.map((d) => [d.id, d])); renderPresence(); }));
+    if (S.me === 'max') S.unsubs.push(DB.listen(`${PRIV}/state`, (docs) => { const d = docs.find((x) => x.id === 'leeReview'); S.leeSeen = (d && d.seen) || 0; renderLeeBubble(); }));
   }
   const paperSubs = new Map();
   function subscribePapers() {
@@ -168,6 +177,7 @@
           D_(p.id)[col] = docs;
           if (!changed) return;
           scheduleRender(p.id, col);
+          if (col === 'activity') renderLeeBubble();
           if (['blocks', 'suggestions', 'notes', 'done'].includes(col)) localSnapshot();
         }));
       }
@@ -287,7 +297,8 @@
         <a class="brand small" href="#" id="home-link"><span class="brand-mark">L</span><b>Leesearch</b></a>
         ${p ? `<span class="crumb">/</span><span class="crumb-title">${esc(p.short || p.title)}</span>` : ''}
         ${tabs}
-        <div class="top-right"><span id="presence"></span>
+        <div class="top-right"><span id="presence"></span>${LOCAL && DB.kind !== 'mock' ? '<span id="websync" class="websync"></span>' : ''}
+          ${S.me === 'max' ? '<button class="lee-review" id="leerev" title="What Dr. Lee changed, commented and noted">Lee Review<span class="bubble" id="leebubble"></span></button>' : ''}
           <span class="me">${avatar(S.me)}<button class="link" id="signout">${DB.kind === 'mock' ? `Local preview · view as ${USERS[other()].short}` : 'Sign out'}</button></span></div>
       </header>
       <main id="main"></main>
@@ -296,6 +307,7 @@
   function bindShell() {
     $('#home-link').onclick = (e) => { e.preventDefault(); go({ view: 'home' }); };
     $('#signout').onclick = signOut;
+    if ($('#leerev')) $('#leerev').onclick = openLeeReview;
     document.querySelectorAll('.tabs a').forEach((a) => a.onclick = (e) => { e.preventDefault(); go({ view: a.dataset.v, pid: S.route.pid }); });
   }
   function renderPresence() {
@@ -308,12 +320,47 @@
     }
     el.innerHTML = p ? `<span class="online"><i></i>${esc(USERS[o].short)} is here · ${where}</span>`
       : `<span class="offline">${esc(USERS[o].short)} ${S.presence[o] ? 'was here ' + ago(S.presence[o].at) : 'has not signed in yet'}</span>`;
+    renderLeeBubble();
     // activity badge
     const b = $('#act-badge');
     if (b && S.route.pid) { const n = D_(S.route.pid).activity.filter((a) => a.author !== S.me && a.at > lastSeen(S.route.pid)).length; b.textContent = n ? n : ''; }
     // soft lock: show who is editing which block
     document.querySelectorAll('.blk.other-editing').forEach((x) => x.classList.remove('other-editing'));
     if (p && p.editing && p.paper === S.route.pid) { const be = document.querySelector(`.blk[data-id="${p.editing}"]`); be && be.classList.add('other-editing'); }
+  }
+
+  // ---------- Lee Review (Max only): everything Dr. Lee did, newest first; the bubble counts what's new ----------
+  const leeActs = () => S.papers.flatMap((p) => D_(p.id).activity.filter((a) => a.author === 'lee').map((a) => ({ ...a, pid: p.id })))
+    .sort((a, b) => b.at - a.at);
+  function renderLeeBubble() {
+    const el = $('#leebubble'); if (!el || S.leeSeen === null) return;
+    const n = leeActs().filter((a) => a.at > S.leeSeen).length;
+    el.textContent = n ? (n > 99 ? '99+' : n) : '';
+  }
+  function openLeeReview() {
+    const seen = S.leeSeen || 0, acts = leeActs().slice(0, 200);
+    modal(`<h2>Dr. Lee's changes</h2>
+      <p class="muted">His edits, suggestions, comments and done marks in the manuscript, and his calls and notes on the sources. New since you last looked are highlighted.</p>
+      <ul class="feed lee-feed">${acts.map((a, i) => `<li class="${a.at > seen ? 'new' : ''}">${avatar('lee')}<div>${esc(a.summary)}
+        ${a.detail ? `<div class="lee-detail">${esc(a.detail)}</div>` : ''}
+        <small class="muted">${esc((S.papers.find((p) => p.id === a.pid) || {}).short || '')} · ${when(a.at)}</small></div>
+        ${a.sourceKey || (a.blockId && blockById(a.pid, a.blockId) && !blockById(a.pid, a.blockId).deleted) ? `<button class="btn small" data-i="${i}">View</button>` : ''}</li>`).join('')
+        || '<li class="muted">Dr. Lee hasn\'t changed anything yet.</li>'}</ul>
+      <div class="modal-actions"><button class="btn primary" data-close>Done</button></div>`, (m) => {
+      m.querySelectorAll('[data-i]').forEach((b) => b.onclick = () => {
+        const a = acts[+b.dataset.i]; closeModal();
+        if (a.sourceKey) {
+          try { localStorage.setItem('jump', JSON.stringify({ b: a.sourceKey, id: (a.cards || [])[0] })); } catch {}
+          const f = $('#main .sources-frame'); if (f) f.remove();
+          go({ view: 'sources', pid: a.pid });
+        } else {
+          go({ view: 'doc', pid: a.pid });
+          setTimeout(() => { const el = document.querySelector(`.blk[data-id="${a.blockId}"]`); el && (el.scrollIntoView({ block: 'center' }), el.classList.add('flash')); }, 250);
+        }
+      });
+    }, 'leerev');
+    S.leeSeen = now(); renderLeeBubble();
+    DB.set(`${PRIV}/state/leeReview`, { seen: S.leeSeen }, true).catch((e) => console.warn(e));
   }
 
   // ---------- home ----------
@@ -1017,18 +1064,33 @@
   function renderSources() {
     if ($('#main .sources-frame')) return;
     document.documentElement.style.setProperty('--top-h', ($('.top').offsetHeight || 58) + 'px');
-    $('#main').innerHTML = `<iframe class="sources-frame" src="sources/index.html?v=1" title="Source review"></iframe>`;
+    $('#main').innerHTML = `<iframe class="sources-frame" src="sources/index.html?v=2" title="Source review"></iframe>`;
   }
-  // Verdicts for each source packet live in leesearch_papers/<paper>/source_verdicts/<packet>, one field per
-  // review card, so Max and Dr. Lee reviewing different cards never overwrite each other.
+  // Each person keeps their own review of each source packet, one field per review card:
+  //   Max:     leesearch_private/max/source_verdicts/<packet>   (only Max's account can read it)
+  //   Dr. Lee: leesearch_papers/<paper>/lee_verdicts/<packet>    (both can read it; Max sees it on each card)
   const vLast = {};
   const bundleListeners = new Set();
-  const vPath = (key) => `${P(S.sources.paper_of[key])}/source_verdicts/${key.replace(/\//g, '__')}`;
+  const docKey = (key) => key.replace(/\//g, '__');
+  const leePath = (key) => `${P(S.sources.paper_of[key])}/lee_verdicts/${docKey(key)}`;
+  const vPath = (key) => (S.me === 'max' ? `${PRIV}/source_verdicts/${docKey(key)}` : leePath(key));
   const stripV = (d) => { const V = {}; for (const [k, v] of Object.entries(d || {})) if (k !== 'id' && !k.startsWith('_')) V[k] = v; return V; };
   async function sourcesBundle() {
     if (!S.sources) {
       const r = await fetch('vault/sources.bin', { cache: 'no-store' });
       S.sources = JSON.parse(new TextDecoder().decode(await decryptBytes(await r.arrayBuffer())));
+      // Max only: put back Claude's back-and-forth and side notes, which are in the Max-only file
+      if (S.me === 'max' && S.maxKey) {
+        try {
+          const rm = await fetch('vault/sources_max.bin', { cache: 'no-store' });
+          const mine = JSON.parse(new TextDecoder().decode(await decryptBytes(await rm.arrayBuffer(), S.maxKey)));
+          for (const [key, th] of Object.entries(mine.threads || {})) {
+            const c = S.sources.data[key] && (S.sources.data[key].claude ||= {});
+            if (c) for (const [id, t] of Object.entries(th)) (c[id] ||= {}).thread = t;
+          }
+          for (const [key, notes] of Object.entries(mine.side_notes || {})) if (S.sources.drafts[key]) S.sources.drafts[key].notes = notes;
+        } catch (e) { console.warn('Max-only notes not loaded', e); }
+      }
     }
     return JSON.parse(JSON.stringify(S.sources));
   }
@@ -1038,6 +1100,7 @@
     decrypt: (fid) => fetchFile(fid),
     sourcesBundle,
     onUpdate(cb) { bundleListeners.add(cb); },
+    async loadLee(key) { return S.me === 'max' ? stripV(await DB.get(leePath(key)).catch(() => null)) : {}; },
     async loadVerdicts(key) {
       const V = stripV(await DB.get(vPath(key)));
       vLast[key] = Object.fromEntries(Object.entries(V).map(([k, v]) => [k, JSON.stringify(v)]));
@@ -1045,29 +1108,60 @@
     },
     async saveVerdicts(key, V) {
       const last = vLast[key] || {}; const changed = {};
-      for (const [id, v] of Object.entries(V)) { const j = JSON.stringify(v); if (last[id] !== j) { changed[id] = v; last[id] = j; } }
+      const prev = {};
+      for (const [id, v] of Object.entries(V)) { const j = JSON.stringify(v); if (last[id] !== j) { prev[id] = last[id] ? JSON.parse(last[id]) : {}; changed[id] = { ...v, _at: now() }; last[id] = j; } }
       vLast[key] = last;
       if (!Object.keys(changed).length) return;
-      changed._key = key; changed._updatedBy = S.me; changed._updatedAt = now();
+      changed._key = key; changed._updatedBy = S.me; changed._updatedAt = now(); changed._tab = TAB;
       try { await DB.update(vPath(key), changed); } catch { await DB.set(vPath(key), changed, true); }
-      if (DB.kind === 'mock') fetch('/__verdicts', { method: 'POST', body: JSON.stringify({ key, verdicts: V }) }).catch(() => {});
-      const pid = S.sources.paper_of[key];
-      log(pid, 'source', null, `reviewed sources (${Object.keys(changed).filter((k) => !k.startsWith('_')).join(', ')}) in ${key.split('/')[1]}`);
+      // the local files stay in step with Max's review (Claude and Gemini read verdicts.json)
+      if (LOCAL && S.me === 'max') fetch('/__verdicts', { method: 'POST', body: JSON.stringify({ key, verdicts: V }) }).catch(() => {});
+      // Max's review is private, so only Dr. Lee's shows up in the shared activity (and in Max's Lee Review)
+      if (S.me !== 'lee') return;
+      const pid = S.sources.paper_of[key], ids = Object.keys(changed).filter((k) => !k.startsWith('_'));
+      const CALLS = { use: 'Use', maybe: 'Maybe', drop: "Don't use", reword: 'Maybe', valid: 'Use', partly: 'Maybe', reject: "Don't use" };
+      const parts = ids.map((id) => {
+        const a = prev[id] || {}, b = changed[id], bits = [];
+        const ca = a.call || a.verdict || '', cb = b.call || b.verdict || '';
+        if (ca !== cb) bits.push(cb ? `call: ${CALLS[cb] || cb}` : 'cleared his call');
+        if ((a.note || '') !== (b.note || '')) bits.push(b.note ? `note: “${b.note.slice(0, 160)}”` : 'removed his note');
+        if (JSON.stringify(a.passage_notes || {}) !== JSON.stringify(b.passage_notes || {})) bits.push('comment on a passage');
+        if (JSON.stringify(a.page_notes || []) !== JSON.stringify(b.page_notes || [])) bits.push('page note');
+        if (JSON.stringify(a.ratings || {}) !== JSON.stringify(b.ratings || {})) bits.push('ratings');
+        if ((a.choice || 'current') !== (b.choice || 'current')) bits.push('picked a different source');
+        return bits.length ? `${id}: ${bits.join(', ')}` : '';
+      });
+      const real = ids.filter((id, i) => parts[i]);      // cards he actually changed (a first save also stores untouched ones)
+      if (!real.length) return;
+      log(pid, 'source', null, `reviewed ${real.join(', ')} in Sources (${key.split('/')[1]})`, { sourceKey: key, cards: real, detail: parts.filter(Boolean).join(' · ') });
     },
+    // Calls cb(key, V, who) when a review changes elsewhere: your own in another tab or window (who = you),
+    // or, for Max, Dr. Lee's (who = 'lee').
     watchVerdicts(cb) {
       const pids = [...new Set(Object.values(S.sources.paper_of))];
-      for (const pid of pids) {
-        S.unsubs.push(DB.listen(`${P(pid)}/source_verdicts`, (docs) => {
-          for (const d of docs) {
-            const key = d._key; if (!key || d._updatedBy === S.me) continue;
-            const V = stripV(d); const last = vLast[key] || {};
-            const differs = Object.entries(V).some(([k, v]) => last[k] !== JSON.stringify(v));
-            if (!differs) continue;
-            vLast[key] = Object.fromEntries(Object.entries(V).map(([k, v]) => [k, JSON.stringify(v)]));
-            cb(key, V);
-          }
-        }));
-      }
+      const own = (docs) => {
+        for (const d of docs) {
+          const key = d._key; if (!key || d._tab === TAB) continue;
+          const V = stripV(d); const last = vLast[key] || {};
+          const differs = Object.entries(V).some(([k, v]) => last[k] !== JSON.stringify(v));
+          if (!differs) continue;
+          vLast[key] = Object.fromEntries(Object.entries(V).map(([k, v]) => [k, JSON.stringify(v)]));
+          cb(key, V, S.me);
+        }
+      };
+      const lees = {};
+      const lee = (docs) => {
+        for (const d of docs) {
+          const key = d._key; if (!key) continue;
+          const j = JSON.stringify(stripV(d)); if (lees[key] === j) continue;
+          const first = !(key in lees); lees[key] = j;
+          if (!first) cb(key, stripV(d), 'lee');
+        }
+      };
+      if (S.me === 'max') {
+        S.unsubs.push(DB.listen(`${PRIV}/source_verdicts`, own));
+        for (const pid of pids) S.unsubs.push(DB.listen(`${P(pid)}/lee_verdicts`, lee));
+      } else for (const pid of pids) S.unsubs.push(DB.listen(`${P(pid)}/lee_verdicts`, own));
     },
   };
 
@@ -1088,6 +1182,14 @@
   async function loadManifest() {
     const r = await fetch('vault/manifest.bin', { cache: 'no-store' });
     S.manifest = JSON.parse(new TextDecoder().decode(await decryptBytes(await r.arrayBuffer())));
+    if (S.me === 'max' && S.maxKey) {
+      try {
+        const rm = await fetch('vault/manifest_max.bin', { cache: 'no-store' });
+        const mine = JSON.parse(new TextDecoder().decode(await decryptBytes(await rm.arrayBuffer(), S.maxKey)));
+        S.maxIds = new Set(mine.map((f) => f.id));
+        S.manifest = S.manifest.concat(mine.map((f) => ({ ...f, name: f.name + ' (only you)' })));
+      } catch (e) { console.warn('Max-only files not loaded', e); }
+    }
   }
   // Local preview: load the files' current state (mock-seed.json, rebuilt by publish.sh) into the test backend.
   // A paragraph or verdict card is refreshed from the files only if it changed in the files since the last
@@ -1109,7 +1211,7 @@
       if (!cur.version || cur.html === was) { ops.push({ op: 'set', merge: true, path, data: { html: b.html } }); refreshed++; } else kept++;
     }
     for (const [key, V] of Object.entries(seed.verdicts || {})) {
-      const path = `${ROOT}/aaoms/source_verdicts/${key.replace(/\//g, '__')}`; const cur = await DB.get(path);
+      const path = `${PRIV}/source_verdicts/${key.replace(/\//g, '__')}`; const cur = await DB.get(path);
       const was = (prev && prev.verdicts && prev.verdicts[key]) || {}; const data = { _key: key, _updatedBy: 'files', _updatedAt: now() };
       for (const [id, v] of Object.entries(V)) { const j = JSON.stringify(v); if (!cur || was[id] !== j) data[id] = v; }
       if (Object.keys(data).length > 3) ops.push({ op: 'set', merge: true, path, data });
@@ -1119,16 +1221,25 @@
     localStorage.setItem(AK, JSON.stringify(applied));
     if (prev) setTimeout(() => toast(`Loaded the latest files${refreshed ? ` (${refreshed} paragraph${refreshed > 1 ? 's' : ''} updated)` : ''}${kept ? `; kept ${kept} paragraph${kept > 1 ? 's' : ''} you edited here` : ''}.`), 800);
   }
-  async function localKey() {
+  async function localKey(which = 'key') {
     const k = await fetch('local-key.json', { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
-    return k ? crypto.subtle.importKey('raw', b64d(k.key), 'AES-GCM', false, ['decrypt']) : null;
+    return k && k[which] ? crypto.subtle.importKey('raw', b64d(k[which]), 'AES-GCM', false, ['decrypt']) : null;
   }
   // Local preview: the local server rebuilds when files change; pick that up without a reload, and write the
   // preview's manuscript state back to Lee/leesearch/pull/<paper>/manuscript_local.md for Gemini and Claude.
   let localStamp = null, snapTimer = null;
+  function renderWebSync(st) {
+    const el = $('#websync'); if (!el || !st) return;
+    const w = st.web || {};
+    el.className = 'websync ' + (w.state || '');
+    el.textContent = w.state === 'publishing' ? 'Website: updating…' : w.state === 'waiting' ? 'Website: updates soon' : w.state === 'error' ? 'Website: update failed' : w.at ? `Website: up to date · ${ago(w.at * 1000)}` : 'Website';
+    el.title = w.state === 'error' ? w.error || '' : 'Local work is uploaded to maxmendelson.com/leesearch automatically. Click to upload now.';
+    el.onclick = () => fetch('/__publish', { method: 'POST', body: '{}' }).then(() => { el.textContent = 'Website: updating…'; }).catch(() => {});
+  }
   async function localPoll() {
-    if (DB.kind !== 'mock' || !S.me) return;
+    if (!LOCAL || !S.me) return;
     const st = await fetch('/__status', { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
+    renderWebSync(st);
     if (!st || !st.stamp) return;
     if (localStamp === null) { localStamp = st.stamp; return; }
     if (st.stamp === localStamp) return;
@@ -1143,7 +1254,7 @@
   }
   setInterval(localPoll, 3000);
   function localSnapshot() {
-    if (DB.kind !== 'mock') return;
+    if (!LOCAL || S.me !== 'max') return;
     clearTimeout(snapTimer);
     snapTimer = setTimeout(() => {
       for (const p of S.papers.filter((x) => x.hasManuscript)) {
@@ -1168,6 +1279,7 @@
     const me = PEOPLE.find((k) => USERS[k].email === u.email);
     if (!me) { await DB.signOut(); return renderLogin('This account is not part of Leesearch.'); }
     S.me = me; S.uid = u.uid;
+    S.maxKey = me !== 'max' ? null : DB.kind === 'mock' ? await localKey('maxKey') : await remoteMaxKey();
     if (!S.key) S.key = await keyStore('get');
     if (!S.key && DB.kind === 'mock') S.key = await localKey();
     if (!S.key && DB.kind !== 'mock') S.key = await remoteKey();

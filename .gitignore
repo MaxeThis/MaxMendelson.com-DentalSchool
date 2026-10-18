@@ -16,3 +16,4 @@ firebase-admin*.json
 # Leesearch local test data (plaintext manuscript) — never commit
 leesearch/mock-seed.json
 leesearch/local-key.json
+leesearch/local-appcheck.js

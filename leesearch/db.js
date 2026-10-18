@@ -116,8 +116,9 @@
   }
 
   const local = ['localhost', '127.0.0.1'].includes(location.hostname);
-  // Until launch, localhost always uses the local test backend (add ?live to try the real one).
-  const mock = local && !new URLSearchParams(location.search).has('live');
+  // localhost uses the real database too (sign in once as Max), so work done locally is saved for both of you.
+  // ?mock gives the old browser-only test backend, where two tabs can play Max and Dr. Lee.
+  const mock = local && new URLSearchParams(location.search).has('mock');
   window.LDB = mock ? mockBackend() : firebaseBackend();
   window.LDB.DELETE = DELETE;
 })();
