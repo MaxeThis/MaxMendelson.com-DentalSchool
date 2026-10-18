@@ -114,6 +114,14 @@ h3{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;
 .quoteof.jump{cursor:pointer;border:2px solid transparent}
 .quoteof.jump:hover{border-color:var(--blue)}
 .quoteof.jump small{display:block;color:var(--blue);font-weight:800;font-size:12px;margin-top:4px}
+details.otheruses{border:0;padding:0;margin:6px 0 0}
+details.otheruses summary{font-size:12px;padding:2px 4px;color:var(--blue)}
+details.otheruses summary::before{color:var(--blue)}
+.ou{display:block;width:100%;text-align:left;font:600 13px/1.4 Nunito,sans-serif;color:var(--ink);background:var(--panel);border:2px solid var(--line);border-bottom-width:3px;border-radius:12px;padding:6px 10px;margin:5px 0;cursor:pointer}
+.ou:hover{border-color:var(--blue)}
+.ou .ouh{display:flex;align-items:center;gap:4px;color:var(--muted);font-weight:800;font-size:12px;margin-bottom:2px}
+.ou .ouh .tag{margin-left:0}
+.ou .go{margin-left:auto;color:var(--blue)}
 .pulse{animation:pulse 1.6s ease-out}
 @keyframes pulse{0%,35%{box-shadow:0 0 0 4px var(--blue);background:color-mix(in srgb,var(--blue) 22%,transparent)}100%{box-shadow:0 0 0 0 transparent}}
 .card{border:2px solid var(--line);border-radius:16px;padding:12px 14px;margin:14px 0}
@@ -527,8 +535,10 @@ function show(b, id, keepScroll){
     <h2 class="${it.not_used?"gone":""}">${esc(it.id)} · ${esc(it.label)}${star(it)}</h2>
     ${it.not_used?`<div class="gonenote">${esc(it.not_used)} It has no sentence in this batch's text, so nothing is highlighted.</div>`:""}
     ${it.lee_sent?`<div class="sub">⭐ Dr. Lee sent you this paper.</div>`:""}
-    ${other.length?`<div class="also sub">Also used in: ${other.map(o=>`<a data-go="${o.batch}|${o.id}">${esc(o.where)} (${esc(o.id)})</a>`).join(", ")}</div>`:""}
     <h3>We cite it for</h3><div class="quoteof jump" id="citefor" title="Show where our paper cites it">${esc(it.claim)}<small>↖ Show it in our paper</small></div>
+    ${other.length?`<details class="otheruses" id="otheruses" ${store.get("otherusesOpen", false)?"open":""}><summary>Also cited for ${other.length} other sentence${other.length>1?"s":""}</summary>
+      ${other.map(o => { const oi = (B[o.batch]?.D.items || []).find(i => i.id === o.id) || {};
+        return `<button class="ou" data-go="${esc(o.batch)}|${esc(o.id)}" title="Switch to card ${esc(o.id)}: its notes, quotes and sentence"><span class="ouh"><span class="tag num">${esc(o.id)}</span> ${esc(o.where)}${oi.not_used?" · not cited there now":""}<span class="go">Open ›</span></span>${esc(oi.claim || "")}</button>`; }).join("")}</details>`:""}
     ${vsTable(D, it)}
     ${formTables(D, it)}
 
@@ -595,6 +605,7 @@ function show(b, id, keepScroll){
     target.scrollIntoView({block: "center", behavior: "smooth"});
     for (const el of [sent, ...refs].filter(Boolean)){ el.classList.remove("pulse"); void el.offsetWidth; el.classList.add("pulse"); }
   };
+  const ou = I.querySelector("#otheruses"); if (ou) ou.ontoggle = () => store.set("otherusesOpen", ou.open);
   I.querySelectorAll(".cb").forEach(btn => btn.onclick = () => { const k = btn.dataset.call; x.call = callOf(x) === k ? "" : k; if (!x.call) delete x.verdict; save(); show(b, id); });
   I.querySelectorAll("textarea[data-f]").forEach(t => t.oninput = () => { x[t.dataset.f] = t.value; save(); });
   I.querySelectorAll("textarea[data-pn]").forEach(t => t.oninput = () => { x.passage_notes[t.dataset.pn] = t.value; save(); });
