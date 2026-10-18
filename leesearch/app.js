@@ -62,14 +62,14 @@
 
   // ---------- crypto (vault) ----------
   const b64d = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-  async function unwrapKey(user, password) {
-    const keys = await (await fetch('vault/keys.json', { cache: 'no-store' })).json();
-    const k = keys[user];
-    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
-    const kek = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64d(k.salt), iterations: k.iter, hash: 'SHA-256' }, base,
-      { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
-    const raw = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64d(k.iv) }, kek, b64d(k.wrapped));
-    return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
+  // The vault key lives in Firestore (leesearch_secrets/vault), readable only by the two signed-in accounts,
+  // so the encrypted files on GitHub can't be attacked offline by guessing a password.
+  async function remoteKey() {
+    const d = await DB.get('leesearch_secrets/vault').catch(() => null);
+    if (!d || !d.key) return null;
+    const k = await crypto.subtle.importKey('raw', b64d(d.key), 'AES-GCM', false, ['decrypt']);
+    await keyStore('put', k);
+    return k;
   }
   async function decryptBytes(buf) {
     const u = new Uint8Array(buf);
@@ -227,12 +227,10 @@
       if (!pw) return;
       $('#go').disabled = true; $('#go').textContent = 'Unlocking…'; $('.err').textContent = '';
       try {
-        const key = await unwrapKey(pick, pw).catch(() => { throw new Error('Wrong password.'); });
-        S.key = key; await keyStore('put', key);
         localStorage.setItem('ls-last-user', pick);
-        await DB.signIn(USERS[pick].email, pw).catch(async (er) => {
-          S.key = null; await keyStore('del');
-          throw new Error(/password|credential/i.test(er.code || er.message) ? 'Wrong password.' : 'Sign-in failed: ' + (er.code || er.message));
+        await DB.signIn(USERS[pick].email, pw).catch((er) => {
+          const c = er.code || er.message;
+          throw new Error(/password|credential/i.test(c) ? 'Wrong password.' : /too-many/i.test(c) ? 'Too many tries. Wait a few minutes.' : 'Sign-in failed: ' + c);
         });
       } catch (er) {
         $('#go').disabled = false; $('#go').textContent = 'Sign in'; $('.err').textContent = er.message;
@@ -1172,8 +1170,15 @@
     S.me = me; S.uid = u.uid;
     if (!S.key) S.key = await keyStore('get');
     if (!S.key && DB.kind === 'mock') S.key = await localKey();
-    if (!S.key) { await DB.signOut(); return renderLogin('Please enter your password again on this device.'); }
-    try { await loadManifest(); } catch (e) { console.error(e); await keyStore('del'); S.key = null; await DB.signOut(); return renderLogin('Could not unlock the files. Sign in again.'); }
+    if (!S.key && DB.kind !== 'mock') S.key = await remoteKey();
+    if (!S.key) { await DB.signOut(); return renderLogin('Could not get the file key. Sign in again.'); }
+    try { await loadManifest(); } catch (e) {
+      // A key saved on this device before the key was changed: fetch the current one once.
+      const k = DB.kind === 'mock' ? null : await remoteKey();
+      try { if (!k) throw e; S.key = k; S.fileCache.clear(); await loadManifest(); } catch (e2) {
+        console.error(e2); await keyStore('del'); S.key = null; await DB.signOut(); return renderLogin('Could not unlock the files. Sign in again.');
+      }
+    }
     await mockSync();
     fromHash();
     $('#app').innerHTML = '';

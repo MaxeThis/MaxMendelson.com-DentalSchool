@@ -220,5 +220,19 @@ service cloud.firestore {
       allow delete: if false;
     }
     // END BASER ANALYTICS
+    // BEGIN LEESEARCH — Max and Dr. Lee's private manuscript workspace (/leesearch).
+    // Only their two accounts can read or write. Managed by Lee/leesearch/tools/leesearch.mjs.
+    match /leesearch_papers/{doc=**} {
+      allow read, write: if request.auth != null && request.auth.uid in ['wy82P1S4uxTAcyzdlKf6C82xt713', '69fwyvdenOb8Iykn9jFBehzYDvu1'];
+    }
+    match /leesearch_presence/{doc=**} {
+      allow read, write: if request.auth != null && request.auth.uid in ['wy82P1S4uxTAcyzdlKf6C82xt713', '69fwyvdenOb8Iykn9jFBehzYDvu1'];
+    }
+    // The file vault key. Only the two accounts can read it; only the admin tool writes it.
+    match /leesearch_secrets/{doc} {
+      allow read: if request.auth != null && request.auth.uid in ['wy82P1S4uxTAcyzdlKf6C82xt713', '69fwyvdenOb8Iykn9jFBehzYDvu1'];
+      allow write: if false;
+    }
+    // END LEESEARCH
   }
 }
