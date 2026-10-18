@@ -12,3 +12,7 @@ secrets/
 service-account*.json
 firebase-admin*.json
 *-private-key.json
+
+# Leesearch local test data (plaintext manuscript) — never commit
+leesearch/mock-seed.json
+leesearch/local-key.json

@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Source Review</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+/* Duolingo-style tokens: bright, rounded, chunky 3D buttons */
+:root{
+  --bg:#ffffff;--panel:#ffffff;--soft:#f7f7f7;--ink:#3c3c3c;--muted:#777777;--line:#e5e5e5;
+  --green:#58cc02;--green-d:#58a700;--blue:#1cb0f6;--blue-d:#1899d6;--red:#ff4b4b;--red-d:#ea2b2b;
+  --yellow:#ffc800;--yellow-d:#e5a500;--purple:#ce82ff;--hl:#fff4b8;--hl-line:#ffc800;--pdfbg:#eef2f4;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#131f24;--panel:#131f24;--soft:#1a2b32;--ink:#f1f7fb;--muted:#8fa3ad;--line:#37464f;--hl:#4a3f12;--pdfbg:#0e181c}}
+:root[data-theme="dark"]{--bg:#131f24;--panel:#131f24;--soft:#1a2b32;--ink:#f1f7fb;--muted:#8fa3ad;--line:#37464f;--hl:#4a3f12;--pdfbg:#0e181c}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:600 15px/1.5 Nunito,system-ui,"Segoe UI",sans-serif;display:flex;flex-direction:column;overflow:hidden}
+/* custom scrollbars */
+*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+::-webkit-scrollbar{width:12px;height:12px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:12px;border:3px solid var(--bg)}
+::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+header{display:flex;align-items:center;gap:16px;padding:10px 18px;border-bottom:2px solid var(--line)}
+.logo{font-weight:900;font-size:20px;color:var(--green);letter-spacing:-.3px}
+.bar{flex:0 1 280px;height:16px;border-radius:99px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--green);border-radius:99px;box-shadow:inset 0 -4px 0 rgba(0,0,0,.12);transition:width .4s}
+.hint{color:var(--muted);font-size:13px}
+#saved{margin-left:auto;color:var(--muted);font-size:13px;font-weight:700}
+#saved.bad{color:var(--red)}
+main{flex:1;display:flex;min-height:0}
+.col{overflow:auto;min-width:0;position:relative}
+.gut{flex:0 0 8px;cursor:col-resize;position:relative;background:transparent}
+.gut::after{content:"";position:absolute;top:0;bottom:0;left:3px;width:2px;background:var(--line);border-radius:2px}
+.gut:hover::after,.gut.drag::after{background:var(--blue);width:4px;left:2px}
+.colhead{position:sticky;top:0;z-index:2;background:var(--panel);display:flex;align-items:center;gap:8px;padding:12px 14px 8px;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.colhead .sp{flex:1}
+/* buttons */
+.btn{font:800 13px Nunito,sans-serif;text-transform:uppercase;letter-spacing:.06em;border-radius:14px;border:2px solid var(--line);border-bottom-width:4px;background:var(--panel);color:var(--muted);padding:7px 14px;cursor:pointer}
+.btn:active{transform:translateY(2px);border-bottom-width:2px}
+.btn.sm{padding:3px 9px;font-size:12px;border-radius:11px}
+.btn.icon{padding:3px 9px;text-transform:none;font-size:15px;line-height:1}
+/* sources column */
+#nav{background:var(--panel)}
+#nav.closed .navbody,#nav.closed .colhead .t{display:none}
+#nav.closed{flex-basis:46px!important}
+.batch{margin:4px 10px 14px}
+.bt{display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 2px}
+.bt b{font-weight:800;font-size:14px}
+.bt .n{margin-left:auto;font-size:12px;color:var(--muted);font-weight:800}
+.bt .bar{flex:0 0 70px;height:10px}
+.it{display:flex;gap:10px;align-items:center;width:100%;text-align:left;border:2px solid var(--line);border-bottom-width:4px;background:var(--panel);color:var(--ink);padding:8px 10px;border-radius:14px;cursor:pointer;font:inherit;margin:7px 0}
+.it.on{border-color:var(--blue);background:color-mix(in srgb,var(--blue) 10%,var(--panel))}
+.it .st{display:block;font-size:12px;color:var(--muted);font-weight:700}
+.it .nm{font-weight:800}
+.it.gone{opacity:.6}
+.sub-h{display:flex;align-items:flex-start;gap:8px;cursor:pointer;margin:12px 2px 2px;color:var(--muted);font-weight:800;font-size:13px}
+.sub-h .why{display:block;font-weight:600;font-size:12px}
+.subg{margin-left:10px}
+.it.other .badge{background:transparent;border:2px solid var(--line);color:var(--muted);font-size:13px}
+.ref.on{background:var(--hl);color:var(--ink)}
+.notemark{display:inline-block;font:800 11px Nunito,sans-serif;color:#fff;background:var(--purple);border-radius:99px;padding:0 7px;margin-left:4px;cursor:pointer;vertical-align:2px}
+details.sidenote{border:2px solid var(--purple);border-bottom-width:4px;border-radius:16px;margin:4px 0 16px;padding:8px 12px;background:color-mix(in srgb,var(--purple) 8%,var(--panel));font-size:14px;line-height:1.55}
+details.sidenote summary{cursor:pointer;font-weight:900}
+details.sidenote .who{font-size:12px;color:var(--muted);font-weight:700;margin:2px 0 6px}
+details.sidenote table{width:100%;border-collapse:collapse;margin:6px 0;font-size:13px}
+details.sidenote th,details.sidenote td{text-align:left;padding:4px 6px;border-top:2px solid var(--line);vertical-align:top}
+details.sidenote p{margin:6px 0}.it.gone .nm,h2.gone{text-decoration:line-through;text-decoration-thickness:2px}
+.gonenote{border:2px dashed var(--line);border-radius:14px;padding:8px 12px;margin:8px 0;color:var(--muted);font-weight:700}
+.badge{flex:0 0 30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;background:var(--line);border-bottom:3px solid rgba(0,0,0,.15)}
+.badge.use{background:var(--green)}.badge.maybe{background:var(--yellow)}.badge.drop{background:var(--red)}
+.tag{display:inline-block;font-size:11px;font-weight:800;padding:0 7px;border-radius:99px;background:var(--soft);color:var(--muted);margin-left:4px}
+.tag.alt{color:var(--blue)}
+.tag.num{color:var(--blue);background:color-mix(in srgb,var(--blue) 14%,var(--panel))}
+.reflist{margin:26px 0 0;border-top:2px solid var(--line);padding-top:12px}
+.reflist h3{margin:0 0 4px}
+.rl{display:flex;gap:10px;align-items:baseline;padding:7px 8px;border-radius:12px;cursor:pointer}
+.rl:hover{background:var(--soft)}
+.rl .n{flex:0 0 auto;color:var(--blue);font-weight:900;min-width:58px}
+.rl .t{flex:1;font-size:14px;line-height:1.45}
+/* our paper column */
+#paper .doc{padding:4px 22px 40px;font-weight:500;font-size:15px;line-height:1.75}
+#paper .doc b{font-weight:800}
+.cite{border-bottom:2px dashed var(--line);cursor:pointer;border-radius:4px}
+.cite:hover{background:var(--soft)}
+.cite.on{background:var(--hl);border-bottom:3px solid var(--hl-line);padding:1px 0}
+.ref{color:var(--blue);font-weight:800;cursor:pointer;border-radius:6px;padding:1px 4px;display:inline-block;line-height:1.25;transition:transform .1s,box-shadow .1s}
+.ref:hover{transform:translateY(-1px);filter:brightness(0.95)}
+.ref.nocard{color:var(--muted);text-decoration:underline dotted}
+.ref.c0{color:#1899d6;background:color-mix(in srgb,#1cb0f6 14%,transparent)}
+.ref.c1{color:#a55eea;background:color-mix(in srgb,#ce82ff 16%,transparent)}
+.ref.c2{color:#e58e26;background:color-mix(in srgb,#ff9600 16%,transparent)}
+.ref.c3{color:#20bf6b;background:color-mix(in srgb,#58cc02 16%,transparent)}
+.ref.c4{color:#eb3b5a;background:color-mix(in srgb,#ff4b4b 15%,transparent)}
+.ref.on{outline:2.5px solid currentColor;box-shadow:0 2px 6px rgba(0,0,0,.18);font-weight:900;transform:scale(1.06)}
+.ref-br{font-weight:800;color:var(--muted)}
+.refrow{border:2px solid var(--line);border-bottom-width:4px;border-radius:14px;padding:10px 12px;margin:10px 0}
+.refrow .sub{margin:2px 0 8px}
+.refrow .acts{display:flex;gap:8px;flex-wrap:wrap}
+.empty{color:var(--muted);padding:14px 22px}
+/* notes column */
+#notes .in{padding:2px 16px 40px}
+h2{font-size:21px;font-weight:900;margin:4px 0 2px;line-height:1.25}
+h3{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:18px 0 8px}
+.sub{color:var(--muted);font-size:13px}
+.also a{color:var(--blue);cursor:pointer;font-weight:800}
+.quoteof{background:var(--soft);border-radius:14px;padding:10px 12px;font-weight:600}
+.quoteof.jump{cursor:pointer;border:2px solid transparent}
+.quoteof.jump:hover{border-color:var(--blue)}
+.quoteof.jump small{display:block;color:var(--blue);font-weight:800;font-size:12px;margin-top:4px}
+.pulse{animation:pulse 1.6s ease-out}
+@keyframes pulse{0%,35%{box-shadow:0 0 0 4px var(--blue);background:color-mix(in srgb,var(--blue) 22%,transparent)}100%{box-shadow:0 0 0 0 transparent}}
+.card{border:2px solid var(--line);border-radius:16px;padding:12px 14px;margin:14px 0}
+.card.call{border-color:var(--blue)}
+.calls{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.cb{flex:1;min-width:90px;font:900 13px Nunito,sans-serif;text-transform:uppercase;letter-spacing:.05em;border-radius:14px;border:2px solid var(--line);border-bottom-width:4px;background:var(--panel);color:var(--muted);padding:9px 8px;cursor:pointer}
+.cb:active{transform:translateY(2px);border-bottom-width:2px}
+.cb.on.use{background:var(--green);border-color:var(--green-d);color:#fff}
+.cb.on.maybe{background:var(--yellow);border-color:var(--yellow-d);color:#fff}
+.cb.on.drop{background:var(--red);border-color:var(--red-d);color:#fff}
+textarea,input[type=text],input[type=number],select{width:100%;font:600 14px Nunito,sans-serif;padding:9px 11px;border:2px solid var(--line);border-radius:12px;background:var(--soft);color:var(--ink);margin-top:8px;outline:none}
+textarea:focus,input:focus,select:focus{border-color:var(--blue)}
+textarea{min-height:46px;resize:vertical}
+.earlier{font-size:13px;color:var(--muted);margin-top:8px;white-space:pre-wrap}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:2px solid var(--line);border-bottom-width:4px;border-radius:14px;margin:8px 0;cursor:pointer}
+.opt.on{border-color:var(--blue);background:color-mix(in srgb,var(--blue) 10%,var(--panel))}
+.opt input{display:none}
+.opt .t{flex:1}
+.opt small{display:block;color:var(--muted);font-weight:600}
+.pill{display:inline-block;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;padding:1px 8px;border-radius:99px;margin:0 4px 2px 0;color:#fff;background:var(--muted)}
+.pill.better{background:var(--green)}.pill.contradicts{background:var(--red)}.pill.broader{background:var(--purple)}.pill.current{background:var(--blue)}
+.used{display:inline-block;font-size:11px;font-weight:900;padding:0 6px;border-radius:6px;margin:0 3px 2px 0;cursor:pointer;color:#fff;background:var(--blue);border:2px solid var(--blue)}
+.used.alt{background:transparent;color:var(--blue)}
+.pill.swap{background:transparent;color:var(--green);border:2px solid var(--green)}.pill.reword{background:transparent;color:var(--yellow-d);border:2px solid var(--yellow)}
+.ns{font-style:italic;color:var(--ink)!important;margin-top:4px}
+.passage{display:block;width:100%;text-align:left;border:2px solid var(--line);border-left:6px solid var(--hl-line);background:var(--hl);color:var(--ink);border-radius:12px;padding:8px 10px;margin:8px 0 2px;cursor:pointer;font:600 14px Nunito,sans-serif}
+.passage small{display:block;color:var(--muted);font-weight:800;font-size:12px}
+.passage.missing{background:none;border-color:var(--red)}
+.pc{font-size:12px;color:var(--blue);cursor:pointer;font-weight:800;margin:2px 0 6px 4px;display:inline-block}
+details{border-top:2px solid var(--line);padding:6px 0}
+summary{cursor:pointer;color:var(--muted);font-size:14px;font-weight:800;padding:6px 0;list-style:none}
+summary::before{content:"▸ ";color:var(--muted)}
+details[open] summary::before{content:"▾ "}
+summary b{color:var(--ink)}
+.rrow{display:grid;grid-template-columns:1fr 40px 96px;gap:6px;align-items:center;padding:6px 0;border-bottom:2px dashed var(--line);font-size:14px}
+.rrow .cs{text-align:center;font-weight:900;color:var(--blue)}
+.rrow select{margin:0;padding:3px 6px;font-size:13px}
+.rrow .cc{grid-column:1/-1;color:var(--muted);font-size:13px;font-weight:600}
+.rrow.differ{background:color-mix(in srgb,var(--yellow) 18%,transparent);border-radius:8px}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:14px}
+.facts dt{color:var(--muted)}.facts dd{margin:0}
+.flag{color:var(--red);font-weight:900}
+.msg{padding:9px 12px;border-radius:14px;margin:8px 0;font-size:14px;font-weight:600}
+.msg small{display:block;color:var(--muted);font-weight:800;font-size:12px}
+.msg.cl{background:color-mix(in srgb,var(--blue) 12%,var(--panel))}
+.msg.mx{background:color-mix(in srgb,var(--green) 14%,var(--panel));margin-left:24px}
+.row{display:flex;gap:8px}.row input[type=number]{width:74px}
+.pnote{display:flex;gap:8px;font-size:14px;margin:4px 0}.pnote a{color:var(--blue);cursor:pointer;font-weight:800}
+.pnote .x{margin-left:auto;cursor:pointer;color:var(--muted);border:0;background:none}
+.done{background:color-mix(in srgb,var(--green) 16%,var(--panel));border:2px solid var(--green);color:var(--green-d);border-radius:16px;padding:10px 14px;font-weight:900;margin:10px 0}
+.vs{border:2px solid var(--line);border-radius:16px;padding:6px 12px;margin:12px 0}
+.vs table{width:100%;border-collapse:separate;border-spacing:0 4px;font-size:13px}
+.vs th,.vs td{text-align:left;vertical-align:top;padding:5px 7px;font-weight:600}
+.vs thead th{font-weight:900;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+.vs tbody th{color:var(--muted);font-weight:800;width:28%}
+.vs tr.differs td,.vs tr.differs th{background:color-mix(in srgb,var(--yellow) 20%,transparent)}
+.vs tr.differs td:first-of-type{border-left:4px solid var(--yellow)}
+.vs tr.same td:first-of-type{border-left:4px solid var(--green)}
+.vs tr.unknown td:first-of-type{border-left:4px solid var(--line);font-style:italic;color:var(--muted)}
+.vs tr td,.vs tr th{border-radius:0}.vs tr th{border-radius:8px 0 0 8px}.vs tr td:last-child{border-radius:0 8px 8px 0}
+.ftw{overflow-x:auto}.ft table{min-width:640px}.ft thead th small{display:block;text-transform:none;letter-spacing:0;font-weight:700}
+.ft tbody th{width:auto;min-width:80px}.ft td.me,.ft th.me{box-shadow:inset 2px 0 0 var(--blue),inset -2px 0 0 var(--blue)}.ft thead th.me{color:var(--blue-d)}
+
+.cert{font-size:11px;font-weight:800;padding:0 6px;border-radius:99px;display:inline-block;margin-top:3px}
+.cert.sure{border:2px solid var(--green);color:var(--green-d)}.cert.likely{background:color-mix(in srgb,var(--yellow) 35%,transparent)}.cert.unsure{border:2px solid var(--red);color:var(--red-d)}
+.lg{font-size:11px;font-weight:800;padding:0 6px;border-radius:99px}
+.lg.same{border:2px solid var(--green);color:var(--green)}.lg.differs{background:color-mix(in srgb,var(--yellow) 35%,transparent)}.lg.unknown{border:2px solid var(--line)}
+/* pdf column */
+#pdf{background:var(--pdfbg)}
+#pdf .pages{padding:10px 18px 30px}
+.pg{position:relative;margin:0 auto 14px;box-shadow:0 2px 6px rgba(0,0,0,.18);background:#fff;border-radius:6px;overflow:hidden}
+.pg .lbl{position:absolute;top:4px;left:6px;font-size:11px;color:#999;font-weight:800;z-index:1}
+.flash{position:absolute;left:4px;right:4px;height:34px;border:4px solid var(--blue);border-radius:10px;pointer-events:none;animation:fl 1.8s ease-out forwards}
+@keyframes fl{0%{opacity:1}100%{opacity:0}}
+.zoom{font-weight:800;color:var(--muted);font-size:13px;min-width:40px;text-align:center}
+.wait{max-width:640px;margin:20px auto;padding:20px;border:2px solid var(--line);border-radius:16px;background:var(--panel)}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;padding:16px;z-index:9}
+#modal .box{background:var(--panel);color:var(--ink);max-width:760px;width:100%;max-height:86vh;overflow:auto;border-radius:20px;border:2px solid var(--line);padding:20px 22px}
+#modal .box.wide{max-width:1040px}
+#extrabtn,#figbtn{margin-left:4px}
+.fig{margin:18px 0 26px}
+.fig img{display:block;max-width:100%;height:auto;margin:0 auto;background:#fff;border-radius:10px;border:1px solid var(--line)}
+.fig p{margin:10px 0 0;font-size:14px;line-height:1.45}
+.fig p.cap{margin:0 0 8px;font-weight:800}
+.fig .tw{overflow-x:auto}
+.fig table{border-collapse:collapse;width:100%;font-size:13px}
+.fig th,.fig td{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}
+.fig th{border-bottom:2px solid var(--ink)}
+.fig td:not(:first-child),.fig th:not(:first-child){text-align:right;white-space:nowrap}
+.xtabs{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px}
+.xtabs .btn.on{border-color:var(--blue);color:var(--blue);background:color-mix(in srgb,var(--blue) 10%,var(--panel))}
+#modal mark{background:var(--hl);color:var(--ink);border-radius:4px}
+a{color:var(--blue)}
+@media (max-width:900px){main{flex-direction:column;overflow:auto}.col{flex:none!important;width:auto!important;max-height:none}.gut{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">Source review</span><span class="hint" id="lsuser"></span>
+  <div class="bar" title="Sources reviewed, all batches"><i id="allbar" style="width:0"></i></div>
+  <span class="hint" id="allcount"></span>
+  <span id="saved"></span>
+  <button class="btn" id="extrabtn" title="Explainers: how the data are linked and checked">Extra</button>
+  <button class="btn" id="figbtn" title="Every table and figure in the current manuscript draft">Tables &amp; figures</button>
+</header>
+<main id="main">
+  <section class="col" id="nav">
+    <div class="colhead"><span class="t">Source selection</span><span class="sp"></span><button class="btn icon" id="navtoggle" title="Collapse or open">«</button></div>
+    <div class="navbody" id="list"></div>
+  </section>
+  <div class="gut" data-for="nav"></div>
+  <section class="col" id="paper">
+    <div class="colhead"><span>Our paper</span><span class="sp"></span><span class="tag" id="papername"></span></div>
+    <div id="doc"></div>
+  </section>
+  <div class="gut" data-for="paper"></div>
+  <section class="col" id="notes">
+    <div class="colhead"><span>Notes for the source</span></div>
+    <div class="in" id="info"></div>
+  </section>
+  <div class="gut" data-for="notes"></div>
+  <section class="col" id="pdf" style="flex:1">
+    <div class="colhead" style="background:var(--pdfbg)"><span>The source paper</span><span class="sp"></span>
+      <button class="btn icon" id="zout" title="Smaller">−</button><span class="zoom" id="zval">100%</span><button class="btn icon" id="zin" title="Larger">+</button></div>
+    <div class="pages" id="viewer"></div>
+  </section>
+</main>
+<div id="modal"><div class="box" id="mcard"></div></div>
+<script src="shim.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const store = { get(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch(e){ return d; } },
+                set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} } };
+let BATCHES = [], USES = {}, PMIDS = {}, B = {}, cur = null, pageEls = [], saveT = {}, rendered = null, pending = null, zoom = store.get("zoom", 0.8);
+const OLD = {valid:"use", partly:"maybe", reject:"drop"};          // earlier verdicts, shown in the new terms
+const CALL = {use:"Use", maybe:"Maybe", drop:"Don't use"};
+const ICON = {use:"✓", maybe:"?", drop:"✕"};
+const REL = {better:"Better", contradicts:"Contradicts", broader:"Review", current:"Current"};
+
+/* ---------- columns: widths you drag, remembered; sources column collapses to the left ---------- */
+const W = store.get("widths", {nav: 270, paper: 420, notes: 440});
+function applyWidths(){ for (const k of ["nav","paper","notes"]) $("#"+k).style.flex = `0 0 ${W[k]}px`; }
+applyWidths();
+if (store.get("navClosed", false)) $("#nav").classList.add("closed");
+$("#navtoggle").onclick = () => { const c = $("#nav").classList.toggle("closed"); $("#navtoggle").textContent = c ? "»" : "«"; store.set("navClosed", c); rerenderSoon(); };
+$("#navtoggle").textContent = $("#nav").classList.contains("closed") ? "»" : "«";
+document.querySelectorAll(".gut").forEach(g => g.onmousedown = e => {
+  const k = g.dataset.for, start = e.clientX, w0 = $("#"+k).getBoundingClientRect().width;
+  if (k === "nav" && $("#nav").classList.contains("closed")) return;
+  g.classList.add("drag"); document.body.style.userSelect = "none";
+  const mv = ev => { W[k] = Math.max(k === "nav" ? 180 : 260, Math.min(900, w0 + ev.clientX - start)); applyWidths(); };
+  const up = () => { g.classList.remove("drag"); document.body.style.userSelect = ""; removeEventListener("mousemove", mv); removeEventListener("mouseup", up); store.set("widths", W); rerenderSoon(); };
+  addEventListener("mousemove", mv); addEventListener("mouseup", up);
+});
+let rrT = null; function rerenderSoon(){ clearTimeout(rrT); rrT = setTimeout(() => { if (cur) { rendered = null; render(item()); } }, 250); }
+addEventListener("resize", rerenderSoon);
+$("#zin").onclick = () => { zoom = Math.min(1.6, +(zoom + 0.1).toFixed(2)); store.set("zoom", zoom); rendered = null; render(item()); };
+$("#zout").onclick = () => { zoom = Math.max(0.4, +(zoom - 0.1).toFixed(2)); store.set("zoom", zoom); rendered = null; render(item()); };
+
+/* ---------- data ---------- */
+async function init(){
+  const r = await (await fetch("/api/batches")).json();
+  BATCHES = r.batches; USES = r.uses; PMIDS = r.pmids || {};
+  for (const b of BATCHES){
+    const D = await (await fetch(`/api/${b.key}/data`)).json();
+    const dr = await (await fetch(`/api/${b.key}/draft`)).json();
+    D.draft = dr.text || ""; D.draftName = dr.name || ""; D.cites = dr.citations || []; D.paperDir = dr.paper || ""; D.notes = dr.notes || [];
+    D.sig = draftSig(dr);
+    const rawV = D.verdicts || {}, V = {}, byUid = {};
+    for (const val of Object.values(rawV)) if (val && val._uid) byUid[val._uid] = val;
+    for (const it of D.items){
+      const entry = (it.uid && byUid[it.uid]) || rawV[it.id] || {};
+      if (it.uid) entry._uid = it.uid;
+      V[it.id] = entry;
+    }
+    B[b.key] = {D, V, open: true};
+  }
+  for (const b of BATCHES) B[b.key].D.others = othersOf(B[b.key].D);
+  let want = store.get("cur", null);
+  if (want && B[want.b] && want.uid){
+    const byU = B[want.b].D.items.find(i => i.uid === want.uid);
+    if (byU) want.id = byU.id;
+  }
+  const last = BATCHES[BATCHES.length-1].key;
+  if (!(want && B[want.b] && [...B[want.b].D.items, ...B[want.b].D.others].some(i => i.id === want.id))) want = {b:last, id:B[last].D.items[0].id};
+  show(want.b, want.id);
+}
+/* ---------- live update: when Claude edits a batch's DRAFT_*.md (or its citations/notes), redraw "Our paper"
+   within a few seconds, keeping the reader's place ---------- */
+const draftSig = dr => JSON.stringify([dr.name, dr.text, dr.citations, dr.notes]);
+async function pollDrafts(){
+  for (const b of BATCHES || []){
+    try {
+      const dr = await (await fetch(`/api/${b.key}/draft`)).json(), D = B[b.key].D;
+      const sig = draftSig(dr);
+      if (D.sig === undefined){ D.sig = sig; continue; }
+      if (sig === D.sig) continue;
+      D.sig = sig; D.draft = dr.text || ""; D.draftName = dr.name || ""; D.cites = dr.citations || []; D.notes = dr.notes || [];
+      D.others = othersOf(D);
+      if (cur && cur.b === b.key){
+        const col = $("#paper"), top = col.scrollTop;
+        nav(); paper(true); col.scrollTop = top;
+        $("#saved").textContent = "Paper text updated"; $("#saved").classList.remove("bad");
+      }
+    } catch (e) { /* server restarting: try again next round */ }
+  }
+}
+setInterval(pollDrafts, 3000);
+const item = () => B[cur.b].D.items.find(i => i.id === cur.id) || (B[cur.b].D.others || []).find(i => i.id === cur.id);
+// sources cited in a batch's text that have no review card (policies, data, regulations): listed under "Other sources" in order of first appearance
+function citedRefs(D){
+  const refs = new Map();
+  (D.cites || []).forEach((c, ci) => c.items.forEach((x, i) => {
+    const k = x.uri || x.title, r = refs.get(k) || {x, nums: new Set(), where: []};
+    r.nums.add(numOf(c, i)); r.where.push({ci, n: c.n, before: c.before}); refs.set(k, r);
+  }));
+  for (const r of refs.values()) r.nums = [...r.nums].sort((p, q) => p - q);
+  return [...refs.values()];
+}
+const othersOf = D => citedRefs(D).filter(r => !cardsFor(r.x).length).map((r, j) => ({id: "S" + (j + 1), ref: true, ...r}));
+function v(b, id){ const x = B[b].V[id] ||= {}; const it = B[b].D.items.find(i => i.id === id); if (it && it.uid) x._uid = it.uid; x.ratings ||= {}; x.passage_notes ||= {}; x.thread ||= []; x.page_notes ||= []; return x; }
+const callOf = x => { const c = x && (x.call || OLD[x.verdict]); return c === "reword" ? "maybe" : (c || ""); };  // "Use, reworded" is now Maybe; rewording goes in the note
+const star = it => it.lee_sent ? " ⭐" : "";
+// Card tags (D1, M5...) for every other card that cites this paper (solid) or offers it as an alternative (outlined)
+function usedTags(b, id, pmid, key){
+  let us = pmid ? (PMIDS[String(pmid)]||[]) : (USES[key]||[]).map(u => ({...u, as:"cited"}));
+  const seen = new Set();
+  us = us.filter(u => !(u.batch === b && u.id === id) && !seen.has(u.batch+u.id+u.as) && seen.add(u.batch+u.id+u.as));
+  return us.map(u => `<span class="used ${u.as==="alt"?"alt":""}" data-ug="${esc(u.batch)}|${esc(u.id)}" title="${u.as==="alt"?"Offered as an alternative on":"Cited on"} card ${esc(u.id)}">${esc(u.id)}</span>`).join("");
+}
+const elsewhere = (b, it) => (USES[it.key]||[]).filter(u => !(u.batch === b && u.id === it.id));
+function avg(r){ const s = Object.values(r||{}).map(z=>z.score).filter(n=>n); return s.length ? (s.reduce((a,c)=>a+c,0)/s.length).toFixed(1) : "–"; }
+
+/* ---------- column 1: source selection ---------- */
+function nav(){
+  let all = 0, done = 0;
+  $("#list").innerHTML = BATCHES.map(bt => {
+    const S = B[bt.key], L = S.D.items.filter(i => !i.not_used), n = L.length, d = L.filter(i => callOf(S.V[i.id])).length; all += n; done += d;
+    return `<div class="batch"><div class="bt" data-b="${bt.key}"><span>${S.open?"▾":"▸"}</span><b>${esc(bt.title)}</b><span class="bar"><i style="width:${100*d/n}%"></i></span><span class="n">${d}/${n}</span></div>` +
+      (S.open ? navItems(bt, S) : "") + `</div>`;
+  }).join("");
+  $("#allbar").style.width = (100*done/Math.max(all,1)) + "%"; $("#allcount").textContent = `${done} of ${all} reviewed`;
+  $("#list").querySelectorAll(".bt").forEach(h => h.onclick = () => { B[h.dataset.b].open = !B[h.dataset.b].open; nav(); });
+  $("#list").querySelectorAll(".sub-h").forEach(h => h.onclick = () => { const S = B[h.dataset.b], g = h.dataset.g; S.sub[g] = !(h.dataset.open === "1"); nav(); });
+  $("#list").querySelectorAll(".it").forEach(btn => btn.onclick = () => show(btn.dataset.b, btn.dataset.id));
+}
+function navItems(bt, S){
+  S.sub ||= {};
+  const live = S.D.items.filter(i => !i.not_used), gone = S.D.items.filter(i => i.not_used), others = S.D.others || [];
+  const group = (g, title, why, list, html) => {
+    if (!list.length) return "";
+    const open = S.sub[g] ?? list.some(i => cur && cur.b === bt.key && cur.id === i.id);
+    return `<div class="sub-h" data-b="${bt.key}" data-g="${g}" data-open="${open?1:0}"><span>${open?"▾":"▸"}</span><span>${title} (${list.length})<span class="why">${why}</span></span></div>` +
+      (open ? `<div class="subg">${list.map(html).join("")}</div>` : "");
+  };
+  const other = it => `<button class="it other ${cur && cur.b===bt.key && cur.id===it.id?"on":""}" data-b="${bt.key}" data-id="${it.id}"><span class="badge">${esc(it.nums[0])}</span>
+      <span><span class="nm">${esc(refName(it.x))}</span><span class="tag num">[${it.nums.map(esc).join("], [")}]</span><span class="st">${esc(it.x.title.length > 60 ? it.x.title.slice(0, 58) + "…" : it.x.title)}</span></span></button>`;
+  return live.map(it => card(bt, S, it)).join("") +
+    group("gone", "Not cited in this section", "Moved elsewhere; reviewed where they are used.", gone, it => card(bt, S, it)) +
+    group("other", "Other sources", "Policies, data and regulations cited directly, not studies, so no review card.", others, other);
+}
+function card(bt, S, it){
+      {
+        const c = callOf(S.V[it.id]), x = S.V[it.id] || {}, other = elsewhere(bt.key, it), nalt = (it.alternatives||[]).length;
+        const st = it.not_used ? "Not used here" : !it.pdf_out ? "PDF needed" : (c ? CALL[c] : "Not reviewed") + (x.choice && x.choice !== "current" ? " · alternative picked" : "");
+        return `<button class="it ${cur && cur.b===bt.key && cur.id===it.id?"on":""} ${it.not_used?"gone":""}" title="${esc(it.not_used||"")}" data-b="${bt.key}" data-id="${it.id}"><span class="badge ${c}">${ICON[c]||esc(it.id.replace(/\D/g,""))}</span>
+          <span><span class="nm">${esc(it.id)} · ${esc(it.key)}${star(it)}</span>${(nums => nums.length ? `<span class="tag num" title="Its citation number in this batch's text">[${nums.map(esc).join("], [")}]</span>` : "")(numsForCard(S.D, it))}${other.length?`<span class="tag" title="Also used in ${esc(other.map(o=>o.where+" "+o.id).join(", "))}">↔ ${other.map(o=>esc(o.id)).join(", ")}</span>`:""}${nalt?`<span class="tag alt">+${nalt} alt</span>`:""}<span class="st">${esc(st)}</span></span></button>`;
+      }
+}
+
+/* ---------- column 2: our paper, every cited sentence clickable, the current one highlighted ---------- */
+function paper(live){
+  const D = B[cur.b].D;
+  $("#papername").textContent = D.draftName ? D.draftName.replace(/^DRAFT_|\.md$/g, "").replace(/_/g, " ") : "";
+  if (!D.draft){ $("#doc").innerHTML = `<div class="empty">No paper text for this batch yet.</div>`; return; }
+  const T = D.draft.replace(/\r/g, "").replace(/\n\s*\n/g, " ¶ ").replace(/\s+/g, " ");
+  // a card's sentence is found by its opening words (before any citation), then runs to the sentence end
+  const keyOf = s => s.split("[")[0].replace(/\.\.\./g, "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const hits = [];
+  for (const it of D.items){
+    if (it.not_used) continue;
+    const sents = [it.sentence, ...(it.also_sentences || [])].filter(Boolean);
+    for (const s of sents){
+      const k = keyOf(s); if (k.length < 20) continue;
+      const pos = T.indexOf(k); if (pos < 0) continue;
+      // the sentence ends at a full stop followed by a space, or by its citation ".[2] " / ". [Author 2025]"
+      const m = /\.(\s*\[[^\]]*\])?(?=\s|$)/.exec(T.slice(pos + k.length)); const end = m ? pos + k.length + m.index + m[0].length : T.length;
+      const h = hits.find(z => z.a === pos); if (h) { if (!h.ids.includes(it.id)) h.ids.push(it.id); } else hits.push({a: pos, b: end, ids: [it.id]});
+    }
+  }
+  hits.sort((p, q) => p.a - q.a);
+  const colorByKey = new Map();
+  let colorSeq = 0;
+  const colorClass = key => {
+    if (!colorByKey.has(key)) colorByKey.set(key, "c" + (colorSeq++ % 5));
+    return colorByKey.get(key);
+  };
+  let out = "", at = 0;
+  for (const h of hits){ if (h.a < at) continue; out += esc(T.slice(at, h.a)) + `<span class="cite ${h.ids.includes(cur.id)?"on":""}" data-ids="${h.ids.join(",")}">${esc(T.slice(h.a, h.b))}</span>`; at = h.b; }
+  out += esc(T.slice(at));
+  // 1) numeric brackets [n] or [4,17,18] from Word export (citations.json): split each item so each has its own color & click
+  let ci = 0;
+  const norm = s => s.replace(/\s+/g, "");
+  out = out.replace(/\[(\d[\d,\s–-]*)\]/g, (m, n) => {
+    const c = D.cites[ci];
+    if (!c || norm(c.n) !== norm(n)) return m;
+    const myCi = ci++;
+    const nums = numsIn(c);
+    if (c.items.length > 1 && nums.length === c.items.length){
+      const parts = c.items.map((x, idx) => {
+        const cards = cardsFor(x), cardHere = cards.find(z => z.b === cur.b) || cards[0];
+        const other = (D.others || []).find(o => (o.x.uri || o.x.title) === (x.uri || x.title));
+        const isOn = (cardHere && cur.b === cardHere.b && cur.id === cardHere.it.id) || (other && cur.id === other.id);
+        const cls = colorClass(cardHere ? cardHere.it.key : (x.uri || x.title));
+        const target = cardHere ? `data-goto="${esc(cardHere.b)}|${esc(cardHere.it.id)}"` : (other ? `data-goto="${esc(cur.b)}|${esc(other.id)}"` : `data-ci="${myCi}"`);
+        return `<a class="ref ${cards.length?"":"nocard"} ${cls} ${isOn?"on":""}" ${target} title="${esc(refName(x) + (cardHere ? " (" + cardHere.it.id + ")" : ""))}">${esc(nums[idx])}</a>`;
+      });
+      return `<span class="ref-br">[</span>${parts.join('<span class="ref-br">, </span>')}<span class="ref-br">]</span>`;
+    }
+    const x = c.items[0] || {};
+    const cards = cardsFor(x), cardHere = cards.find(z => z.b === cur.b) || cards[0];
+    const other = (D.others || []).find(o => (o.x.uri || o.x.title) === (x.uri || x.title));
+    const isOn = (cardHere && cur.b === cardHere.b && cur.id === cardHere.it.id) || (other && cur.id === other.id);
+    const cls = colorClass(cardHere ? cardHere.it.key : (x.uri || x.title || String(myCi)));
+    return `<a class="ref ${cards.length?"":"nocard"} ${cls} ${isOn?"on":""}" data-ci="${myCi}" title="${esc(c.items.map(refName).join("; "))}">${m}</a>`;
+  });
+  // 2) author-year brackets [Chhabra 2025, Chhabra 2026] in draft markdown: match each token to its card in D.items
+  const normKey = s => s.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  const findCardByToken = tok => {
+    const nk = normKey(tok);
+    // Find cards in this batch whose key matches, preferring the card whose sentence contains this bracket or matches cur.id
+    const matches = D.items.filter(it => !it.not_used && (normKey(it.key) === nk || normKey(it.label.split(":")[0]) === nk));
+    if (!matches.length) return null;
+    return matches;
+  };
+  // Replace [Author Year, ...] inside or outside <span class="cite">
+  out = out.replace(/\[([A-Za-z][^\]\d]*\d{4}[^\]]*)\]/g, (m, inner, offset) => {
+    const parts = inner.split(",").map(s => s.trim()).filter(Boolean);
+    // Determine which cite span we are inside or right after by finding the closest preceding data-ids="..."
+    const beforeStr = out.slice(Math.max(0, offset - 500), offset);
+    const idMatches = [...beforeStr.matchAll(/data-ids="([^"]+)"/g)];
+    const spanIds = idMatches.length ? idMatches[idMatches.length - 1][1].split(",") : [];
+    const rendered = parts.map(tok => {
+      const candidates = findCardByToken(tok);
+      if (!candidates) return esc(tok);
+      const it = candidates.find(c => spanIds.includes(c.id)) || candidates.find(c => c.id === cur.id) || candidates[0];
+      const isOn = cur.id === it.id;
+      const cls = colorClass(it.key);
+      return `<a class="ref ${cls} ${isOn?"on":""}" data-goto="${esc(cur.b)}|${esc(it.id)}" title="${esc(it.id + " · " + it.label)}">${esc(tok)}</a>`;
+    });
+    return `<span class="ref-br">[</span>${rendered.join('<span class="ref-br">, </span>')}<span class="ref-br">]</span>`;
+  });
+  out = out.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").split(" ¶ ").map(p => `<p>${p}</p>`).join("");
+  // every source cited in this text, with its number(s), so a bracket like [4,17,18] can be read at a glance
+  const refs = new Map();
+  (D.cites || []).forEach(c => c.items.forEach((x, i) => {
+    const k = x.uri || x.title, r = refs.get(k) || {x, nums: new Set()}; r.nums.add(numOf(c, i)); refs.set(k, r);
+  }));
+  for (const r of refs.values()) r.nums = new Set([...r.nums].sort((p, q) => p - q));
+  const rl = [...refs.values()];
+  if (rl.length) out += `<div class="reflist"><h3>Sources cited in this text</h3>
+    <p class="sub">Numbers come from Zotero's last refresh in Word; a source showing two numbers will get one when you refresh.</p>` +
+    rl.map((r, j) => { const cards = cardsFor(r.x);
+      return `<div class="rl" data-rl="${j}"><span class="n">[${[...r.nums].map(esc).join("], [")}]</span><span class="t"><b>${esc(refName(r.x))}</b> · ${esc(r.x.title)}
+        ${cards.length ? cards.map(k => `<span class="tag num">${esc(k.it.id)}</span>`).join("") : `<span class="flag"> · not in any review batch</span>`}</span></div>`; }).join("") + `</div>`;
+  $("#doc").innerHTML = `<div class="doc">${out}</div>`;
+  // Claude's side notes: a purple "Note" mark after the anchored sentence, and the note under its paragraph
+  for (const [k, nt] of (D.notes || []).entries()){
+    const p = [...$("#doc .doc").children].find(e => e.tagName === "P" && e.textContent.includes(nt.anchor));
+    if (!p) continue;
+    const d = document.createElement("details"); d.className = "sidenote"; d.id = "sn" + k; d.open = store.get("sn" + k, true);
+    d.innerHTML = `<summary>${esc(nt.title)}</summary><div class="who">${esc(nt.same_as || "")}</div>${nt.html}`;
+    d.ontoggle = () => store.set("sn" + k, d.open);
+    p.after(d);
+    const m = document.createElement("span"); m.className = "notemark"; m.textContent = "Note"; m.title = nt.title;
+    m.onclick = e => { e.stopPropagation(); d.open = true; d.scrollIntoView({block: "center", behavior: "smooth"}); };
+    p.appendChild(m);
+  }
+  $("#doc").querySelectorAll(".rl").forEach(e => e.onclick = () => { const r = rl[+e.dataset.rl]; openRef(D, {n: [...r.nums].join(", "), before: "", items: [r.x]}); });
+  $("#doc").querySelectorAll(".cite").forEach(c => c.onclick = () => {
+    const ids = c.dataset.ids.split(",");
+    const next = ids.includes(cur.id) ? ids[(ids.indexOf(cur.id) + 1) % ids.length] : ids[0];
+    show(cur.b, next, true);
+  });
+  $("#doc").querySelectorAll("[data-goto]").forEach(r => r.onclick = e => { e.stopPropagation(); const [bb, ii] = r.dataset.goto.split("|"); B[bb].open = true; show(bb, ii, bb === cur.b); });
+  $("#doc").querySelectorAll(".ref[data-ci]").forEach(r => r.onclick = e => { e.stopPropagation(); openRef(D, D.cites[+r.dataset.ci]); });
+  const curIt = item();
+  if (curIt && curIt.ref) curIt.where.forEach(w => { const a = $(`#doc .ref[data-ci="${w.ci}"]`); if (a) a.classList.add("on"); });
+  const on = $("#doc .cite.on") || $("#doc .ref.on"); if (on && !live) on.scrollIntoView({block: "center", behavior: "smooth"});
+}
+
+/* ---------- column 3: notes for the source ---------- */
+function show(b, id, keepScroll){
+  const curIt0 = (B[b] && B[b].D.items.find(i => i.id === id)) || null;
+  cur = {b, id, uid: curIt0 ? curIt0.uid : null}; store.set("cur", cur);
+  if (item().ref) return showRef(b, item(), keepScroll);
+  const S = B[b], D = S.D, it = item(), x = v(b, id), f = it.facts || {};
+  const cl = (D.claude||{})[id] || {}, cr = cl.ratings || {};
+  nav(); paper(keepScroll);
+  const other = elsewhere(b, it), alts = it.alternatives || [], choice = x.choice || "current";
+  const flags = [...(f.corrections||[]), ...(f.updates||[]).filter(Boolean)];
+  const earlier = [x.paper_note, x.use_note].filter(Boolean).join("\n");
+  const when = w => w ? new Date(w).toLocaleString([], {month:"short", day:"numeric", hour:"numeric", minute:"2-digit"}) : "";
+  const thread = [...(cl.thread||[]).map(t=>({...t, who:"Claude"})), ...x.thread.map(t=>({...t, who:LS.name(t.by)}))].sort((p,q)=>String(p.when).localeCompare(String(q.when)));
+  const searches = (D.searches||{})[it.claim_id] || [];
+  const batchDone = D.items.every(i => callOf(S.V[i.id]));
+  $("#info").innerHTML = `
+    ${batchDone?`<div class="done">🎉 Batch complete! Tell Claude "review done".</div>`:""}
+    <h2 class="${it.not_used?"gone":""}">${esc(it.id)} · ${esc(it.label)}${star(it)}</h2>
+    ${it.not_used?`<div class="gonenote">${esc(it.not_used)} It has no sentence in this batch's text, so nothing is highlighted.</div>`:""}
+    ${it.lee_sent?`<div class="sub">⭐ Dr. Lee sent you this paper.</div>`:""}
+    ${other.length?`<div class="also sub">Also used in: ${other.map(o=>`<a data-go="${o.batch}|${o.id}">${esc(o.where)} (${esc(o.id)})</a>`).join(", ")}</div>`:""}
+    <h3>We cite it for</h3><div class="quoteof jump" id="citefor" title="Show where our paper cites it">${esc(it.claim)}<small>↖ Show it in our paper</small></div>
+    ${vsTable(D, it)}
+    ${formTables(D, it)}
+
+    <div class="card call"><b>Your call</b>
+      <div class="calls">${["use","maybe","drop"].map(k=>`<button class="cb ${k} ${callOf(x)===k?"on":""}" data-call="${k}">${CALL[k]}</button>`).join("")}</div>
+      <textarea data-f="note" placeholder="One note (optional): how to reword it, or why">${esc(x.note||"")}</textarea>
+      ${earlier?`<div class="earlier"><b>Your earlier notes:</b>\n${esc(earlier)}</div>`:""}</div>
+
+    <h3>Where the paper says it · tap to jump</h3>
+    ${it.pdf_out ? (it.found||[]).map((q,i) => (q.page ? `<button class="passage" data-p="${q.page}" data-y="${q.y ?? 0}"><small>Page ${q.page} · ${esc(q.why)}</small>“${esc(q.text)}”</button>` : `<div class="passage missing"><small>NOT FOUND in the PDF</small>“${esc(q.text)}”</div>`)
+      + (x.passage_notes[i] ? `<textarea data-pn="${i}">${esc(x.passage_notes[i].trim())}</textarea>` : `<span class="pc" data-pc="${i}">+ comment</span>`)).join("") : `<p class="sub">Waiting for the PDF.</p>`}
+
+    ${(it.evidence_links||[]).length ? `<h3>Archived webpages &amp; linked forms by year</h3>
+      <div class="card">${it.evidence_links.map((g, gi) => `<div style="padding:7px 0;${gi < it.evidence_links.length - 1 ? "border-bottom:1px solid var(--line)" : ""}">
+        <b>${esc(g.year)}</b> — <span class="sub">${esc(g.note)}</span>
+        ${g.where ? `<div class="sub" style="margin-top:3px"><b>Where on webpage:</b> ${esc(g.where)}</div>` : ""}
+        <div class="acts" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${(g.links||[]).map(l => `<a class="btn sm" target="_blank" href="${esc(l.url)}">${esc(l.label)} ↗</a>`).join("")}</div>
+      </div>`).join("")}</div>` : ""}
+
+    <div class="card"><b>Best source for this sentence</b>
+      <label class="opt ${choice==="current"?"on":""}"><input type="radio" name="ch" value="current" ${choice==="current"?"checked":""}>
+        <span class="t"><span class="pill current">Current</span>${usedTags(b, id, it.pmid, it.key)}${esc(it.key)}${star(it)}<small>${esc(f.journal||"")}${f.year?`, ${f.year}`:""} · ${f.medline==="MEDLINE"?"MEDLINE":esc(f.medline||"")} · Claude ${avg(cr)}/5</small></span></label>
+      ${alts.map((a,i)=>`<label class="opt ${choice===a.pmid?"on":""}"><input type="radio" name="ch" value="${esc(a.pmid)}" ${choice===a.pmid?"checked":""}>
+        <span class="t"><span class="pill ${esc(a.relation)}">${REL[a.relation]||esc(a.relation)}</span><span class="pill ${esc(a.fit)}">${a.fit==="swap"?"Swap in":"Changes the sentence"}</span>${usedTags(b, id, a.pmid)}<br>
+        ${esc(a.first_author||"")} ${esc(a.year||"")}: ${esc((a.title||"").slice(0,90))}${(a.title||"").length>90?"…":""}
+        <small>${esc(a.journal||"")} · ${a.medline==="MEDLINE"?"MEDLINE":esc(a.medline||"")}${a.cited_by!=null?` · cited ${a.cited_by}`:""}</small>
+        ${a.fit==="reword"&&a.new_sentence?`<small class="ns">Would read: “${esc(a.new_sentence)}”</small>`:""}</span>
+        <button class="btn sm look" data-alt="${i}" type="button">Peek</button></label>`).join("")}
+      ${alts.length?"":`<p class="sub" style="margin:6px 0 0">${searches.length?"Searched (below): no other paper can serve this sentence as written.":"No search recorded for this sentence."}</p>`}
+      ${choice!=="current"?`<p class="sub" style="margin:6px 0 0">Alternative picked: Claude will download it, highlight it and swap it in after your review.</p>`:""}
+      ${searches.length?`<details><summary>How we searched (${searches.length})</summary><div class="sub">${searches.map(s=>esc(s)).join("<br>")}</div></details>`:""}
+    </div>
+
+    <h3>Back-and-forth</h3>
+    ${thread.length ? thread.map(t => `<div class="msg ${t.who==="Claude"?"cl":"mx"}"><small>${t.who} · ${when(t.when)}</small>${esc(t.text).replace(/\n/g,"<br>")}</div>`).join("") : `<p class="sub">Nothing yet.</p>`}
+    <input type="text" id="tt" placeholder="Reply or ask Claude (Enter)">
+
+    <details><summary><b>Ratings</b> · Claude ${avg(cr)}/5 · change only where you disagree</summary>
+      ${(D.rubric?.criteria||[]).map(c => { const a = cr[c.key]||{}, m = x.ratings[c.key]||{}; const differ = m.score && a.score && +m.score !== +a.score;
+        return `<div class="rrow${differ?" differ":""}"><span title="${esc(c.help)}">${esc(c.label)}</span><span class="cs">${a.score??"–"}</span>
+          <select data-rs="${c.key}"><option value="">agree</option>${[1,2,3,4,5].map(n=>`<option ${+m.score===n?"selected":""}>${n}</option>`).join("")}</select>
+          <span class="cc">${esc(a.comment||"")}</span>${(m.score||m.why)?`<textarea data-rk="${c.key}" placeholder="Why you differ">${esc(m.why||"")}</textarea>`:""}</div>`; }).join("")}
+    </details>
+    <details><summary><b>Paper and journal</b> · ${esc(f.journal||"")}</summary>
+      <p class="sub"><b>Claude's read:</b> ${esc(it.claude_read)}</p>
+      <dl class="facts"><dt>Study</dt><dd>${esc(it.about)}</dd>
+        <dt>Journal</dt><dd>${esc(f.journal||"")}${f.publisher?` (${esc(f.publisher)})`:""}${f.year?`, ${f.year}`:""}</dd>
+        <dt>Indexing</dt><dd>${f.medline==="MEDLINE"?"Indexed for MEDLINE":esc(f.medline||"unknown")}</dd>
+        <dt>Cited by</dt><dd>${f.cited_by ?? "?"} (Crossref)</dd>
+        <dt>Notices</dt><dd>${flags.length?`<span class="flag">${esc(flags.join(", "))}</span>`:"None recorded"}</dd>
+        ${it.journal_note?`<dt>Note</dt><dd>${esc(it.journal_note)}</dd>`:""}
+        <dt>Links</dt><dd>${it.doi?`<a href="https://doi.org/${esc(it.doi)}" target="_blank">DOI</a>`:""} ${it.pmid?` · <a href="https://pubmed.ncbi.nlm.nih.gov/${esc(it.pmid)}/" target="_blank">PubMed</a>`:""}</dd></dl>
+    </details>
+    <details><summary><b>Notes pinned to pages</b> (${x.page_notes.length})</summary>
+      ${x.page_notes.map((n,i)=>`<div class="pnote"><a data-p="${n.page}">p. ${n.page}</a><span>${esc(n.text)}</span><button class="x" data-i="${i}">✕</button></div>`).join("")}
+      <div class="row"><input type="number" id="np" min="1" value="1"><input type="text" id="nt" placeholder="Note on this page (Enter)"></div>
+    </details>`;
+  const I = $("#info");
+  // "We cite it for": scroll "Our paper" to this card's sentence and flash it and its citation
+  I.querySelector("#citefor").onclick = () => {
+    const sent = $("#doc .cite.on"), refs = [...document.querySelectorAll("#doc .ref.on")];
+    const target = sent || refs[0];
+    if (!target){ $("#saved").textContent = it.not_used ? "Not cited in this section's text" : "This sentence wasn't found in our paper text"; $("#saved").classList.add("bad"); return; }
+    target.scrollIntoView({block: "center", behavior: "smooth"});
+    for (const el of [sent, ...refs].filter(Boolean)){ el.classList.remove("pulse"); void el.offsetWidth; el.classList.add("pulse"); }
+  };
+  I.querySelectorAll(".cb").forEach(btn => btn.onclick = () => { const k = btn.dataset.call; x.call = callOf(x) === k ? "" : k; if (!x.call) delete x.verdict; save(); show(b, id); });
+  I.querySelectorAll("textarea[data-f]").forEach(t => t.oninput = () => { x[t.dataset.f] = t.value; save(); });
+  I.querySelectorAll("textarea[data-pn]").forEach(t => t.oninput = () => { x.passage_notes[t.dataset.pn] = t.value; save(); });
+  I.querySelectorAll("textarea[data-rk]").forEach(t => t.oninput = () => { (x.ratings[t.dataset.rk] ||= {}).why = t.value; save(); });
+  I.querySelectorAll("select[data-rs]").forEach(sel => sel.onchange = () => { (x.ratings[sel.dataset.rs] ||= {}).score = sel.value ? +sel.value : null; save(); show(b, id); openDetails("Ratings"); });
+  I.querySelectorAll(".pc").forEach(p => p.onclick = () => { x.passage_notes[p.dataset.pc] = " "; show(b, id); const t = I.querySelector(`textarea[data-pn="${p.dataset.pc}"]`); if (t) t.focus(); });
+  I.querySelectorAll("input[name=ch]").forEach(r => r.onchange = () => { x.choice = r.value; save(); show(b, id); });
+  I.querySelectorAll("[data-ug]").forEach(t => t.onclick = e => { e.preventDefault(); e.stopPropagation(); const [bb, ii] = t.dataset.ug.split("|"); B[bb].open = true; show(bb, ii); });
+  I.querySelectorAll(".look").forEach(btn => btn.onclick = e => { e.preventDefault(); e.stopPropagation(); peek(alts[+btn.dataset.alt], it); });
+  I.querySelectorAll("[data-p]").forEach(a => a.onclick = () => go(+a.dataset.p, +(a.dataset.y || 0)));
+  I.querySelectorAll("[data-go]").forEach(a => a.onclick = () => { const [bb, ii] = a.dataset.go.split("|"); B[bb].open = true; show(bb, ii); });
+  I.querySelectorAll(".pnote .x").forEach(btn => btn.onclick = () => { x.page_notes.splice(+btn.dataset.i,1); save(); show(b, id); openDetails("Notes"); });
+  $("#nt").onkeydown = e => { if (e.key==="Enter" && $("#nt").value.trim()) { x.page_notes.push({page:+$("#np").value||1, text:$("#nt").value.trim()}); save(); show(b, id); openDetails("Notes"); } };
+  $("#tt").onkeydown = e => { if (e.key==="Enter" && $("#tt").value.trim()) { x.thread.push({when:new Date().toISOString(), by:LS.me, text:$("#tt").value.trim()}); save(); show(b, id); } };
+  render(it);
+}
+/* policy/form comparison tables (docs/source_review/form_tables.json), on each card whose key is in show_for; its own column is outlined */
+function formTables(D, it){
+  const badge = (c, l) => c ? `<span class="cert ${esc(c)}">${esc(l || c)}</span>` : "";
+  const cell = v => typeof v === "object" && v ? `${esc(v.v)}${v.cert ? `<br>${badge(v.cert, v.cert_label)}` : ""}` : esc(v);
+  return (D.form_tables || []).filter(T => (T.show_for || []).includes(it.key)).map(T => {
+    const me = T.cols.findIndex(c => c.key === it.key), rowCert = T.rows.some(r => r.cert);
+    const anyCert = rowCert || T.rows.some(r => r.cells.some(v => v && v.cert));
+    const head = `<tr><th></th>${T.cols.map((c, i) => `<th class="${i === me ? "me" : ""}">${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ""}</th>`).join("")}${rowCert ? "<th>How sure</th>" : ""}</tr>`;
+    const body = T.rows.map(r => `<tr class="${esc(r.cmp || "")}"><th>${esc(r.label)}</th>${r.cells.map((v, i) => `<td class="${i === me ? "me" : ""}">${cell(v)}</td>`).join("")}${rowCert ? `<td>${badge(r.cert, r.cert_label)}</td>` : ""}</tr>`).join("");
+    return `<details class="vs ft" open><summary><b>${esc(T.title)}</b>${anyCert ? ` · ${badge("sure", "Sure")} ${badge("likely", "Nearly sure")} ${badge("unsure", "Uncertain")}` : ` · <span class="lg differs">differs</span>`}</summary>
+      ${T.note ? `<p class="sub" style="margin:4px 0">${esc(T.note)}</p>` : ""}<div class="ftw"><table><thead>${head}</thead><tbody>${body}</tbody></table></div></details>`;
+  }).join("");
+}
+function vsTable(D, it){
+  const P = D.profiles || {}, them = P[it.key], us = P.OURS;
+  if (!them || !us) return "";
+  const rows = (P._rows || []).map(([k, label]) => {
+    const t = them[k] || {}, cmp = t.cmp || "unknown";
+    return `<tr class="${cmp}"><th>${esc(label)}</th><td>${esc(t.v || "not stated")}</td><td>${esc(us[k] || "")}</td></tr>`;
+  }).join("");
+  const nd = Object.values(them).filter(z => z && z.cmp === "differs").length;
+  return `<details class="vs" open><summary><b>Them vs us</b> · ${nd} differences · <span class="lg same">same</span> <span class="lg differs">differs</span> <span class="lg unknown">not stated</span></summary>
+    <table><thead><tr><th></th><th>${esc(it.key)}</th><th>Our study</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+}
+/* ---------- an "other source": the reference, where we cite it, and its PDF in the right pane ---------- */
+const refUrl = (D, x) => `/api/ref/${encodeURIComponent(D.paperDir)}/${x.local.split("/").map(encodeURIComponent).join("/")}`;
+function showRef(b, it, keepScroll){
+  nav(); paper(keepScroll);
+  const x = it.x, kind = {report: "Policy or report", webpage: "Web page", dataset: "Dataset", legislation: "Regulation"}[x.type] || x.type;
+  $("#info").innerHTML = `
+    <h2>[${it.nums.map(esc).join("], [")}] · ${esc(refName(x))}</h2>
+    <div class="quoteof"><b>${esc(x.title)}</b><br>${esc(x.authors.join(", "))}${x.container ? " · " + esc(x.container) : ""} · ${esc(x.year)} · ${esc(kind)}</div>
+    <div class="gonenote">Other source: a ${esc(kind.toLowerCase())} we cite directly, not a study, so it has no review card. Check that it says what our sentence claims.</div>
+    <h3>Where our paper cites it · tap to jump</h3>
+    ${it.where.map(w => `<button class="passage" data-ci="${w.ci}"><small>Citation [${esc(w.n)}]</small>“…${esc(w.before.slice(-110))}”</button>`).join("")}
+    <p>${x.local ? `<a href="${refUrl(B[b].D, x)}" target="_blank">Open the PDF in a new tab</a>` : "No saved copy."}${x.url ? ` · <a href="${esc(x.url)}" target="_blank">Web link</a>` : ""}</p>
+    ${x.local ? `<p class="sub">Saved copy: ${esc(x.local)}</p>` : ""}`;
+  $("#info").querySelectorAll("[data-ci]").forEach(p => p.onclick = () => { const a = $(`#doc .ref[data-ci="${p.dataset.ci}"]`); if (a) a.scrollIntoView({block: "center", behavior: "smooth"}); });
+  rendered = null; render(it);
+}
+
+/* ---------- citation links: [n] in our paper -> its review card, or the reference itself ---------- */
+const refName = x => `${(x.authors[0] || "?").replace(/^American Association of Oral and Maxillofacial Surgeons$/, "AAOMS")} ${x.year}`;
+const sameRef = (x, it) => (x.doi && it.doi && x.doi.toLowerCase() === it.doi.toLowerCase()) || (x.refkey && it.key === x.refkey) ||
+                            (x.authors[0] && it.key === (x.authors[0] + x.year).replace(/\s+/g, ""));
+function cardsFor(x){   // review cards (any batch) for this reference: same DOI, else Zotero ref key, else surname + year
+  const out = [];
+  for (const bt of BATCHES) for (const it of B[bt.key].D.items) if (sameRef(x, it) && it.pdf_out) out.push({b: bt.key, it});
+  return out;
+}
+function numsIn(c){     // "4,17,18" -> 4, 17, 18; "2-4" -> 2, 3, 4
+  const out = [];
+  for (const p of c.n.split(",").map(z => z.trim()).filter(Boolean)){
+    const m = p.match(/^(\d+)\s*[–-]\s*(\d+)$/);
+    if (m) for (let k = +m[1]; k <= +m[2]; k++) out.push(String(k)); else out.push(p);
+  }
+  return out;
+}
+const numOf = (c, i) => { const n = numsIn(c); return n.length === c.items.length ? n[i] : c.n; };  // this source's own number in a group
+function numsForCard(D, it){
+  const s = new Set(); (D.cites || []).forEach(c => c.items.forEach((x, i) => { if (sameRef(x, it)) s.add(numOf(c, i)); }));
+  return [...s];
+}
+function openRef(D, c){
+  const all = c.items.map(x => ({x, cards: cardsFor(x)}));
+  if (all.length === 1 && all[0].cards.length){   // one source: open its card, preferring this batch's
+    const k = all[0].cards.find(z => z.b === cur.b) || all[0].cards[0]; return show(k.b, k.it.id); }
+  const otherOf = x => (B[cur.b].D.others || []).find(o => (o.x.uri || o.x.title) === (x.uri || x.title));
+  if (all.length === 1 && otherOf(all[0].x)) return show(cur.b, otherOf(all[0].x).id);   // preview it in the panes
+  $("#mcard").innerHTML = `<div style="display:flex;gap:10px;align-items:flex-start"><h2 style="flex:1">Citation [${esc(c.n)}]</h2><button class="btn" id="mclose">Close</button></div>
+    <p class="sub">After “…${esc(c.before.slice(-70))}”. The number is from Zotero's last refresh in Word, so it may change; this link follows the citation itself.</p>` +
+    all.map(({x, cards}, i) => `<div class="refrow"><b>${esc(x.title)}</b>
+      <p class="sub">${esc(x.authors.join(", "))} · ${esc(x.container ? x.container + " · " : "")}${esc(x.year)}${cards.length ? "" : ` · <span class="flag">not in any review batch</span>`}</p>
+      <div class="acts">${cards.map(k => `<button class="btn sm" data-card="${esc(k.b)}|${esc(k.it.id)}">Review card ${esc(k.it.id)}</button>`).join("")}
+      ${!cards.length && otherOf(x) ? `<button class="btn sm" data-card="${esc(cur.b)}|${esc(otherOf(x).id)}">Preview</button>` : ""}
+      ${x.local ? `<a class="btn sm" target="_blank" href="/api/ref/${encodeURIComponent(D.paperDir)}/${x.local.split("/").map(encodeURIComponent).join("/")}">Open PDF</a>` : ""}
+      ${x.url ? `<a class="btn sm" target="_blank" href="${esc(x.url)}">Open link</a>` : ""}
+      ${!x.local && !x.url && !cards.length ? `<span class="sub">No file or link on record.</span>` : ""}</div></div>`).join("");
+  $("#mcard").classList.remove("wide"); $("#modal").style.display = "flex"; $("#mclose").onclick = closeModal;
+  $("#mcard").querySelectorAll("[data-card]").forEach(bn => bn.onclick = () => { const [b, id] = bn.dataset.card.split("|"); $("#modal").style.display = "none"; B[b].open = true; show(b, id); });
+}
+function openDetails(word){ document.querySelectorAll("#info details").forEach(d => { if (d.querySelector("summary").textContent.includes(word)) d.open = true; }); }
+
+function peek(a, it){
+  let abs = esc(a.abstract || "No abstract in PubMed.");
+  if (a.quote){ const q = esc(a.quote), i = abs.toLowerCase().indexOf(q.toLowerCase().slice(0, 60)); if (i >= 0) abs = abs.slice(0,i) + "<mark>" + abs.slice(i, i+q.length) + "</mark>" + abs.slice(i+q.length); }
+  $("#mcard").innerHTML = `<div style="display:flex;gap:10px;align-items:flex-start"><h2 style="flex:1">${esc(a.title||"")}</h2><button class="btn" id="mclose">Close</button></div>
+    <p class="sub">${esc(a.first_author||"")} et al. · ${esc(a.journal||"")} ${esc(a.year||"")} · ${a.medline==="MEDLINE"?"Indexed for MEDLINE":esc(a.medline||"")}${a.cited_by!=null?` · cited ${a.cited_by} times`:""}${(a.corrections||[]).length?` · <span class="flag">${esc(a.corrections.join(", "))}</span>`:""}</p>
+    <p><span class="pill ${esc(a.relation)}">${REL[a.relation]||esc(a.relation)}</span><span class="pill ${esc(a.fit)}">${a.fit==="swap"?"Swap in":"Changes the sentence"}</span> ${esc(a.why||"")}</p>
+    <div class="card"><b>Design:</b> ${esc(a.design||"")}<br><b>Finding:</b> ${esc(a.finding||"")}</div>
+    <p class="sub"><b>Our sentence now:</b> ${esc(it.sentence)}</p>
+    ${a.fit==="reword"&&a.new_sentence?`<div class="quoteof"><b>With this paper it would read:</b> “${esc(a.new_sentence)}”</div>`:`<div class="quoteof"><b>Swap in:</b> the sentence stays as it is; this paper is cited instead of, or beside, ${esc(it.key)}.</div>`}
+    <h3>Abstract${a.quote?(a.quote_checked?" · quoted line highlighted":" · <span class='flag'>quoted line not found</span>"):""}</h3>
+    <p style="line-height:1.7;font-weight:500">${abs}</p>
+    <p><a href="https://pubmed.ncbi.nlm.nih.gov/${esc(a.pmid)}/" target="_blank">PubMed</a>${a.doi?` · <a href="https://doi.org/${esc(a.doi)}" target="_blank">DOI</a>`:""}</p>`;
+  $("#mcard").classList.remove("wide"); $("#modal").style.display = "flex"; $("#mclose").onclick = closeModal;
+}
+$("#modal").onclick = e => { if (e.target.id === "modal") closeModal(); };
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+/* ---------- column 4: the source paper ---------- */
+async function render(it){
+  const tag = cur.b + "|" + it.id + "|" + zoom; if (rendered === tag) return; rendered = tag;
+  $("#zval").textContent = Math.round(zoom * 100) + "%";
+  const vw = $("#viewer"); vw.innerHTML = ""; pageEls = [];
+  if (it.ref){
+    if (!it.x.local){ vw.innerHTML = `<div class="wait"><h2>No saved copy</h2><p>${it.x.url ? `Open it on the web: <a href="${esc(it.x.url)}" target="_blank">${esc(it.x.url)}</a>` : "There is no file or link on record for this source."}</p></div>`; return; }
+    it = {...it, pdf_out: true, pdf_url: refUrl(B[cur.b].D, it.x)};
+  }
+  if (!it.pdf_out){ vw.innerHTML = `<div class="wait"><h2>PDF needed</h2><p><a href="https://doi.org/${esc(it.doi)}" target="_blank">doi.org/${esc(it.doi)}</a></p></div>`; return; }
+  const pdf = await pdfjsLib.getDocument(await LS.pdf(it.pdf_url || `/api/${cur.b}/file/${encodeURIComponent(it.pdf_out)}`)).promise;
+  const width = Math.max(200, (vw.clientWidth - 36) * zoom);
+  for (let n = 1; n <= pdf.numPages; n++){
+    if (rendered !== tag) return;
+    const page = await pdf.getPage(n);
+    const scale = width / page.getViewport({scale:1}).width;
+    const vp = page.getViewport({scale: scale * devicePixelRatio});
+    const box = document.createElement("div"); box.className = "pg"; box.style.width = width + "px";
+    const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height; c.style.width = width + "px"; c.style.display = "block";
+    box.innerHTML = `<span class="lbl">p. ${n}</span>`; box.appendChild(c); vw.appendChild(box); pageEls[n] = box;
+    await page.render({canvasContext: c.getContext("2d"), viewport: vp}).promise;
+    if (pending && pending[0] === n) go(pending[0], pending[1]);
+  }
+  const first = (it.found||[]).find(q => q.page); if (first && !pending) go(first.page, first.y);
+}
+function go(n, y){
+  const el = pageEls[n];
+  if (!el) { pending = [n, y || 0]; return; }
+  pending = null;
+  const col = $("#pdf"), top = el.offsetTop + (y || 0) * el.offsetHeight - 110;
+  col.scrollTo({top: Math.max(0, top), behavior: "smooth"});
+  const f = document.createElement("div"); f.className = "flash"; f.style.top = ((y || 0) * el.offsetHeight - 8) + "px";
+  el.appendChild(f); setTimeout(() => f.remove(), 1800);
+  const np = $("#np"); if (np) np.value = n;
+}
+
+/* ---------- "Extra": explainers kept in <paper>/docs/source_review/extras/ ---------- */
+let EXTRAS = null;
+async function openExtras(i){
+  if (!EXTRAS) EXTRAS = await (await fetch("/api/extras")).json();
+  const box = $("#mcard"); box.classList.add("wide");
+  if (!EXTRAS.length){ box.innerHTML = `<div style="display:flex;gap:10px"><h2 style="flex:1">Extra</h2><button class="btn" id="mclose">Close</button></div><p class="sub">Nothing here yet.</p>`; }
+  else {
+    const k = Math.min(i ?? store.get("extra", 0), EXTRAS.length - 1); store.set("extra", k);
+    box.innerHTML = `<div style="display:flex;gap:10px;align-items:flex-start"><h2 style="flex:1">${esc(EXTRAS[k].title)}</h2><button class="btn" id="mclose">Close</button></div>` +
+      (EXTRAS.length > 1 ? `<div class="xtabs">${EXTRAS.map((x, j) => `<button class="btn sm ${j===k?"on":""}" data-x="${j}">${esc(x.title)}</button>`).join("")}</div>` : "") +
+      `<div>${EXTRAS[k].html}</div>`;
+    box.querySelectorAll("[data-x]").forEach(bn => bn.onclick = () => openExtras(+bn.dataset.x));
+    box.querySelectorAll("[data-toggle-path]").forEach(bn => bn.onclick = () => {   // show or hide the red/green worked example
+      const xl = bn.closest(".xl"); xl.classList.toggle("hide"); bn.textContent = xl.classList.contains("hide") ? "Show his path" : "Hide his path"; });
+  }
+  box.scrollTop = 0;
+  $("#modal").style.display = "flex"; $("#mclose").onclick = closeModal;
+}
+function closeModal(){ $("#modal").style.display = "none"; $("#mcard").classList.remove("wide"); }
+$("#extrabtn").onclick = () => openExtras();
+
+/* ---------- "Tables & figures": each paper's newest draft .docx, read fresh each time, in document order ---------- */
+async function openFigures(){
+  const figs = await (await fetch("/api/exhibits")).json();
+  const box = $("#mcard"); box.classList.add("wide");
+  const from = [...new Set(figs.map(f => f.file))].join(", ");
+  box.innerHTML = `<div style="display:flex;gap:10px;align-items:flex-start"><h2 style="flex:1">Tables &amp; figures</h2><button class="btn" id="mclose">Close</button></div>` +
+    (figs.length ? `<p class="sub">From ${esc(from)}</p>` + figs.map(f => f.kind === "table"
+      ? `<div class="fig"><p class="cap">${esc(f.caption)}</p><div class="tw">${f.html}</div></div>`
+      : `<div class="fig"><img src="${f.url}" alt="${esc(f.caption)}" loading="lazy"><p>${esc(f.caption)}</p></div>`).join("")
+     : `<p class="sub">No tables or figures found in a manuscript draft.</p>`);
+  box.scrollTop = 0;
+  $("#modal").style.display = "flex"; $("#mclose").onclick = closeModal;
+}
+$("#figbtn").onclick = openFigures;
+
+/* ---------- saving: every change goes straight to the packet's verdicts.json ---------- */
+function save(){
+  const b = cur.b; clearTimeout(saveT[b]); $("#saved").textContent = "Saving…"; $("#saved").classList.remove("bad");
+  saveT[b] = setTimeout(async () => {
+    try { const r = await fetch(`/api/${b}/verdicts`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(B[b].V)});
+      if (!r.ok) throw new Error(r.status); $("#saved").textContent = "✓ Saved " + new Date().toLocaleTimeString(); nav(); }
+    catch(e){ $("#saved").textContent = "NOT SAVED: is the review server running?"; $("#saved").classList.add("bad"); }
+  }, 400);
+}
+window.LS_remote = (k, V) => { if (!B[k]) return; B[k].V = V; nav();
+  const a = document.activeElement; if (cur && cur.b === k && !(a && /TEXTAREA|INPUT|SELECT/.test(a.tagName))) show(cur.b, cur.id); };
+LS.ready.then(init);
+</script>
+</body>
+</html>
