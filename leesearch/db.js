@@ -121,4 +121,11 @@
   const mock = local && new URLSearchParams(location.search).has('mock');
   window.LDB = mock ? mockBackend() : firebaseBackend();
   window.LDB.DELETE = DELETE;
+  // Count writes the server hasn't confirmed yet, so the page can warn before it is closed mid-save.
+  let pending = 0;
+  for (const m of ['set', 'update', 'add', 'del', 'tx', 'batch']) {
+    const fn = window.LDB[m];
+    window.LDB[m] = (...a) => { pending++; return Promise.resolve().then(() => fn(...a)).finally(() => { pending--; }); };
+  }
+  window.LDB.pending = () => pending;
 })();

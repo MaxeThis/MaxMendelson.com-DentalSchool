@@ -857,7 +857,7 @@ function save(){
   saveT[b] = setTimeout(async () => {
     try { const r = await fetch(`/api/${b}/verdicts`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(B[b].V)});
       if (!r.ok) throw new Error(r.status); $("#saved").textContent = "✓ Saved " + new Date().toLocaleTimeString(); nav(); }
-    catch(e){ $("#saved").textContent = "NOT SAVED: is the review server running?"; $("#saved").classList.add("bad"); }
+    catch(e){ $("#saved").textContent = "NOT SAVED: check your internet connection, then change anything to retry"; $("#saved").classList.add("bad"); }
   }, 400);
 }
 LS.ready.then(init);

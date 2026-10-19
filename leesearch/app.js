@@ -51,9 +51,11 @@
   function toast(msg, kind = '') {
     const el = h(`<div class="toast ${kind}">${esc(msg)}</div>`);
     $('#toast-root').appendChild(el);
-    setTimeout(() => el.classList.add('out'), 3200);
-    setTimeout(() => el.remove(), 3800);
+    const ms = kind === 'bad' ? 9000 : 3200;
+    setTimeout(() => el.classList.add('out'), ms);
+    setTimeout(() => el.remove(), ms + 600);
   }
+  const why = (er) => String((er && (er.message || er.code)) || 'unknown error').replace(/[.\s]+$/, '');
   function plain(html) { const d = document.createElement('div'); d.innerHTML = html || ''; return d.textContent; }
   function hash(s) { let x = 5381; for (let i = 0; i < s.length; i++) x = ((x << 5) + x + s.charCodeAt(i)) | 0; return (x >>> 0).toString(36); }
   function sanitize(html) {
@@ -216,7 +218,7 @@
           <div class="brand"><span class="brand-mark">L</span><div><b>Leesearch</b><small>Mendelson · Lee manuscripts</small></div></div>
           <p class="login-lead">Who's signing in?</p>
           <div class="pick">
-            ${PEOPLE.map((u) => `<button class="pick-btn ${pick === u ? 'on' : ''}" data-u="${u}" style="--c:${USERS[u].color}">${avatar(u)}<span>${USERS[u].name}</span></button>`).join('')}
+            ${PEOPLE.map((u) => `<button type="button" class="pick-btn ${pick === u ? 'on' : ''}" data-u="${u}" style="--c:${USERS[u].color}">${avatar(u)}<span>${USERS[u].name}</span></button>`).join('')}
           </div>
           <form id="lf">
             <input id="pw" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password">
@@ -704,7 +706,13 @@
       <textarea id="ctext" rows="4" placeholder="Write a comment…"></textarea>
       <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="csave">Comment</button></div>`, (m) => {
       const ta = m.querySelector('#ctext'); ta.focus();
-      const save = () => { const t = ta.value.trim(); if (!t) return; addNote(pid, info, 'comment', t); closeModal(); };
+      const btn = m.querySelector('#csave');
+      const save = async () => {
+        const t = ta.value.trim(); if (!t || btn.disabled) return;
+        btn.disabled = true; btn.textContent = 'Saving…';
+        try { await addNote(pid, info, 'comment', t); closeModal(); }
+        catch (er) { console.error(er); btn.disabled = false; btn.textContent = 'Comment'; toast('Could not save the comment: ' + why(er) + '. Your text is still here; try again.', 'bad'); }
+      };
       m.querySelector('#csave').onclick = save;
       ta.onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save(); };
     });
@@ -833,7 +841,14 @@
           toast(`Suggestion sent. ${USERS[other()].short} can accept or reject it.`);
         }
       }
-    } catch (er) { console.error(er); toast('Could not save: ' + er.message, 'bad'); }
+    } catch (er) {
+      console.error(er);
+      renderBlocks(pid);
+      const blk = document.querySelector(`.blk[data-id="${b.id}"]`);
+      if (blk) { startEdit(pid, b, blk, e.isNew); Object.assign(S.editing, { startHtml: e.startHtml, startVersion: e.startVersion, mySug: e.mySug }); const ed2 = blk.querySelector('.ed'); if (ed2) ed2.innerHTML = html; }
+      toast('Could not save: ' + why(er) + '. Your text is still in the box; press Enter to try again.', 'bad');
+      return heartbeat();
+    }
     renderBlocks(pid); heartbeat();
   }
   async function saveDirect(pid, b, baseHtml, html, baseVersion, verb, extra = {}) {
@@ -967,9 +982,12 @@
       if (a === 'reply-input') {
         b.onkeydown = async (e) => {
           if (e.key !== 'Enter' || !b.value.trim()) return;
-          const t = b.value.trim(); b.value = '';
-          if (n.kind === 'highlight' && !n.text) await DB.update(path, { text: t, kind: 'comment', author: n.author === S.me ? n.author : n.author });
-          else await DB.update(path, { replies: [...(n.replies || []), { id: Math.random().toString(36).slice(2, 9), author: S.me, text: t, at: now() }], status: 'open' });
+          const t = b.value.trim(); b.disabled = true;
+          try {
+            if (n.kind === 'highlight' && !n.text) await DB.update(path, { text: t, kind: 'comment', author: n.author === S.me ? n.author : n.author });
+            else await DB.update(path, { replies: [...(n.replies || []), { id: Math.random().toString(36).slice(2, 9), author: S.me, text: t, at: now() }], status: 'open' });
+          } catch (er) { console.error(er); b.disabled = false; return toast('Could not save the reply: ' + why(er) + '. Your text is still here; press Enter to retry.', 'bad'); }
+          b.value = ''; b.disabled = false;
           log(pid, 'reply', n.blockId, `replied on ${blockLabel(pid, n.blockId)}`);
         };
         return;
@@ -1113,7 +1131,14 @@
       vLast[key] = last;
       if (!Object.keys(changed).length) return;
       changed._key = key; changed._updatedBy = S.me; changed._updatedAt = now(); changed._tab = TAB;
-      try { await DB.update(vPath(key), changed); } catch { await DB.set(vPath(key), changed, true); }
+      try {
+        try { await DB.update(vPath(key), changed); } catch (e1) { if (e1 && e1.code && e1.code !== 'not-found') throw e1; await DB.set(vPath(key), changed, true); }
+      } catch (er) {
+        console.error(er);
+        for (const id of Object.keys(prev)) { if (prev[id] && Object.keys(prev[id]).length) last[id] = JSON.stringify(prev[id]); else delete last[id]; }
+        toast('Could not save your source review: ' + why(er) + '. It is kept on this page and will be sent with your next change.', 'bad');
+        throw er;
+      }
       // the local files stay in step with Max's review (Claude and Gemini read verdicts.json)
       if (LOCAL && S.me === 'max') fetch('/__verdicts', { method: 'POST', body: JSON.stringify({ key, verdicts: V }) }).catch(() => {});
       // Max's review is private, so only Dr. Lee's shows up in the shared activity (and in Max's Lee Review)
@@ -1301,7 +1326,9 @@
     const ed = document.querySelector('.blk.editing .ed'); const sel = window.getSelection();
     if (ed && sel.rangeCount && ed.contains(sel.anchorNode)) { const r = sel.getRangeAt(0); S.editing.sel = [r.startContainer, r.startOffset, r.endContainer, r.endOffset]; }
   });
-  window.addEventListener('beforeunload', (e) => { if (S.editing) { e.preventDefault(); e.returnValue = ''; } });
+  window.addEventListener('beforeunload', (e) => { if (S.editing || DB.pending()) { e.preventDefault(); e.returnValue = ''; } });
+  // any other save that fails (done marks, closing a thread, accepting a suggestion…) says so instead of failing silently
+  window.addEventListener('unhandledrejection', (e) => { const er = e.reason; if (er && er.code) toast('Could not save: ' + (er.message || er.code), 'bad'); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) heartbeat(); });
   setInterval(() => { if (S.route.view === 'home') renderHome(); renderPresence(); }, 60000);
 })();
