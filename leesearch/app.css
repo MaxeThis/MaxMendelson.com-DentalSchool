@@ -158,6 +158,8 @@ main { padding: 0 20px 80px; }
 .b-h1:first-child .t-h1 { margin-top: 0; }
 .tbl { overflow-x: auto; font: 13px/1.4 var(--ui); margin: 6px 0; }
 .tbl table { border-collapse: collapse; width: 100%; }
+.tbl-del td, .tbl-del th { color: var(--del); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.tbl-ins { background: var(--ins-bg); outline: 2px solid var(--ins); } .tbl-ins td, .tbl-ins th { color: var(--ins); }
 .tbl td, .tbl th { border-bottom: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; }
 .tbl th { position: sticky; top: 0; background: var(--surface-2); }
 .fig { margin: 8px 0; text-align: center; }

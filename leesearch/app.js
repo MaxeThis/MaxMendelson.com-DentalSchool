@@ -494,7 +494,7 @@
     // pending inserts (suggested new paragraphs) go after their anchor
     for (const s of d.suggestions.filter((x) => x.status === 'pending' && x.kind === 'insert')) {
       const anchor = paper.querySelector(`.blk[data-id="${s.afterId}"]`);
-      const el = h(`<div class="blk ghost" data-sug="${s.id}"><div class="gut"></div><div class="content"><ins class="sug" title="Suggested by ${esc(USERS[s.author]?.short)}">${s.newHtml}</ins></div></div>`);
+      const el = h(`<div class="blk ghost" data-sug="${s.id}"><div class="gut"></div><div class="content">${s.type === 'table' ? `<div class="tbl tbl-ins" title="Suggested by ${esc(USERS[s.author]?.short)}">${s.newHtml}</div>` : `<ins class="sug" title="Suggested by ${esc(USERS[s.author]?.short)}">${s.newHtml}</ins>`}</div></div>`);
       el.querySelector('.content').appendChild(sugActions(pid, s));
       if (anchor) anchor.after(el); else paper.prepend(el);
     }
@@ -503,7 +503,7 @@
 
   function sugActions(pid, s) {
     const mine = s.author === S.me;
-    const el = h(`<span class="sug-act">${chip(s.author)} ${s.kind === 'insert' ? 'suggests a new paragraph' : s.kind === 'delete' ? 'suggests deleting this' : 'suggests'} · ${ago(s.createdAt)}
+    const el = h(`<span class="sug-act">${chip(s.author)} ${s.kind === 'insert' ? (s.type === 'table' ? 'suggests a new table' : 'suggests a new paragraph') : s.kind === 'delete' ? 'suggests deleting this' : 'suggests'} · ${ago(s.createdAt)}
       ${!mine ? '<button class="mini ok" data-a="accept">Accept</button><button class="mini no" data-a="reject">Reject</button>' : '<button class="mini" data-a="withdraw">Withdraw</button>'}
       ${mine && s.author !== 'claude' ? '' : ''}</span>`);
     el.querySelectorAll('button').forEach((b) => b.onclick = (e) => { e.stopPropagation(); resolveSuggestion(pid, s, b.dataset.a); });
@@ -526,7 +526,7 @@
     const tag = b.type === 'h1' ? 'h2' : b.type === 'h2' ? 'h3' : 'div';
     let inner;
     if (b.type === 'figure') inner = `<figure class="fig" data-file="fig-${(b.file || '').replace(/\.\w+$/, '')}"><div class="fig-load">Decrypting figure…</div></figure>`;
-    else if (b.type === 'table') inner = `<div class="tbl">${b.html}</div>`;
+    else if (b.type === 'table') inner = `<div class="tbl${pend.length && pend[0].kind === 'delete' ? ' tbl-del' : ''}">${b.html}</div>`;   // a suggested table deletion shows struck through
     else inner = `<${tag} class="txt t-${b.type}">${body}</${tag}>`;
     const doneN = done ? PEOPLE.filter((u) => done[u]).length : 0;
     const stale = done && PEOPLE.some((u) => done[u] && done[u].hash && done[u].hash !== hash(b.html));
