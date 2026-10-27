@@ -505,7 +505,7 @@
     const mine = s.author === S.me;
     const el = h(`<span class="sug-act">${chip(s.author)} ${s.kind === 'insert' ? (s.type === 'table' ? 'suggests a new table' : 'suggests a new paragraph') : s.kind === 'delete' ? 'suggests deleting this' : 'suggests'} · ${ago(s.createdAt)}
       ${!mine ? '<button class="mini ok" data-a="accept">Accept</button><button class="mini no" data-a="reject">Reject</button>' : '<button class="mini" data-a="withdraw">Withdraw</button>'}
-      ${mine && s.author !== 'claude' ? '' : ''}</span>`);
+      ${mine && s.author !== 'claude' ? '' : ''}${s.why ? `<span class="sug-why" title="Where this change comes from">${esc(s.why)}</span>` : ''}</span>`);
     el.querySelectorAll('button').forEach((b) => b.onclick = (e) => { e.stopPropagation(); resolveSuggestion(pid, s, b.dataset.a); });
     return el;
   }
@@ -963,6 +963,7 @@
     return `<div class="card sugcard ${s.status}" data-sid="${s.id}" data-block="${s.blockId || s.afterId}" style="--c:${USERS[s.author]?.color}">
       <div class="card-head">${avatar(s.author)} <b>${esc(USERS[s.author]?.short)}</b> <span class="muted">suggested ${s.kind === 'insert' ? 'a new paragraph' : s.kind === 'delete' ? 'a deletion' : 'an edit'} · ${ago(s.createdAt)}</span> ${st}</div>
       <a class="card-where" href="#">${esc(blockLabel(pid, s.blockId || s.afterId))}</a>
+      ${s.why ? `<p class="sug-why">${esc(s.why)}</p>` : ''}
       ${s.note === 'conflict' ? '<p class="warn small">Saved as a suggestion because both of you edited this paragraph at once.</p>' : ''}
       <div class="diff">${preview}</div>
       ${s.status === 'pending' ? `<div class="card-actions">${mine ? '<button class="mini" data-a="withdraw">Withdraw</button>' : '<button class="mini ok" data-a="accept">Accept</button><button class="mini no" data-a="reject">Reject</button>'}</div>` : ''}

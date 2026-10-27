@@ -400,3 +400,8 @@ mark.cmt { border-bottom: 3px solid var(--c); }
 .websync { font-size: 12px; font-weight: 800; color: var(--muted); cursor: pointer; white-space: nowrap; }
 .websync.publishing, .websync.waiting { color: var(--blue, #1cb0f6); }
 .websync.error { color: var(--red, #ff4b4b); }
+
+/* where a suggestion comes from (e.g. "Dr. Lee #3: new Table 1") */
+.sug-why { display: inline-block; font: 600 12px var(--ui); color: #8a5a00; background: #fff4d6; border: 1px solid #f1cf7a; border-radius: 99px; padding: 1px 9px; margin: 2px 0; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .sug-why { color: #ffd37a; background: #3a2c08; border-color: #6b5214; } }
+:root[data-theme="dark"] .sug-why { color: #ffd37a; background: #3a2c08; border-color: #6b5214; }
