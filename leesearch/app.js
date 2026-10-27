@@ -447,6 +447,7 @@
         <button data-tool="done" class="tool dn ${S.tool === 'done' ? 'on' : ''}" title="Green highlighter: click or select paragraphs to mark them done. The other person then checks them.">✓ Done</button>
       </div>
       <div class="tb-right">
+        <button class="btn small" id="tf-btn" title="Every table and figure, with pending changes, without scrolling">📊 Tables &amp; figures</button>
         ${unseenEdits ? `<button class="btn small" id="seen-all">Mark ${unseenEdits} edit${unseenEdits > 1 ? 's' : ''} seen</button>` : ''}
         <span class="tb-stat" title="Done and checked by both / all parts">✓✓ ${st.both}/${st.total}</span>
       </div>
@@ -454,6 +455,7 @@
     $('#toolbar').querySelectorAll('[data-mode]').forEach((b) => b.onclick = () => { S.mode = b.dataset.mode; localStorage.setItem('ls-mode', S.mode); renderToolbar(); if (S.editing) updateEditorBar(); });
     $('#toolbar').querySelectorAll('[data-tool]').forEach((b) => b.onclick = () => { S.tool = S.tool === b.dataset.tool ? null : b.dataset.tool; renderToolbar(); $('#paper').dataset.tool = S.tool || ''; });
     const sa = $('#seen-all'); if (sa) sa.onclick = () => markEditsSeen(pid, null);
+    const tf = $('#tf-btn'); if (tf) tf.onclick = () => showExhibits();
     $('#paper') && ($('#paper').dataset.tool = S.tool || '');
   }
 
@@ -492,7 +494,8 @@
     }
     window.scrollTo(sx, sy);
     // pending inserts (suggested new paragraphs) go after their anchor
-    for (const s of d.suggestions.filter((x) => x.status === 'pending' && x.kind === 'insert')) {
+    // highest order first: each one goes right after its anchor, so they end up in their own order (27 Oct fix)
+    for (const s of d.suggestions.filter((x) => x.status === 'pending' && x.kind === 'insert').sort((x, y) => (y.order || 0) - (x.order || 0))) {
       const anchor = paper.querySelector(`.blk[data-id="${s.afterId}"]`);
       const el = h(`<div class="blk ghost" data-sug="${s.id}"><div class="gut"></div><div class="content">${s.type === 'table' ? `<div class="tbl tbl-ins" title="Suggested by ${esc(USERS[s.author]?.short)}">${s.newHtml}</div>` : `<ins class="sug" title="Suggested by ${esc(USERS[s.author]?.short)}">${s.newHtml}</ins>`}</div></div>`);
       el.querySelector('.content').appendChild(sugActions(pid, s));
@@ -505,9 +508,66 @@
     const mine = s.author === S.me;
     const el = h(`<span class="sug-act">${chip(s.author)} ${s.kind === 'insert' ? (s.type === 'table' ? 'suggests a new table' : 'suggests a new paragraph') : s.kind === 'delete' ? 'suggests deleting this' : 'suggests'} · ${ago(s.createdAt)}
       ${!mine ? '<button class="mini ok" data-a="accept">Accept</button><button class="mini no" data-a="reject">Reject</button>' : '<button class="mini" data-a="withdraw">Withdraw</button>'}
+      <button class="mini" data-a="modify" title="Change the suggested text before accepting it">✎ Modify</button><button class="mini" data-a="comment" title="Comment on this suggestion">💬 Comment</button>
       ${mine && s.author !== 'claude' ? '' : ''}${s.why ? `<span class="sug-why" title="Where this change comes from">${esc(s.why)}</span>` : ''}</span>`);
-    el.querySelectorAll('button').forEach((b) => b.onclick = (e) => { e.stopPropagation(); resolveSuggestion(pid, s, b.dataset.a); });
+    el.querySelectorAll('button').forEach((b) => b.onclick = (e) => {
+      e.stopPropagation();
+      if (b.dataset.a === 'modify') return modifySuggestion(pid, s);
+      if (b.dataset.a === 'comment') return commentSuggestion(pid, s);
+      resolveSuggestion(pid, s, b.dataset.a);
+    });
+    if ((s.comments || []).length) el.appendChild(h(`<div class="sug-comments">${sugComments(s)}</div>`));
     return el;
+  }
+  function sugComments(s) {
+    return (s.comments || []).map((c) => `<div class="sug-c">${chip(c.author)} <span>${esc(c.text)}</span> <span class="muted small">· ${ago(c.at)}</span></div>`).join('');
+  }
+  // Modify someone else's pending suggestion (Max, 27 Oct): the new text replaces the suggested text; it stays a suggestion.
+  function modifySuggestion(pid, s) {
+    modal(`<h3>Modify the suggestion</h3><p class="muted">${s.why ? esc(s.why) + ' · ' : ''}Edit the suggested text below. It stays a suggestion; accept it afterwards.</p>
+      <div class="sug-edit" contenteditable="true">${s.newHtml}</div>
+      <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="smsave">Save change</button></div>`, (m) => {
+      const ed = m.querySelector('.sug-edit'); ed.focus();
+      m.querySelector('#smsave').onclick = async () => {
+        const html = ed.innerHTML.trim(); if (!html || html === s.newHtml) return closeModal();
+        await DB.update(`${P(pid)}/suggestions/${s.id}`, { newHtml: html, modifiedBy: S.me, modifiedAt: now(),
+          comments: [...(s.comments || []), { author: S.me, text: 'Modified the suggested text.', at: now() }] });
+        log(pid, 'suggest', s.blockId || s.afterId, `modified ${USERS[s.author]?.short}'s suggestion in ${blockLabel(pid, s.blockId || s.afterId)}`);
+        closeModal(); toast('Suggestion updated.');
+      };
+    }, 'wide');
+  }
+  function commentSuggestion(pid, s) {
+    modal(`<h3>Comment on this suggestion</h3><p class="muted">${s.why ? esc(s.why) : ''}</p><textarea id="sctext" rows="5" placeholder="Your comment…"></textarea>
+      <div class="modal-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" id="scsave">Comment</button></div>`, (m) => {
+      m.querySelector('#sctext').focus();
+      m.querySelector('#scsave').onclick = async () => {
+        const t = m.querySelector('#sctext').value.trim(); if (!t) return;
+        await DB.update(`${P(pid)}/suggestions/${s.id}`, { comments: [...(s.comments || []), { author: S.me, text: t, at: now() }] });
+        log(pid, 'comment', s.blockId || s.afterId, `commented on a suggestion in ${blockLabel(pid, s.blockId || s.afterId)}`);
+        closeModal();
+      };
+    });
+  }
+  // Every table and figure in paper order, as currently drawn (pending changes included), in one window (Max, 27 Oct)
+  function showExhibits() {
+    const paper = $('#paper'); if (!paper) return;
+    const all = [...paper.querySelectorAll(':scope > .blk')];
+    const cap = (el) => el && /^(Supplementary )?(Table|Figure) [S\d]/.test((el.textContent || '').trim()) ? el : null;
+    const parts = [];
+    all.forEach((el, i) => {
+      if (!el.querySelector('.tbl, figure.fig')) return;
+      const isFig = !!el.querySelector('figure.fig');
+      const c = isFig ? cap(all[i + 1]) : cap(all[i - 1]);
+      const again = !isFig && !c && all[i - 1] && all[i - 1].querySelector('.tbl');   // re-added version right after the struck one
+      const clone = (x) => { const k = x.cloneNode(true); k.querySelectorAll('.sug-act, .gut, .blk-note').forEach((n) => n.remove()); return k.innerHTML; };
+      parts.push(`<section class="ex-item">${!isFig && c ? `<div class="ex-cap">${clone(c)}</div>` : ''}${again ? '<div class="ex-cap">↑ Same table, suggested new version</div>' : ''}<div class="ex-body">${clone(el)}</div>${isFig && c ? `<div class="ex-cap">${clone(c)}</div>` : ''}
+        <button class="btn small ex-go" data-i="${i}">Go to it</button></section>`);
+    });
+    modal(`<div style="display:flex;gap:10px;align-items:center"><h3 style="flex:1;margin:0">Tables &amp; figures</h3><button class="btn" data-close>Close</button></div>
+      <p class="muted small">Green = suggested new, red struck = suggested removal.</p><div class="ex-list">${parts.join('') || '<p class="muted">No tables or figures.</p>'}</div>`, (m) => {
+      m.querySelectorAll('.ex-go').forEach((b) => b.onclick = () => { const t = all[+b.dataset.i]; closeModal(); t.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+    }, 'wide');
   }
 
   function blockEl(pid, b, done, d) {
@@ -964,6 +1024,7 @@
       <div class="card-head">${avatar(s.author)} <b>${esc(USERS[s.author]?.short)}</b> <span class="muted">suggested ${s.kind === 'insert' ? 'a new paragraph' : s.kind === 'delete' ? 'a deletion' : 'an edit'} · ${ago(s.createdAt)}</span> ${st}</div>
       <a class="card-where" href="#">${esc(blockLabel(pid, s.blockId || s.afterId))}</a>
       ${s.why ? `<p class="sug-why">${esc(s.why)}</p>` : ''}
+      ${(s.comments || []).length ? `<div class="sug-comments">${sugComments(s)}</div>` : ''}
       ${s.note === 'conflict' ? '<p class="warn small">Saved as a suggestion because both of you edited this paragraph at once.</p>' : ''}
       <div class="diff">${preview}</div>
       ${s.status === 'pending' ? `<div class="card-actions">${mine ? '<button class="mini" data-a="withdraw">Withdraw</button>' : '<button class="mini ok" data-a="accept">Accept</button><button class="mini no" data-a="reject">Reject</button>'}</div>` : ''}
