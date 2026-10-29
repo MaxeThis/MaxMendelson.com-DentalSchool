@@ -64,6 +64,19 @@
     s = s.replace(/<(i|b|sup|sub)><\/\1>/g, '');
     return s.trim();
   }
+  // localStorage can be blocked (private windows); the page works without it
+  const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* not kept */ } };
+
+  // ---------- settings: each person's own, on this device (Max, 29 Oct) ----------
+  const SIDE_W = [320, 900];
+  function settings() { return { order: 'paper', custom: null, sideW: 480, ...lsGet(`ls-settings-${S.me}`, {}) }; }
+  function saveSettings(patch) { const s = { ...settings(), ...patch }; lsSet(`ls-settings-${S.me}`, s); return s; }
+  function setSideW(px) {
+    const w = Math.round(Math.min(SIDE_W[1], Math.max(SIDE_W[0], px)));
+    document.documentElement.style.setProperty('--side-w', w + 'px');
+    return w;
+  }
 
   // ---------- crypto (vault) ----------
   const b64d = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -301,6 +314,7 @@
         ${tabs}
         <div class="top-right"><span id="presence"></span>${LOCAL && DB.kind !== 'mock' ? '<span id="websync" class="websync"></span>' : ''}
           ${S.me === 'max' ? '<button class="lee-review" id="leerev" title="What Dr. Lee changed, commented and noted">Lee Review<span class="bubble" id="leebubble"></span></button>' : ''}
+          <button class="gear" id="settings-btn" title="Settings: review order, panel width">⚙ Settings</button>
           <span class="me">${avatar(S.me)}<button class="link" id="signout">${DB.kind === 'mock' ? `Local preview · view as ${USERS[other()].short}` : 'Sign out'}</button></span></div>
       </header>
       <main id="main"></main>
@@ -310,6 +324,7 @@
     $('#home-link').onclick = (e) => { e.preventDefault(); go({ view: 'home' }); };
     $('#signout').onclick = signOut;
     if ($('#leerev')) $('#leerev').onclick = openLeeReview;
+    $('#settings-btn').onclick = openSettings;
     document.querySelectorAll('.tabs a').forEach((a) => a.onclick = (e) => { e.preventDefault(); go({ view: a.dataset.v, pid: S.route.pid }); });
   }
   function renderPresence() {
@@ -422,15 +437,31 @@
         <div class="toolbar" id="toolbar"></div>
         <div class="doc-grid">
           <article class="paper" id="paper"></article>
+          <div class="side-grip" id="side-grip" title="Drag to make the review panel wider or narrower (double-click: back to normal)"></div>
           <aside class="side" id="side"></aside>
         </div>
       </div>`;
       wrap = $('#doc-wrap');
       bindPaperEvents();
+      setSideW(settings().sideW);
+      bindGrip();
     }
     renderToolbar();
     renderBlocks(pid);
     renderSide(pid);
+  }
+
+  // the line between the paper and the review panel: drag it to resize the panel
+  function bindGrip() {
+    const g = $('#side-grip');
+    g.onpointerdown = (e) => {
+      e.preventDefault(); g.setPointerCapture(e.pointerId);
+      const x0 = e.clientX, w0 = $('#side').offsetWidth; let w = w0;
+      g.classList.add('drag'); document.body.classList.add('resizing');
+      g.onpointermove = (ev) => { w = setSideW(w0 - (ev.clientX - x0)); };
+      g.onpointerup = () => { g.onpointermove = g.onpointerup = null; g.classList.remove('drag'); document.body.classList.remove('resizing'); saveSettings({ sideW: w }); };
+    };
+    g.ondblclick = () => saveSettings({ sideW: setSideW(480) });
   }
 
   function renderToolbar() {
@@ -466,17 +497,83 @@
     return out;
   }
 
+  // ---- the paper as drawn: its blocks plus pending suggested inserts, in order ----
+  // A suggested insert sits at its own `order`, not just after the paragraph it was attached to, so it stays
+  // in place after paragraphs are accepted in between (29 Oct: Tables 2-4 showed above the accepted Table 1).
+  function insertPos(pid, s) {
+    if (typeof s.order === 'number') return s.order;
+    const a = blockById(pid, s.afterId); return a ? a.order + 1e-6 : -Infinity;
+  }
+  const SECTIONS = [[/title/i, 'title'], [/abstract/i, 'abstract'], [/intro/i, 'intro'], [/method/i, 'methods'], [/result/i, 'results'],
+    [/discussion/i, 'discussion'], [/reference/i, 'refs'], [/supplement/i, 'supp']];
+  const secKey = (t) => (SECTIONS.find(([re]) => re.test(t)) || [0, 'x-' + t.toLowerCase().replace(/\W+/g, '-')])[1];
+  const CAP = /^(Supplementary )?(Table|Figure) S?\d+/;
+  function paperSeq(pid) {
+    const d = D_(pid); const pend = {};
+    for (const s of [...d.suggestions].sort((a, c) => a.createdAt - c.createdAt)) if (s.status === 'pending' && s.kind !== 'insert' && !pend[s.blockId]) pend[s.blockId] = s;
+    const seq = [
+      ...blocksOf(pid).map((b) => ({ b, type: b.type, o: b.order, t: 0 })),
+      ...d.suggestions.filter((s) => s.status === 'pending' && s.kind === 'insert').map((s) => ({ s, type: s.type || 'p', o: insertPos(pid, s), t: s.createdAt || 0 })),
+    ].sort((x, y) => x.o - y.o || !!x.s - !!y.s || x.t - y.t);
+    // sections; in the journal layout the tables and figures follow the references, so they get their own
+    const secs = []; let cur = null, cap = '';
+    const open = (key, label) => { cur = secs.find((x) => x.key === key); if (!cur) secs.push(cur = { key, label }); cap = ''; };
+    // what a table or figure is called once the pending changes go in ("Table 2", "Old Table 1")
+    const text = (it) => { const p = it.b && pend[it.b.id]; return plain(it.s ? it.s.newHtml : p && p.kind === 'edit' ? p.newHtml : it.b.html).trim(); };
+    const at = {};
+    seq.forEach((it, i) => {
+      if (it.b && it.type === 'h1') open(secKey(plain(it.b.html)), plain(it.b.html));
+      else if (!cur) open('top', 'Start');
+      else if (cur.key === 'refs' && !['ref', 'h2'].includes(it.type)) open('exhibits', 'Tables & figures');
+      it.sec = cur.key; it.i = i;
+      const m = text(it).match(CAP);
+      if (m) cap = (it.b && pend[it.b.id] && pend[it.b.id].kind === 'delete' ? 'Old ' : '') + m[0];
+      const nx = it.type === 'figure' && seq[i + 1] && text(seq[i + 1]).match(CAP);
+      it.cap = nx ? nx[0] : cap;
+      at[it.b ? 'b:' + it.b.id : 's:' + it.s.id] = it;
+    });
+    return { seq, secs, at };
+  }
+  // Change tags in a suggestion's reason ("A3 one “no disclosure” group …; A1 exclusion counts …"), one review pass
+  // per tag (Max, 29 Oct). Changes Claude made without being asked get their own pass.
+  function sugTags(s) {
+    const out = [];
+    for (const m of (s.why || '').matchAll(/(?:^|;\s*)([A-Z]{1,2}\d+)\s+([^;—]*)/g)) if (!out.some((x) => x.tag === m[1])) out.push({ tag: m[1], title: m[2].trim() });
+    if (/Claude extra/i.test(s.why || '')) out.push({ tag: 'Extra', title: 'Changes Claude added without being asked' });
+    return out;
+  }
+  const passKey = (pid) => `ls-pass-${S.me}-${pid}`;
+  const pass = (pid) => lsGet(passKey(pid), '');
+  function inPass(pid, x) {
+    const p = pass(pid); if (!p) return true;
+    const tags = x.kind === 'comment' || x.kind === 'highlight' ? [] : sugTags(x).map((t) => t.tag);
+    return p === 'none' ? !tags.length : tags.includes(p);
+  }
+  // A table swapped for a new version is posted as two suggestions: delete the old table, insert the new one right
+  // after it. They are one change, shown on one card and accepted or rejected together (Max, 29 Oct).
+  // Returns each half's id -> the other half.
+  function tableSwaps(pid) {
+    const d = D_(pid); const m = new Map();
+    for (const del of d.suggestions) {
+      if (del.kind !== 'delete' || m.has(del.id)) continue;
+      const b = blockById(pid, del.blockId); if (!b || b.type !== 'table') continue;
+      const ins = d.suggestions.find((s) => s.kind === 'insert' && s.type === 'table' && s.afterId === del.blockId && s.author === del.author && s.status === del.status && !m.has(s.id));
+      if (ins) { m.set(del.id, ins); m.set(ins.id, del); }
+    }
+    return m;
+  }
+
   function renderBlocks(pid) {
     const paper = $('#paper'); if (!paper) return;
-    const bl = blocksOf(pid); const dm = doneMap(pid); const d = D_(pid);
+    const dm = doneMap(pid); const d = D_(pid);
     const editingId = S.editing && S.editing.pid === pid ? S.editing.blockId : null;
     const keep = editingId ? paper.querySelector(`.blk[data-id="${editingId}"]`) : null;
     const frag = document.createDocumentFragment();
-    let afterHead = false;
-    for (const b of bl) {
-      if (b.id === editingId && keep) { frag.appendChild(keep); continue; }
-      frag.appendChild(blockEl(pid, b, dm[b.id], d));
-      afterHead = b.type === 'h1';
+    const sw = tableSwaps(pid);
+    for (const it of paperSeq(pid).seq) {
+      if (it.s) { frag.appendChild(ghostEl(pid, it.s, sw.get(it.s.id))); continue; }
+      if (it.b.id === editingId && keep) { frag.appendChild(keep); continue; }
+      frag.appendChild(blockEl(pid, it.b, dm[it.b.id], d, sw));
     }
     // Moving the editor node drops focus and selection; keep both.
     let saved = null;
@@ -493,20 +590,21 @@
       }
     }
     window.scrollTo(sx, sy);
-    // pending inserts (suggested new paragraphs) go after their anchor
-    // highest order first: each one goes right after its anchor, so they end up in their own order (27 Oct fix)
-    for (const s of d.suggestions.filter((x) => x.status === 'pending' && x.kind === 'insert').sort((x, y) => (y.order || 0) - (x.order || 0))) {
-      const anchor = paper.querySelector(`.blk[data-id="${s.afterId}"]`);
-      const el = h(`<div class="blk ghost" data-sug="${s.id}"><div class="gut"></div><div class="content">${s.type === 'table' ? `<div class="tbl tbl-ins" title="Suggested by ${esc(USERS[s.author]?.short)}">${s.newHtml}</div>` : `<ins class="sug" title="Suggested by ${esc(USERS[s.author]?.short)}">${s.newHtml}</ins>`}</div></div>`);
-      el.querySelector('.content').appendChild(sugActions(pid, s));
-      if (anchor) anchor.after(el); else paper.prepend(el);
-    }
+    const side = $('#side'); if (side && side.dataset.focus) linkPaper(side.dataset.focus);
     renderPresence();
   }
+  // a suggested new paragraph or table, drawn where it would go. The new half of a table swap carries the
+  // swap's card id (the deletion's), so clicking either table opens the one card.
+  function ghostEl(pid, s, swapOf) {
+    const t = `Suggested by ${esc(USERS[s.author]?.short)}. Click to see it in the review list.`;
+    const el = h(`<div class="blk ghost${inPass(pid, s) ? '' : ' off-pass'}" data-sug="${swapOf ? swapOf.id : s.id}"><div class="gut"></div><div class="content">${s.type === 'table' ? `<div class="tbl tbl-ins" title="${t}">${s.newHtml}</div>` : `<ins class="sug" title="${t}">${s.newHtml}</ins>`}</div></div>`);
+    el.querySelector('.content').appendChild(sugActions(pid, s, swapOf));
+    return el;
+  }
 
-  function sugActions(pid, s) {
+  function sugActions(pid, s, swapOf) {
     const mine = s.author === S.me;
-    const el = h(`<span class="sug-act">${chip(s.author)} ${s.kind === 'insert' ? (s.type === 'table' ? 'suggests a new table' : 'suggests a new paragraph') : s.kind === 'delete' ? 'suggests deleting this' : 'suggests'} · ${ago(s.createdAt)}
+    const el = h(`<span class="sug-act">${chip(s.author)} ${swapOf ? 'suggests replacing the table above with this one' : s.kind === 'insert' ? (s.type === 'table' ? 'suggests a new table' : 'suggests a new paragraph') : s.kind === 'delete' ? 'suggests deleting this' : 'suggests'} · ${ago(s.createdAt)}
       ${!mine ? '<button class="mini ok" data-a="accept">Accept</button><button class="mini no" data-a="reject">Reject</button>' : '<button class="mini" data-a="withdraw">Withdraw</button>'}
       <button class="mini" data-a="modify" title="Change the suggested text before accepting it">✎ Modify</button><button class="mini" data-a="comment" title="Comment on this suggestion">💬 Comment</button>
       ${mine && s.author !== 'claude' ? '' : ''}${s.why ? `<span class="sug-why" title="Where this change comes from">${esc(s.why)}</span>` : ''}</span>`);
@@ -570,15 +668,15 @@
     }, 'wide');
   }
 
-  function blockEl(pid, b, done, d) {
+  function blockEl(pid, b, done, d, sw) {
     const pend = d.suggestions.filter((s) => s.status === 'pending' && s.blockId === b.id && s.kind !== 'insert').sort((a, c) => a.createdAt - c.createdAt);
     const unseen = d.edits.filter((e) => e.blockId === b.id && e.author !== S.me && !(e.seenBy || {})[S.me]).sort((a, c) => a.at - c.at);
     let body = b.html;
     let state = '';
     if (pend.length) {
       const s = pend[0];
-      body = s.kind === 'delete' ? `<del title="Suggested deletion">${b.html}</del>` : renderDiff(b.html, mergeOrBase(b, s), 'sug', `Suggested by ${USERS[s.author]?.short}`);
-      state = 'has-sug';
+      body = s.kind === 'delete' ? `<del title="Suggested deletion. Click to see it in the review list.">${b.html}</del>` : renderDiff(b.html, mergeOrBase(b, s), 'sug', `Suggested by ${USERS[s.author]?.short}. Click to see it in the review list.`);
+      state = 'has-sug' + (inPass(pid, s) ? '' : ' off-pass');
     } else if (unseen.length) {
       body = renderDiff(unseen[0].beforeHtml, b.html, 'edit', `Edited by ${USERS[unseen[0].author]?.short} ${ago(unseen[unseen.length - 1].at)}`);
       state = 'has-edit';
@@ -590,7 +688,7 @@
     else inner = `<${tag} class="txt t-${b.type}">${body}</${tag}>`;
     const doneN = done ? PEOPLE.filter((u) => done[u]).length : 0;
     const stale = done && PEOPLE.some((u) => done[u] && done[u].hash && done[u].hash !== hash(b.html));
-    const el = h(`<div class="blk b-${b.type} ${state} ${doneN === 2 ? 'done-both' : doneN === 1 ? 'done-one' : ''}" data-id="${b.id}">
+    const el = h(`<div class="blk b-${b.type} ${state} ${doneN === 2 ? 'done-both' : doneN === 1 ? 'done-one' : ''}" data-id="${b.id}"${pend.length ? ` data-sug="${pend[0].id}"` : ''}>
       <div class="gut">${doneBadge(done, doneN, stale)}</div>
       <div class="content">${inner}</div>
       <div class="blk-tools">
@@ -601,7 +699,9 @@
     </div>`);
     if (pend.length) {
       const bar = h(`<div class="blk-note"></div>`);
-      bar.appendChild(sugActions(pid, pend[0]));
+      // the old half of a table swap: its buttons sit under the new version
+      if (sw && sw.has(pend[0].id)) bar.appendChild(h(`<span class="sug-act">${chip(pend[0].author)} suggests replacing this table with the new version below ↓</span>`));
+      else bar.appendChild(sugActions(pid, pend[0]));
       if (pend.length > 1) bar.appendChild(h(`<span class="more">+${pend.length - 1} more pending (see sidebar)</span>`));
       el.querySelector('.content').appendChild(bar);
     } else if (unseen.length) {
@@ -717,8 +817,12 @@
       const pid = S.route.pid;
       if (act && blk) { e.stopPropagation(); return blockAction(pid, blk.dataset.id, act.dataset.act, act); }
       if (e.target.closest('.blk-note, .sug-act, .editor-bar')) return;
-      if (mark && !S.tool) { focusThread(mark.dataset.note); return; }
-      if (!blk || (window.getSelection() && !window.getSelection().isCollapsed)) return;
+      const picking = window.getSelection() && !window.getSelection().isCollapsed;
+      // a suggested change (green or struck text, a suggested table) opens its card in the review list
+      const sug = !S.tool && !picking && e.target.closest('.blk[data-sug] ins.sug, .blk[data-sug] del, .blk.ghost, .blk[data-sug] .tbl-del');
+      if (sug) { focusCard('s-' + sug.closest('[data-sug]').dataset.sug, { input: true }); return; }
+      if (mark && !S.tool) { focusCard('n-' + mark.dataset.note, { input: true }); return; }
+      if (!blk || picking) return;
       if (blk.classList.contains('editing')) return;
       if (S.tool === 'done') { toggleDone(pid, [blk.dataset.id]); return; }
       if (S.tool) return;
@@ -961,6 +1065,8 @@
     if (ops.length) await DB.batch(ops);
   }
   async function resolveSuggestion(pid, s, action) {
+    const mate = tableSwaps(pid).get(s.id);
+    if (mate) return s.kind === 'delete' ? resolveSwap(pid, s, mate, action) : resolveSwap(pid, mate, s, action);
     const path = `${P(pid)}/suggestions/${s.id}`;
     if (action === 'withdraw') { await DB.update(path, { status: 'withdrawn', resolvedBy: S.me, resolvedAt: now() }); return log(pid, 'suggest', s.blockId || s.afterId, `withdrew a suggestion`); }
     if (action === 'reject') { await DB.update(path, { status: 'rejected', resolvedBy: S.me, resolvedAt: now() }); return log(pid, 'reject', s.blockId || s.afterId, `rejected ${USERS[s.author]?.short}'s suggestion in ${blockLabel(pid, s.blockId || s.afterId)}`); }
@@ -982,26 +1088,116 @@
     const ok = await saveDirect(pid, b, s.baseHtml, s.newHtml, s.baseHtml === b.html ? (b.version || 0) : -1, `accepted ${USERS[s.author]?.short}'s suggestion in`, { author: s.author, viaSuggestion: s.id });
     if (ok) await DB.update(path, { status: 'accepted', resolvedBy: S.me, resolvedAt: now() });
   }
+  // both halves of a table swap in one write, so the paper never shows both tables or neither
+  async function resolveSwap(pid, del, ins, action) {
+    const status = { accept: 'accepted', reject: 'rejected', withdraw: 'withdrawn' }[action];
+    const close = (x) => ({ op: 'update', path: `${P(pid)}/suggestions/${x.id}`, data: { status, resolvedBy: S.me, resolvedAt: now() } });
+    const name = whereLabel(pid, del.blockId, paperSeq(pid).at['b:' + del.blockId]);
+    if (action !== 'accept') {
+      await DB.batch([close(del), close(ins)]);
+      return log(pid, action === 'reject' ? 'reject' : 'suggest', del.blockId, action === 'reject' ? `rejected ${USERS[del.author]?.short}'s new version of ${name}` : `withdrew a new version of ${name}`);
+    }
+    const old = blockById(pid, del.blockId); const id = 'n' + ins.id.slice(0, 10);
+    await DB.batch([
+      { op: 'set', path: `${P(pid)}/blocks/${id}`, data: { type: 'table', html: ins.newHtml, order: ins.order, version: 1, createdBy: ins.author, updatedAt: now(), deleted: false } },
+      ...(old ? [{ op: 'update', path: `${P(pid)}/blocks/${old.id}`, data: { deleted: true, updatedAt: now(), updatedBy: S.me } }] : []),
+      close(del), close(ins),
+    ]);
+    // Undo on the new table puts the old one's contents back
+    await DB.add(`${P(pid)}/edits`, { blockId: id, beforeHtml: old ? old.html : '', afterHtml: ins.newHtml, author: ins.author, at: now(), seenBy: { [S.me]: now() }, viaSuggestion: ins.id });
+    return log(pid, 'accept', id, `accepted ${USERS[ins.author]?.short}'s new version of ${name}`, old ? { restorable: old.id } : {});
+  }
 
   // ---- side panel ----
+  // The review list: grouped by the paper's sections, in the review order picked in Settings, foldable,
+  // and filtered to one change tag (A1, A2 …) at a time if wanted. Each card and its place in the paper
+  // point at each other (Max, 29 Oct).
+  const ORDER_NAMES = { paper: 'Paper order', written: 'Order we wrote it', custom: 'My own order' };
+  const WRITTEN = ['methods', 'discussion', 'intro', 'abstract', 'results', 'exhibits', 'supp', 'title', 'refs'];
+  const DEFAULT_SECS = [['title', 'Title page'], ['abstract', 'Abstract'], ['intro', 'Introduction'], ['methods', 'Materials and Methods'], ['results', 'Results'],
+    ['discussion', 'Discussion'], ['refs', 'References'], ['exhibits', 'Tables & figures'], ['supp', 'Supplementary material']].map(([key, label]) => ({ key, label }));
+  function sectionOrder(secs, st = settings()) {
+    const keys = secs.map((s) => s.key);
+    const want = st.order === 'written' ? WRITTEN : st.order === 'custom' ? st.custom || [] : [];
+    return [...want.filter((k) => keys.includes(k)), ...keys.filter((k) => !want.includes(k))];
+  }
+  const foldKey = (pid) => `ls-fold-${S.me}-${pid}`;
+  const tagNum = (t) => (/\d+$/.test(t) ? +t.match(/\d+$/)[0] : 1e6);
   function renderSide(pid) {
     const side = $('#side'); if (!side) return;
-    const d = D_(pid); const order = Object.fromEntries(blocksOf(pid).map((b, i) => [b.id, i]));
-    const items = [];
-    for (const n of d.notes) if (S.filter === 'all' || (S.filter === 'open' ? n.status !== 'closed' : n.status === 'closed')) items.push({ t: 'note', o: order[n.blockId] ?? 9999, x: n });
-    for (const s of d.suggestions) if ((S.filter === 'open' && s.status === 'pending') || S.filter === 'all' || (S.filter === 'closed' && s.status !== 'pending')) items.push({ t: 'sug', o: order[s.blockId || s.afterId] ?? 9999, x: s });
-    items.sort((a, b) => a.o - b.o || (a.x.createdAt - b.x.createdAt));
+    const d = D_(pid); const { secs, at } = paperSeq(pid);
+    const show = (st) => S.filter === 'all' || (S.filter === 'open' ? st : !st);
+    const all = [];
+    const sw = tableSwaps(pid);
+    for (const n of d.notes) if (show(n.status !== 'closed')) all.push({ t: 'note', x: n, p: at['b:' + n.blockId] });
+    for (const s of d.suggestions) if (show(s.status === 'pending')) {
+      const mate = sw.get(s.id);
+      if (mate && s.kind === 'insert') continue;   // a table swap is one card, the deletion's
+      const p = s.kind === 'insert' ? at['s:' + s.id] || at['b:n' + s.id.slice(0, 10)] || at['b:' + s.afterId] : at['b:' + s.blockId] || (mate && at['b:n' + mate.id.slice(0, 10)]);
+      all.push({ t: 'sug', x: s, p, mate });
+    }
+    // the passes: every tag in the list as it stands, with how many cards each has
+    const tags = new Map(); let untagged = 0;
+    for (const it of all) {
+      const ts = it.t === 'sug' ? sugTags(it.x) : [];
+      if (!ts.length) untagged++;
+      for (const t of ts) { const g = tags.get(t.tag) || { n: 0, titles: {} }; g.n++; g.titles[t.title] = (g.titles[t.title] || 0) + 1; tags.set(t.tag, g); }
+    }
+    const tagList = [...tags].sort((a, b) => tagNum(a[0]) - tagNum(b[0]) || a[0].localeCompare(b[0]))
+      .map(([tag, g]) => ({ tag, n: g.n, title: Object.entries(g.titles).sort((a, b) => b[1] - a[1])[0][0] }));
+    let cur = pass(pid);
+    if (cur && cur !== 'none' && !tags.has(cur)) { cur = ''; lsSet(passKey(pid), ''); }
+    const items = all.filter((it) => inPass(pid, it.x));
+    const fold = new Set(lsGet(foldKey(pid), []));
+    const groups = sectionOrder(secs).map((k) => ({ ...secs.find((s) => s.key === k), items: [] }));
+    const gone = { key: 'gone', label: 'No longer in the paper', items: [] };
+    for (const it of items) ((it.p && groups.find((g) => g.key === it.p.sec)) || gone).items.push(it);
+    const shown = [...groups, gone].filter((g) => g.items.length);
+    for (const g of shown) g.items.sort((a, b) => (a.p ? a.p.i : 1e9) - (b.p ? b.p.i : 1e9) || a.x.createdAt - b.x.createdAt);
+    const allFolded = shown.length && shown.every((g) => fold.has(g.key));
+    const curT = tagList.find((t) => t.tag === cur);
     const focus = side.dataset.focus;
-    side.innerHTML = `<div class="side-head"><h3>Review</h3>
-      <div class="seg small">${['open', 'closed', 'all'].map((f) => `<button data-f="${f}" class="${S.filter === f ? 'on' : ''}">${f[0].toUpperCase() + f.slice(1)}</button>`).join('')}</div></div>
-      <div class="threads">${items.map((it) => (it.t === 'note' ? noteCard(pid, it.x) : sugCard(pid, it.x))).join('') || '<p class="muted pad">Nothing here. Select text to highlight or comment; click a paragraph to edit.</p>'}</div>`;
+    side.innerHTML = `<div class="side-head">
+        <div class="side-row"><h3>Review <span class="side-n">${items.length}</span></h3><span class="sp"></span>
+          <div class="seg small">${['open', 'closed', 'all'].map((f) => `<button data-f="${f}" class="${S.filter === f ? 'on' : ''}">${f[0].toUpperCase() + f.slice(1)}</button>`).join('')}</div></div>
+        ${tagList.length ? `<div class="pass-row" role="group" aria-label="Show one change at a time">
+          <button class="pass ${cur ? '' : 'on'}" data-pass="">All <i>${all.length}</i></button>
+          ${tagList.map((t) => `<button class="pass ${cur === t.tag ? 'on' : ''}" data-pass="${esc(t.tag)}" title="${esc(t.tag + ' ' + t.title)}">${esc(t.tag)} <i>${t.n}</i></button>`).join('')}
+          ${untagged ? `<button class="pass ${cur === 'none' ? 'on' : ''}" data-pass="none" title="Comments, highlights and changes with no tag">Untagged <i>${untagged}</i></button>` : ''}
+        </div>
+        ${cur ? `<p class="pass-what"><b>${esc(cur === 'none' ? 'Untagged' : cur)}</b> ${esc(curT ? curT.title : 'comments, highlights and changes with no tag')}<button class="link" data-pass="">Show all</button></p>` : ''}` : ''}
+        <div class="side-row">
+          <button class="order-chip" id="order-chip" title="Change the review order in Settings">⇅ ${esc(ORDER_NAMES[settings().order] || ORDER_NAMES.paper)}</button>
+          <span class="sp"></span>
+          ${shown.length ? `<button class="mini" id="fold-all">${allFolded ? 'Open all' : 'Fold all'}</button>
+          <button class="mini" data-step="-1" title="Previous card">↑</button><button class="mini step" data-step="1" title="Next card; the paper scrolls to it">Next ↓</button>` : ''}
+        </div></div>
+      <div class="threads">${shown.map((g) => `<section class="grp ${fold.has(g.key) ? 'folded' : ''}" data-g="${g.key}">
+          <button class="grp-head" aria-expanded="${!fold.has(g.key)}"><span class="chev">▾</span><span class="grp-name">${esc(g.label)}</span><span class="grp-n">${g.items.length}</span></button>
+          <div class="grp-body">${g.items.map((it) => (it.t === 'note' ? noteCard(pid, it.x, it.p) : sugCard(pid, it.x, it.p, it.mate))).join('')}</div></section>`).join('')
+        || `<p class="muted pad">${cur ? 'Nothing left in this pass. Pick another tag above, or All.' : 'Nothing here. Select text to highlight or comment; click a paragraph to edit.'}</p>`}</div>`;
     side.querySelectorAll('[data-f]').forEach((b) => b.onclick = () => { S.filter = b.dataset.f; renderBlocks(pid); renderSide(pid); });
+    side.querySelectorAll('[data-pass]').forEach((b) => b.onclick = () => { lsSet(passKey(pid), b.dataset.pass); side.scrollTop = 0; renderBlocks(pid); renderSide(pid); });
+    side.querySelectorAll('.grp-head').forEach((b) => b.onclick = () => {
+      const g = b.closest('.grp'); const k = g.dataset.g; const f = new Set(lsGet(foldKey(pid), []));
+      if (f.has(k)) f.delete(k); else f.add(k);
+      lsSet(foldKey(pid), [...f]); g.classList.toggle('folded', f.has(k)); b.setAttribute('aria-expanded', String(!f.has(k)));
+      const fa = $('#fold-all'); if (fa) fa.textContent = shown.every((x) => f.has(x.key)) ? 'Open all' : 'Fold all';
+    });
+    const fa = $('#fold-all'); if (fa) fa.onclick = () => { lsSet(foldKey(pid), allFolded ? [] : shown.map((g) => g.key)); renderSide(pid); };
+    $('#order-chip').onclick = openSettings;
+    side.querySelectorAll('[data-step]').forEach((b) => b.onclick = () => stepCard(+b.dataset.step));
     side.querySelectorAll('.card').forEach((c) => bindCard(pid, c));
-    if (focus) { const c = side.querySelector(`[data-nid="${focus}"]`); c && c.classList.add('focus'); }
+    if (focus) { const c = side.querySelector(`.card[data-key="${focus}"]`); c && c.classList.add('focus'); }
   }
-  function noteCard(pid, n) {
-    const label = blockLabel(pid, n.blockId);
-    return `<div class="card ${n.kind} ${n.status === 'closed' ? 'closed' : ''}" data-nid="${n.id}" data-block="${n.blockId}" style="--c:${USERS[n.author]?.color}">
+  // where a card points: "Table 2" for tables and figures, else the section and paragraph
+  function whereLabel(pid, id, p, isInsert) {
+    if (p && (p.sec === 'exhibits' || p.sec === 'supp') && p.cap) return p.cap;
+    return (isInsert ? 'new, after ' : '') + blockLabel(pid, id);
+  }
+  function noteCard(pid, n, p) {
+    const label = whereLabel(pid, n.blockId, p);
+    return `<div class="card ${n.kind} ${n.status === 'closed' ? 'closed' : ''}" data-key="n-${n.id}" data-nid="${n.id}" data-block="${n.blockId}" style="--c:${USERS[n.author]?.color}">
       <div class="card-head">${avatar(n.author)} <b>${esc(USERS[n.author]?.short || n.author)}</b> <span class="muted">${n.kind === 'highlight' ? 'highlighted' : 'commented'} · ${ago(n.createdAt)}</span>
         ${n.status === 'closed' ? `<span class="pill">closed${n.closedBy ? ' by ' + esc(USERS[n.closedBy]?.short) : ''}</span>` : ''}</div>
       <a class="card-where" href="#">${esc(label)}</a>
@@ -1015,24 +1211,34 @@
         <button class="mini no" data-a="delete">Delete</button>
       </div></div>`;
   }
-  function sugCard(pid, s) {
+  // mate: the new table, when this deletion is the old half of a table swap
+  function sugCard(pid, s, p, mate) {
     const b = s.blockId ? blockById(pid, s.blockId) : null;
-    const preview = s.kind === 'insert' ? `<ins class="sug">${s.newHtml}</ins>` : s.kind === 'delete' ? `<del>${b ? b.html : ''}</del>` : renderDiff(s.baseHtml, s.newHtml, 'sug');
+    const preview = mate ? `<div class="swap-lbl">Old version</div><del>${b ? b.html : ''}</del><div class="swap-lbl">New version</div><ins class="sug">${mate.newHtml}</ins>`
+      : s.kind === 'insert' ? `<ins class="sug">${s.newHtml}</ins>` : s.kind === 'delete' ? `<del>${b ? b.html : ''}</del>` : renderDiff(s.baseHtml, s.newHtml, 'sug');
     const mine = s.author === S.me;
     const st = s.status === 'pending' ? '' : `<span class="pill ${s.status}">${s.status}${s.resolvedBy ? ' by ' + esc(USERS[s.resolvedBy]?.short) : ''}</span>`;
-    return `<div class="card sugcard ${s.status}" data-sid="${s.id}" data-block="${s.blockId || s.afterId}" style="--c:${USERS[s.author]?.color}">
-      <div class="card-head">${avatar(s.author)} <b>${esc(USERS[s.author]?.short)}</b> <span class="muted">suggested ${s.kind === 'insert' ? 'a new paragraph' : s.kind === 'delete' ? 'a deletion' : 'an edit'} · ${ago(s.createdAt)}</span> ${st}</div>
-      <a class="card-where" href="#">${esc(blockLabel(pid, s.blockId || s.afterId))}</a>
+    const tags = sugTags(s);
+    const comments = mate ? { comments: [...(s.comments || []), ...(mate.comments || [])].sort((a, c) => a.at - c.at) } : s;
+    return `<div class="card sugcard ${s.status}" data-key="s-${s.id}" data-sid="${s.id}" data-block="${s.blockId || s.afterId}" style="--c:${USERS[s.author]?.color}">
+      <div class="card-head">${avatar(s.author)} <b>${esc(USERS[s.author]?.short)}</b> <span class="muted">suggested ${mate ? 'replacing a table' : s.kind === 'insert' ? (s.type === 'table' ? 'a new table' : 'a new paragraph') : s.kind === 'delete' ? 'a deletion' : 'an edit'} · ${ago(s.createdAt)}</span> ${st}
+        ${tags.length ? `<span class="tags">${tags.map((t) => `<span class="tag" title="${esc(t.title)}">${esc(t.tag)}</span>`).join('')}</span>` : ''}</div>
+      <a class="card-where" href="#" title="Show it in the paper">${esc(whereLabel(pid, s.blockId || s.afterId, p, s.kind === 'insert'))}</a>
       ${s.why ? `<p class="sug-why">${esc(s.why)}</p>` : ''}
-      ${(s.comments || []).length ? `<div class="sug-comments">${sugComments(s)}</div>` : ''}
+      ${(comments.comments || []).length ? `<div class="sug-comments">${sugComments(comments)}</div>` : ''}
       ${s.note === 'conflict' ? '<p class="warn small">Saved as a suggestion because both of you edited this paragraph at once.</p>' : ''}
       <div class="diff">${preview}</div>
       ${s.status === 'pending' ? `<div class="card-actions">${mine ? '<button class="mini" data-a="withdraw">Withdraw</button>' : '<button class="mini ok" data-a="accept">Accept</button><button class="mini no" data-a="reject">Reject</button>'}</div>` : ''}
     </div>`;
   }
   function bindCard(pid, c) {
-    const where = c.querySelector('.card-where');
-    where && (where.onclick = (e) => { e.preventDefault(); const el = document.querySelector(`.blk[data-id="${c.dataset.block}"]`); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1400); } });
+    // clicking the card (anywhere but its buttons and boxes) shows its place in the paper
+    c.onclick = (e) => {
+      if (e.target.closest('button, input, textarea, [contenteditable]')) return;
+      e.preventDefault();
+      if (!e.target.closest('.card-where') && !window.getSelection().isCollapsed) return;   // copying text from the card
+      goToPaper(c);
+    };
     if (c.dataset.sid) {
       const s = D_(pid).suggestions.find((x) => x.id === c.dataset.sid);
       c.querySelectorAll('[data-a]').forEach((b) => b.onclick = () => resolveSuggestion(pid, s, b.dataset.a));
@@ -1065,11 +1271,108 @@
       };
     });
   }
-  function focusThread(nid) {
-    const side = $('#side'); side.dataset.focus = nid;
-    side.querySelectorAll('.card').forEach((c) => c.classList.toggle('focus', c.dataset.nid === nid));
-    const c = side.querySelector(`[data-nid="${nid}"]`);
-    if (c) { c.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); const i = c.querySelector('input'); i && i.focus({ preventScroll: true }); }
+  // ---- review card <-> place in the paper ----
+  // key: 's-<suggestion id>' or 'n-<note id>'
+  function focusCard(key, { side: scroll = true, input = false } = {}) {
+    const side = $('#side'); if (!side) return;
+    const pid = S.route.pid;
+    let c = side.querySelector(`.card[data-key="${key}"]`);
+    if (!c) {
+      // hidden by the open/closed filter or by the pass (A1, A2 …): show everything, then look again
+      const [kind, id] = [key[0], key.slice(2)];
+      const x = kind === 's' ? D_(pid).suggestions.find((s) => s.id === id) : D_(pid).notes.find((n) => n.id === id);
+      if (!x) return;
+      if (!inPass(pid, x)) { lsSet(passKey(pid), ''); renderBlocks(pid); renderSide(pid); c = side.querySelector(`.card[data-key="${key}"]`); }
+      if (!c && S.filter !== 'all') { S.filter = 'all'; renderBlocks(pid); renderSide(pid); c = side.querySelector(`.card[data-key="${key}"]`); }
+      if (!c) return;
+      toast('Showing all cards so you can see this one.');
+    }
+    const g = c.closest('.grp.folded');
+    if (g) { g.classList.remove('folded'); lsSet(foldKey(pid), lsGet(foldKey(pid), []).filter((k) => k !== g.dataset.g)); }
+    side.dataset.focus = key;
+    side.querySelectorAll('.card.focus').forEach((x) => x.classList.remove('focus'));
+    c.classList.add('focus');
+    linkPaper(key);
+    if (scroll) scrollSideTo(c);
+    if (input) { const i = c.querySelector('.reply-box input'); i && i.focus({ preventScroll: true }); }
+  }
+  function scrollSideTo(c) {
+    const side = $('#side');
+    if (side.scrollHeight > side.clientHeight + 2) {
+      const head = side.querySelector('.side-head').offsetHeight;
+      const by = c.getBoundingClientRect().top - side.getBoundingClientRect().top - head - 10;
+      side.scrollTo({ top: side.scrollTop + by, behavior: Math.abs(by) > 2 * side.clientHeight ? 'auto' : 'smooth' });   // far: jump
+    } else if (getComputedStyle(side).position !== 'sticky') c.scrollIntoView({ behavior: 'smooth', block: 'center' });   // phone layout
+  }
+  function paperSpots(key) {
+    const id = key.slice(2);
+    return key[0] === 's' ? [...document.querySelectorAll(`#paper [data-sug="${id}"]`)] : [...document.querySelectorAll(`#paper mark[data-note="${id}"]`)];
+  }
+  // outline the card's place in the paper until another card is picked
+  function linkPaper(key) {
+    document.querySelectorAll('#paper .linked').forEach((x) => x.classList.remove('linked'));
+    paperSpots(key).forEach((x) => x.classList.add('linked'));
+  }
+  function goToPaper(c) {
+    const key = c.dataset.key;
+    let el = paperSpots(key)[0];
+    if (el && el.matches('.blk')) el = el.querySelector('ins.sug, del, .tbl-ins, .tbl-del') || el;
+    if (!el) el = document.querySelector(`#paper .blk[data-id="${c.dataset.block}"]`);   // a comment on a whole paragraph, or a closed card
+    focusCard(key, { side: false });
+    if (!el) return toast('That part is no longer in the paper.');
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const blk = el.closest('.blk');
+    if (blk) { blk.classList.remove('flash'); void blk.offsetWidth; blk.classList.add('flash'); setTimeout(() => blk.classList.remove('flash'), 1400); }
+  }
+  // the Next and previous buttons walk the review list in its order
+  function stepCard(dir) {
+    const side = $('#side'); const cards = [...side.querySelectorAll('.card')];
+    if (!cards.length) return;
+    const i = cards.findIndex((c) => c.dataset.key === side.dataset.focus);
+    const c = cards[i < 0 ? (dir > 0 ? 0 : cards.length - 1) : Math.min(cards.length - 1, Math.max(0, i + dir))];
+    goToPaper(c);
+    scrollSideTo(c);
+  }
+
+  // ---------- settings popup ----------
+  function openSettings() {
+    const pid = S.route.pid;
+    const secs = pid && blocksOf(pid).length ? paperSeq(pid).secs : DEFAULT_SECS;
+    const refresh = () => { if (S.route.view === 'doc' && pid) renderSide(pid); };
+    const draw = (m) => {
+      const st = settings(); const order = sectionOrder(secs, st);
+      m.querySelectorAll('input[name=ord]').forEach((r) => { r.checked = r.value === st.order; });
+      m.querySelector('#ord-list').innerHTML = order.map((k, i) => `<li data-k="${k}"><span class="ord-n">${i + 1}</span><span class="ord-name">${esc(secs.find((s) => s.key === k).label)}</span>
+        <button class="mini" data-mv="-1" ${i ? '' : 'disabled'} title="Earlier">↑</button><button class="mini" data-mv="1" ${i < order.length - 1 ? '' : 'disabled'} title="Later">↓</button></li>`).join('');
+      m.querySelectorAll('[data-mv]').forEach((b) => b.onclick = () => {
+        const cur = sectionOrder(secs, settings()); const i = cur.indexOf(b.closest('li').dataset.k); const j = i + +b.dataset.mv;
+        [cur[i], cur[j]] = [cur[j], cur[i]];
+        saveSettings({ order: 'custom', custom: cur }); draw(m); refresh();
+      });
+    };
+    modal(`<h3>Settings</h3>
+      <div class="set-sec"><h4>Review order</h4>
+        <p class="muted small">The order of the Review list beside the manuscript, and of its Next button. The paper itself stays in paper order.</p>
+        <div class="ord-pick">
+          <label><input type="radio" name="ord" value="paper"><span><b>${ORDER_NAMES.paper}</b><small>Title page, Abstract, Introduction, Methods, Results, Discussion, References, then the tables and figures</small></span></label>
+          <label><input type="radio" name="ord" value="written"><span><b>${ORDER_NAMES.written}</b><small>Methods, Discussion, Introduction, Abstract, then Results with its tables and figures</small></span></label>
+          <label><input type="radio" name="ord" value="custom"><span><b>${ORDER_NAMES.custom}</b><small>Move sections up and down with the arrows</small></span></label>
+        </div>
+        <ol class="ord-list" id="ord-list"></ol></div>
+      <div class="set-sec"><h4>Review panel width</h4>
+        <div class="w-row"><input type="range" id="side-w" min="${SIDE_W[0]}" max="${SIDE_W[1]}" step="10" aria-label="Review panel width"><span id="side-w-v"></span></div>
+        <p class="muted small">You can also drag the line between the paper and the panel. Double-click it to go back to normal.</p></div>
+      <div class="modal-actions"><button class="btn primary" data-close>Done</button></div>`, (m) => {
+      draw(m);
+      m.querySelectorAll('input[name=ord]').forEach((r) => r.onchange = () => {
+        saveSettings(r.value === 'custom' ? { order: 'custom', custom: settings().custom || sectionOrder(secs) } : { order: r.value });
+        draw(m); refresh();
+      });
+      const w = m.querySelector('#side-w'), wv = m.querySelector('#side-w-v');
+      w.value = settings().sideW; wv.textContent = w.value + ' px';
+      w.oninput = () => { wv.textContent = setSideW(+w.value) + ' px'; };
+      w.onchange = () => saveSettings({ sideW: setSideW(+w.value) });
+    }, 'settings');
   }
 
   // ---------- files ----------
