@@ -494,3 +494,7 @@ mark.linked { outline: 2px solid var(--blue); outline-offset: 1px; }
   .doc-grid { grid-template-columns: 1fr; }
   .side-grip { display: none; }
 }
+
+/* undo / redo (Max, 31 Oct 2026) */
+.undo-pair { display: inline-flex; gap: 4px; }
+.undo-pair .btn:disabled { opacity: .4; cursor: default; transform: none; }

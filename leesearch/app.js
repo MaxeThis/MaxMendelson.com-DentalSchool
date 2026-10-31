@@ -163,8 +163,113 @@
   function doneMap(pid) { const m = {}; for (const d of D_(pid).done) m[d.id] = d; return m; }
 
   async function log(pid, type, blockId, summary, extra = {}) {
+    const o = HIST.open;   // name the undo step after what was just done
+    if (live(o) && !HIST.mute && !o.label && o.pid === pid) { o.label = summary; o.blockId = blockId || null; syncUndo(); }
     try { await DB.add(`${P(pid)}/activity`, { type, blockId: blockId || null, summary, author: S.me, at: now(), ...extra }); } catch (e) { console.warn(e); }
   }
+
+  // ---------- undo / redo: Ctrl+Z, and Ctrl+Y or Ctrl+Shift+Z (Max, 31 Oct) ----------
+  // Each click or key press that writes to a paper's text, suggestions, comments, done marks or edit records is
+  // one step: the documents it touched and what they held before. Undo puts those back and keeps what they held,
+  // so Redo can put that back again. The activity log is not rewound; undo and redo add their own lines to it.
+  // Steps are kept for this tab only, and only for your own changes.
+  const UNDOABLE = new RegExp(`^${ROOT}/([\\w-]+)/(blocks|suggestions|notes|done|edits)/([^/]+)$`);
+  const HIST = { undo: [], redo: [], open: null, gesture: 0, mute: 0, busy: false };
+  const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+  const KEYS = MAC ? { undo: '⌘Z', redo: '⌘⇧Z' } : { undo: 'Ctrl+Z', redo: 'Ctrl+Y' };
+  // the writes of one action land together, even if you click elsewhere while they are still saving
+  const live = (o) => !!o && (o.gesture === HIST.gesture || o.inflight > 0 || now() - o.lastDone < 400);
+  const sorted = (_, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x);
+  const same = (a, b) => JSON.stringify(a ?? null, sorted) === JSON.stringify(b ?? null, sorted);
+  function snapOf(path) {
+    const m = path.match(UNDOABLE); const d = m && D_(m[1])[m[2]].find((x) => x.id === m[3]);
+    if (!d) return null;
+    const { id, ...rest } = d; return JSON.parse(JSON.stringify(rest));
+  }
+  const snapAll = (paths) => new Map([...paths].map((p) => [p, snapOf(p)]));
+  function stepFor(path) {
+    if (HIST.mute || !UNDOABLE.test(path)) return null;
+    if (live(HIST.open)) return HIST.open;
+    const e = { pid: path.match(UNDOABLE)[1], before: new Map(), after: null, label: '', blockId: null, gesture: HIST.gesture, inflight: 0, lastDone: 0 };
+    HIST.open = e; HIST.undo.push(e); HIST.redo = [];
+    if (HIST.undo.length > 100) HIST.undo.shift();
+    syncUndo();
+    return e;
+  }
+  // every write goes through here; `col` is set for add(), whose document path comes back from the write
+  function recorded(paths, write, col) {
+    const e = col ? stepFor(`${col}/x`) : paths.map(stepFor).find(Boolean);
+    if (!e) return write();
+    for (const p of paths) if (UNDOABLE.test(p) && !e.before.has(p)) e.before.set(p, snapOf(p));
+    e.inflight++;
+    return write().then((r) => { if (col && !e.before.has(`${col}/${r}`)) e.before.set(`${col}/${r}`, null); return r; })
+      .finally(() => { e.inflight--; e.lastDone = now(); e.after = snapAll(e.before.keys()); });
+  }
+  for (const m of ['set', 'update', 'del', 'tx']) { const fn = DB[m]; DB[m] = (p, ...a) => recorded([p], () => fn(p, ...a)); }
+  { const fn = DB.batch; DB.batch = (ops) => recorded(ops.map((o) => o.path), () => fn(ops)); }
+  { const fn = DB.add; DB.add = (col, ...a) => recorded([], () => fn(col, ...a), col); }
+  document.addEventListener('pointerdown', () => { HIST.gesture++; }, true);
+  document.addEventListener('keydown', (e) => { if (!['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) HIST.gesture++; }, true);
+
+  function describe(e) {
+    const cols = new Set([...e.before.keys()].map((p) => p.match(UNDOABLE)[2]));
+    return cols.has('suggestions') ? 'a change to a suggestion' : cols.has('notes') ? 'a change to a comment' : cols.has('done') ? 'a done mark'
+      : cols.has('blocks') ? 'an edit to the paper' : 'marking edits seen';
+  }
+  async function undoStep(redo = false) {
+    const from = redo ? HIST.redo : HIST.undo, to = redo ? HIST.undo : HIST.redo;
+    const e = from[from.length - 1];
+    if (HIST.busy) return;
+    if (!e) return toast(redo ? 'Nothing to redo.' : 'Nothing to undo.');
+    if (S.editing) return toast('Save or cancel the paragraph you are editing first.');
+    if (e.inflight) return toast('That change is still saving. Try again in a moment.');
+    const what = e.label || describe(e);
+    const cur = snapAll(e.before.keys());
+    if (e.after && [...cur].some(([p, v]) => !same(v, e.after.get(p)))
+      && !confirm(`This part of the paper changed after that step (${USERS[other()].short}, or you in another tab).\n\n${redo ? 'Redo' : 'Undo'} “${what}” anyway? The newer change to it would be replaced.`)) return;
+    HIST.busy = true; HIST.open = null; HIST.mute++;
+    try {
+      await DB.batch([...e.before].map(([path, v]) => (v ? { op: 'set', path, data: v } : { op: 'del', path })));
+    } catch (er) {
+      console.error(er); return toast(`Could not ${redo ? 'redo' : 'undo'}: ${why(er)}`, 'bad');
+    } finally { HIST.mute--; HIST.busy = false; }
+    from.pop();
+    to.push({ ...e, before: cur, after: snapAll(e.before.keys()) });
+    syncUndo();
+    log(e.pid, redo ? 'redo' : 'undo', e.blockId, `${redo ? 'redid' : 'undid'}: ${what}`);
+    toast(`${redo ? 'Redone' : 'Undone'}: ${what}`);
+    revealStep(e);
+  }
+  // show what came back: its card and place in the paper, or the paragraph
+  function revealStep(e) {
+    if (S.route.view !== 'doc' || S.route.pid !== e.pid) return;
+    setTimeout(() => {
+      const ms = [...e.before.keys()].map((p) => p.match(UNDOABLE));
+      for (const m of ms) {
+        const c = (m[2] === 'suggestions' || m[2] === 'notes') && document.querySelector(`#side .card[data-key="${m[2] === 'notes' ? 'n' : 's'}-${m[3]}"]`);
+        if (c) { goToPaper(c); scrollSideTo(c); return; }
+      }
+      const id = (ms.find((m) => m[2] === 'blocks' || m[2] === 'done') || [])[3] || e.blockId;
+      const el = id && document.querySelector(`#paper .blk[data-id="${id}"]`);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1400); }
+    }, 300);
+  }
+  function syncUndo() {
+    const u = $('#undo-btn'), r = $('#redo-btn'); if (!u || !r) return;
+    const tu = HIST.undo[HIST.undo.length - 1], tr = HIST.redo[HIST.redo.length - 1];
+    u.disabled = !tu; r.disabled = !tr;
+    u.title = tu ? `Undo: ${tu.label || describe(tu)} (${KEYS.undo})` : `Nothing to undo (${KEYS.undo})`;
+    r.title = tr ? `Redo: ${tr.label || describe(tr)} (${KEYS.redo})` : `Nothing to redo (${KEYS.redo})`;
+  }
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || !S.me) return;
+    const k = e.key.toLowerCase(); if (k !== 'z' && k !== 'y') return;
+    // in a text box the browser undoes your typing; a dialog keeps its own keys
+    if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+    if ($('#modal-root').childElementCount) return;
+    e.preventDefault();
+    undoStep(k === 'y' || e.shiftKey);
+  });
   function blockLabel(pid, id) {
     const bl = blocksOf(pid); const i = bl.findIndex((b) => b.id === id);
     if (i < 0) return 'a removed paragraph';
@@ -478,6 +583,7 @@
         <button data-tool="done" class="tool dn ${S.tool === 'done' ? 'on' : ''}" title="Green highlighter: click or select paragraphs to mark them done. The other person then checks them.">✓ Done</button>
       </div>
       <div class="tb-right">
+        <span class="undo-pair"><button class="btn small" id="undo-btn" aria-label="Undo">↶ Undo</button><button class="btn small" id="redo-btn" aria-label="Redo">↷ Redo</button></span>
         <button class="btn small" id="tf-btn" title="Every table and figure, with pending changes, without scrolling">📊 Tables &amp; figures</button>
         ${unseenEdits ? `<button class="btn small" id="seen-all">Mark ${unseenEdits} edit${unseenEdits > 1 ? 's' : ''} seen</button>` : ''}
         <span class="tb-stat" title="Done and checked by both / all parts">✓✓ ${st.both}/${st.total}</span>
@@ -487,6 +593,9 @@
     $('#toolbar').querySelectorAll('[data-tool]').forEach((b) => b.onclick = () => { S.tool = S.tool === b.dataset.tool ? null : b.dataset.tool; renderToolbar(); $('#paper').dataset.tool = S.tool || ''; });
     const sa = $('#seen-all'); if (sa) sa.onclick = () => markEditsSeen(pid, null);
     const tf = $('#tf-btn'); if (tf) tf.onclick = () => showExhibits();
+    $('#undo-btn').onclick = () => undoStep(false);
+    $('#redo-btn').onclick = () => undoStep(true);
+    syncUndo();
     $('#paper') && ($('#paper').dataset.tool = S.tool || '');
   }
 
@@ -570,17 +679,30 @@
     const keep = editingId ? paper.querySelector(`.blk[data-id="${editingId}"]`) : null;
     const frag = document.createDocumentFragment();
     const sw = tableSwaps(pid);
+    let spot = null;
     for (const it of paperSeq(pid).seq) {
       if (it.s) { frag.appendChild(ghostEl(pid, it.s, sw.get(it.s.id))); continue; }
-      if (it.b.id === editingId && keep) { frag.appendChild(keep); continue; }
+      if (it.b.id === editingId && keep) { frag.appendChild(spot = document.createComment('editing')); continue; }
       frag.appendChild(blockEl(pid, it.b, dm[it.b.id], d, sw));
     }
+    const sx = window.scrollX, sy = window.scrollY;
+    if (spot && keep.parentNode === paper) {
+      // The paragraph being edited never leaves the page while the rest is redrawn around it: taking it out, even
+      // for a moment, makes the browser forget the typing that Ctrl+Z undoes (Max, 31 Oct).
+      const before = []; for (let n = frag.firstChild; n !== spot; n = n.nextSibling) before.push(n);
+      spot.remove();
+      for (const c of [...paper.childNodes]) if (c !== keep) c.remove();
+      keep.before(...before); keep.after(frag);
+      window.scrollTo(sx, sy);
+      const side = $('#side'); if (side && side.dataset.focus) linkPaper(side.dataset.focus);
+      return renderPresence();
+    }
+    if (spot) spot.replaceWith(keep);
     // Moving the editor node drops focus and selection; keep both.
     let saved = null;
     const sel = window.getSelection();
     if (keep && sel.rangeCount && keep.contains(sel.anchorNode)) { const r = sel.getRangeAt(0); saved = [r.startContainer, r.startOffset, r.endContainer, r.endOffset]; }
     else if (keep && S.editing && S.editing.sel) saved = S.editing.sel;
-    const sx = window.scrollX, sy = window.scrollY;
     paper.replaceChildren(frag);
     if (keep) {
       const ed = keep.querySelector('.ed');
@@ -981,7 +1103,15 @@
   }
   async function cancelEdit() {
     const e = S.editing; S.editing = null;
-    if (e && e.isNew) { const b = blockById(e.pid, e.blockId); if (b && !plain(b.html).trim()) await DB.del(`${P(e.pid)}/blocks/${e.blockId}`); }
+    if (e && e.isNew) {
+      const b = blockById(e.pid, e.blockId); const path = `${P(e.pid)}/blocks/${e.blockId}`;
+      if (b && !plain(b.html).trim()) {
+        // a new paragraph left empty is dropped, and so is the undo step that added it
+        HIST.mute++; try { await DB.del(path); } finally { HIST.mute--; }
+        const top = HIST.undo[HIST.undo.length - 1];
+        if (top && top.before.size === 1 && top.before.has(path)) { HIST.undo.pop(); HIST.open = null; syncUndo(); }
+      }
+    }
     renderBlocks(S.route.pid); heartbeat();
   }
   async function commitEdit() {
@@ -1606,7 +1736,8 @@
       for (const [id, v] of Object.entries(V)) { const j = JSON.stringify(v); if (!cur || was[id] !== j) data[id] = v; }
       if (Object.keys(data).length > 3) ops.push({ op: 'set', merge: true, path, data });
     }
-    if (ops.length) await DB.batch(ops);
+    HIST.mute++;   // loading the files is not an undo step
+    try { if (ops.length) await DB.batch(ops); } finally { HIST.mute--; }
     const applied = { stamp: seed.stamp, blocks: Object.fromEntries(seed.blocks.map((b) => [b.id, b.html])), verdicts: Object.fromEntries(Object.entries(seed.verdicts || {}).map(([k, V]) => [k, Object.fromEntries(Object.entries(V).map(([id, v]) => [id, JSON.stringify(v)]))])) };
     localStorage.setItem(AK, JSON.stringify(applied));
     if (prev) setTimeout(() => toast(`Loaded the latest files${refreshed ? ` (${refreshed} paragraph${refreshed > 1 ? 's' : ''} updated)` : ''}${kept ? `; kept ${kept} paragraph${kept > 1 ? 's' : ''} you edited here` : ''}.`), 800);
