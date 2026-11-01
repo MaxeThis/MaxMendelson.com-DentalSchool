@@ -14,10 +14,13 @@
   --bg:#ffffff;--panel:#ffffff;--soft:#f7f7f7;--ink:#3c3c3c;--muted:#777777;--line:#e5e5e5;
   --green:#58cc02;--green-d:#58a700;--blue:#1cb0f6;--blue-d:#1899d6;--red:#ff4b4b;--red-d:#ea2b2b;
   --yellow:#ffc800;--yellow-d:#e5a500;--purple:#ce82ff;--hl:#fff4b8;--hl-line:#ffc800;--pdfbg:#eef2f4;
+  --ins:#3f9a00;--ins-bg:#e5f8d6;--del:#ea2b2b;--edit:#1899d6;--edit-bg:#dff3fd;--why:#8a5a00;--why-bg:#fff4d6;--why-line:#f1cf7a;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#131f24;--panel:#131f24;--soft:#1a2b32;--ink:#f1f7fb;--muted:#8fa3ad;--line:#37464f;--hl:#4a3f12;--pdfbg:#0e181c}}
-:root[data-theme="dark"]{--bg:#131f24;--panel:#131f24;--soft:#1a2b32;--ink:#f1f7fb;--muted:#8fa3ad;--line:#37464f;--hl:#4a3f12;--pdfbg:#0e181c}
+  --bg:#131f24;--panel:#131f24;--soft:#1a2b32;--ink:#f1f7fb;--muted:#8fa3ad;--line:#37464f;--hl:#4a3f12;--pdfbg:#0e181c;
+  --ins:#8ee04f;--ins-bg:#1f3a14;--del:#ff7b7b;--edit:#49c0f8;--edit-bg:#13364a;--why:#ffd37a;--why-bg:#3a2c08;--why-line:#6b5214}}
+:root[data-theme="dark"]{--bg:#131f24;--panel:#131f24;--soft:#1a2b32;--ink:#f1f7fb;--muted:#8fa3ad;--line:#37464f;--hl:#4a3f12;--pdfbg:#0e181c;
+  --ins:#8ee04f;--ins-bg:#1f3a14;--del:#ff7b7b;--edit:#49c0f8;--edit-bg:#13364a;--why:#ffd37a;--why-bg:#3a2c08;--why-line:#6b5214}
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:600 15px/1.5 Nunito,system-ui,"Segoe UI",sans-serif;display:flex;flex-direction:column;overflow:hidden}
@@ -111,6 +114,41 @@ details.sidenote p{margin:6px 0}.it.gone .nm,h2.gone{text-decoration:line-throug
 .refrow .sub{margin:2px 0 8px}
 .refrow .acts{display:flex;gap:8px;flex-wrap:wrap}
 .empty{color:var(--muted);padding:14px 22px}
+/* the live paper (on Leesearch): the paper itself, editable, with its pending changes */
+.pv{display:inline-flex;border:2px solid var(--line);border-radius:12px;overflow:hidden;text-transform:none;letter-spacing:0;flex:0 0 auto}
+.pv button{font:800 12px Nunito,sans-serif;border:0;background:var(--panel);color:var(--muted);padding:3px 9px;cursor:pointer}
+.pv button+button{border-left:2px solid var(--line)}
+.pv button.on{background:color-mix(in srgb,var(--blue) 14%,var(--panel));color:var(--blue)}
+.lpbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:2px 22px 10px;border-bottom:2px solid var(--line)}
+.lpbar .hint{flex-basis:100%;font-size:12px;line-height:1.4}
+.lp{padding:8px 22px 40px;font-weight:500;font-size:15px;line-height:1.75}
+.lp b{font-weight:800}
+.lpb{position:relative;border-radius:10px;padding:3px 8px;margin:0 -8px 8px}
+.lpb.ed-ok{cursor:text}
+.lpb.ed-ok:hover{background:var(--soft)}
+.lpb.t-h1{font-size:19px;font-weight:900;margin-top:24px}
+.lpb.t-h2{font-weight:900;margin-top:12px}
+.lpb.t-ref{font-size:13.5px;line-height:1.55;margin-bottom:4px}
+.lpb.t-ref>.lpt{display:inline}
+.lpb.ex{color:var(--muted);font-size:12px;font-weight:800;border:2px dashed var(--line);margin:6px -8px}
+.lpb.here{box-shadow:inset 4px 0 0 var(--blue)}
+.lpb.editing{background:var(--panel);outline:2px solid var(--blue);cursor:auto}
+.lpb .lpt[contenteditable]{outline:none;min-height:1.6em}
+.lp ins.sug{text-decoration:none;background:var(--ins-bg);color:var(--ins);border-bottom:2px solid var(--ins)}
+.lp ins.edit{text-decoration:none;background:var(--edit-bg);border-bottom:2px solid var(--edit)}
+.lp del{color:var(--del);text-decoration-thickness:1.5px;opacity:.85}
+.lpact{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:5px 0 3px;font:700 12px/1.4 Nunito,sans-serif;color:var(--muted);cursor:default}
+.lpact .hint{font-size:12px}
+.lpact details{flex-basis:100%}
+.lpact summary{cursor:pointer;color:var(--why);font-weight:800}
+.lpact .why{color:var(--why);background:var(--why-bg);border:1px solid var(--why-line);border-radius:10px;padding:5px 9px;margin-top:4px;font-weight:600}
+.lpact .c{flex-basis:100%;background:var(--soft);border-radius:10px;padding:3px 9px;font-weight:600}
+.btn.ok{background:var(--green);border-color:var(--green-d);color:#fff}
+.btn.no{color:var(--red)}
+.btn.go{background:var(--blue);border-color:var(--blue-d);color:#fff}
+.btn:disabled{opacity:.55;cursor:default}
+.ref.noref{color:var(--red);background:transparent;text-decoration:underline wavy;text-underline-offset:3px}
+.lpsrc{margin-left:6px;vertical-align:1px}
 /* notes column */
 #notes .in{padding:2px 16px 40px}
 h2{font-size:21px;font-weight:900;margin:4px 0 2px;line-height:1.25}
@@ -245,7 +283,7 @@ a{color:var(--blue)}
   </section>
   <div class="gut" data-for="nav"></div>
   <section class="col" id="paper">
-    <div class="colhead"><span>Our paper</span><span class="sp"></span><span class="tag" id="papername"></span></div>
+    <div class="colhead"><span>Our paper</span><span class="sp"></span><span class="tag" id="papername"></span><span id="pview"></span></div>
     <div id="doc"></div>
   </section>
   <div class="gut" data-for="paper"></div>
@@ -261,7 +299,7 @@ a{color:var(--blue)}
   </section>
 </main>
 <div id="modal"><div class="box" id="mcard"></div></div>
-<script src="shim.js?v=3"></script>
+<script src="shim.js?v=4"></script>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const $ = s => document.querySelector(s);
@@ -276,6 +314,15 @@ const REL = {better:"Better", contradicts:"Contradicts", broader:"Review", curre
 // On Leesearch (window.LS) the page knows who is signed in. Dr. Lee keeps his own review (call, notes, ratings)
 // and has no Claude chat; Max also sees Dr. Lee's review on each card. Standalone, it is always Max.
 const ROLE = (window.LS && LS.me) || "max", IS_LEE = ROLE === "lee";
+// On Leesearch "Our paper" can show the paper itself (LP: Leesearch's text, suggestions and saving), editable as in
+// its Manuscript tab; "Packet draft" shows the batch's DRAFT_*.md as before. Standalone it is always the draft.
+const LP = (window.LS && LS.live) || null;
+const paperView = () => LP ? store.get("paperView", "live") : "draft";
+function pviewBar(){
+  const el = $("#pview"); if (!LP || !el) return;
+  el.innerHTML = `<span class="pv"><button data-pv="live" class="${paperView() === "live" ? "on" : ""}" title="The paper itself, as it is on Leesearch: edit it, accept or reject changes, open any citation's source">Paper</button><button data-pv="draft" class="${paperView() === "draft" ? "on" : ""}" title="This batch's draft text, with Claude's side notes">Packet draft</button></span>`;
+  el.querySelectorAll("[data-pv]").forEach(b => b.onclick = () => { if (lpEd) return; store.set("paperView", b.dataset.pv); pviewBar(); paper(); });
+}
 
 /* ---------- columns: widths you drag, remembered; sources column collapses to the left ---------- */
 const W = store.get("widths", {nav: 270, paper: 420, notes: 440});
@@ -320,6 +367,7 @@ async function init(){
   }
   const last = [...BATCHES].sort((p, q) => (q.written || 0) - (p.written || 0))[0].key;   // the newest batch
   if (!(want && B[want.b] && [...B[want.b].D.items, ...B[want.b].D.others].some(i => i.id === want.id))) want = {b:last, id:B[last].D.items[0].id};
+  pviewBar();
   show(want.b, want.id);
 }
 // verdicts are keyed by card id; a card renumbered since keeps its entry through its uid
@@ -461,13 +509,14 @@ function card(bt, S, it){
 }
 
 /* ---------- column 2: our paper, every cited sentence clickable, the current one highlighted ---------- */
+// a card's sentence is found by its opening words (before any citation), then runs to the sentence end
+const keyOf = s => s.split("[")[0].replace(/\.\.\./g, "").replace(/\s+/g, " ").trim().slice(0, 60);
 function paper(live){
+  if (paperView() === "live") return livePaper(live);
   const D = B[cur.b].D;
   $("#papername").textContent = D.draftName ? D.draftName.replace(/^DRAFT_|\.md$/g, "").replace(/_/g, " ") : "";
   if (!D.draft){ $("#doc").innerHTML = `<div class="empty">No paper text for this batch yet.</div>`; return; }
   const T = D.draft.replace(/\r/g, "").replace(/\n\s*\n/g, " ¶ ").replace(/\s+/g, " ");
-  // a card's sentence is found by its opening words (before any citation), then runs to the sentence end
-  const keyOf = s => s.split("[")[0].replace(/\.\.\./g, "").replace(/\s+/g, " ").trim().slice(0, 60);
   const hits = [];
   for (const it of D.items){
     if (it.not_used) continue;
@@ -516,29 +565,20 @@ function paper(live){
     const cls = colorClass(cardHere ? cardHere.it.key : (x.uri || x.title || String(myCi)));
     return `<a class="ref ${cards.length?"":"nocard"} ${cls} ${isOn?"on":""}" data-ci="${myCi}" title="${esc(c.items.map(refName).join("; "))}">${m}</a>`;
   });
-  // 2) author-year brackets [Chhabra 2025, Chhabra 2026] in draft markdown: match each token to its card in D.items
-  const normKey = s => s.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-  const findCardByToken = tok => {
-    const nk = normKey(tok);
-    // Find cards in this batch whose key matches, preferring the card whose sentence contains this bracket or matches cur.id
-    const matches = D.items.filter(it => !it.not_used && (normKey(it.key) === nk || normKey(it.label.split(":")[0]) === nk));
-    if (!matches.length) return null;
-    return matches;
-  };
-  // Replace [Author Year, ...] inside or outside <span class="cite">
-  out = out.replace(/\[([A-Za-z][^\]\d]*\d{4}[^\]]*)\]/g, (m, inner, offset) => {
+  // 2) author-year brackets [Chhabra 2025, Chhabra 2026] in draft markdown: each token links to its source, which
+  //    may be a card in another batch (the forms and policies are cited in several sections but have one card)
+  out = out.replace(/\[([^[\]<>]*?(?:\b(?:1[89]|20)\d\d\b|\bCFR\b)[^[\]<>]*)\]/g, (m, inner, offset) => {
+    if (!/[A-Za-z]/.test(inner)) return m;
     const parts = inner.split(",").map(s => s.trim()).filter(Boolean);
     // Determine which cite span we are inside or right after by finding the closest preceding data-ids="..."
     const beforeStr = out.slice(Math.max(0, offset - 500), offset);
     const idMatches = [...beforeStr.matchAll(/data-ids="([^"]+)"/g)];
     const spanIds = idMatches.length ? idMatches[idMatches.length - 1][1].split(",") : [];
     const rendered = parts.map(tok => {
-      const candidates = findCardByToken(tok);
-      if (!candidates) return esc(tok);
-      const it = candidates.find(c => spanIds.includes(c.id)) || candidates.find(c => c.id === cur.id) || candidates[0];
-      const isOn = cur.id === it.id;
-      const cls = colorClass(it.key);
-      return `<a class="ref ${cls} ${isOn?"on":""}" data-goto="${esc(cur.b)}|${esc(it.id)}" title="${esc(it.id + " · " + it.label)}">${esc(tok)}</a>`;
+      const t = tokenTarget(unesc(tok), spanIds);
+      if (!t) return tok;
+      const isOn = t.b === cur.b && t.id === cur.id;
+      return `<a class="ref ${colorClass(t.key)} ${isOn?"on":""}" data-goto="${esc(t.b)}|${esc(t.id)}" title="${esc(t.title)}">${tok}</a>`;
     });
     return `<span class="ref-br">[</span>${rendered.join('<span class="ref-br">, </span>')}<span class="ref-br">]</span>`;
   });
@@ -580,6 +620,218 @@ function paper(live){
   if (curIt && curIt.ref) curIt.where.forEach(w => { const a = $(`#doc .ref[data-ci="${w.ci}"]`); if (a) a.classList.add("on"); });
   const on = $("#doc .cite.on") || $("#doc .ref.on"); if (on && !live) on.scrollIntoView({block: "center", behavior: "smooth"});
 }
+
+/* ---------- [Author Year] -> its source: a review card (this batch's first, then any batch's, live before
+   not-used), else a policy, dataset or regulation cited directly ("other source") in any batch ---------- */
+const unesc = s => String(s).replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+const normKey = s => String(s).replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+const CITE_WHO = {aaoms: "american association of oral", cms: "centers for medicare", accme: "accreditation council", hhs: "u.s. department of health"};
+function keyFits(tok, x){     // an "other source" (citations.json item) for a token like "AAOMS Policy 2011" or "Open Payments 2026"
+  const nk = normKey(tok), y = (tok.match(/(1[89]\d\d|20\d\d)[a-z]?\s*$/) || [])[1] || "";
+  if (x.refkey && (nk === normKey(x.refkey) || nk === normKey(x.refkey) + y)) return true;
+  const cfr = tok.match(/CFR\s*§*\s*([\d.]+)/i);
+  if (cfr) return [x.title, x.url, x.container].join(" ").includes(cfr[1]);
+  if (!y || String(x.year) !== y) return false;
+  const words = tok.slice(0, tok.lastIndexOf(y)).toLowerCase().match(/[a-z0-9]+/g) || [];
+  const a0 = String((x.authors || [])[0] || "").toLowerCase(), title = String(x.title || "").toLowerCase();
+  if (!words.length) return false;
+  const who = CITE_WHO[words[0]] ? a0.startsWith(CITE_WHO[words[0]]) : a0.split(/[\s,]+/)[0] === words[0];
+  return who && words.slice(1).every(w => title.includes(w.length > 5 ? w.slice(0, -1) : w));
+}
+function tokenTarget(tok, prefer = []){
+  const nk = normKey(tok), cfr = tok.match(/CFR\s*§*\s*(\d+)/i);
+  const isCard = it => normKey(it.key) === nk || normKey(String(it.label || "").split(":")[0]) === nk || (cfr && normKey(it.key) === "cfr" + cfr[1]);
+  const order = [cur.b, ...BATCHES.map(bt => bt.key).filter(k => k !== cur.b)];
+  for (const used of [true, false]) for (const b of order){
+    const all = B[b].D.items.filter(i => isCard(i) && (used ? !i.not_used : i.pdf_out));
+    const it = all.find(i => prefer.includes(i.id)) || all.find(i => b === cur.b && i.id === cur.id) || all[0];
+    if (it) return {b, id: it.id, key: it.key, title: `${it.id} · ${it.label}`};
+  }
+  for (const b of order){
+    const o = (B[b].D.others || []).find(o => keyFits(tok, o.x));
+    if (o) return {b, id: o.id, key: o.x.uri || o.x.title, title: `${refName(o.x)} · ${o.x.title}`};
+  }
+  return null;
+}
+
+/* ---------- the live paper (on Leesearch): the whole paper as it is now, every pending change marked with Accept /
+   Reject, every paragraph editable (straight in, or as a suggestion: the mode is shared with the Manuscript tab),
+   and every [Author Year] a link to its source. This batch's cited sentences are underlined as in the draft view.
+   References follow the citations by themselves (Leesearch's syncRefs). Max, 1 Nov. ---------- */
+let lpEd = null, lpDirty = false, lpOff = null, lpScroll = false, lpRefs = {};
+function textRuns(root){      // the visible text (struck-out text left out), and where each text node starts in it
+  const nodes = [], w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode: n => n.parentElement.closest("del") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT});
+  let s = "";
+  while (w.nextNode()){ nodes.push({n: w.currentNode, a: s.length}); s += w.currentNode.nodeValue; }
+  return {s, nodes};
+}
+// wrap character ranges of root's visible text in elements; ranges listed first end up outermost
+function wrapRanges(root, ranges){
+  if (!ranges.length) return;
+  for (const {n, a} of textRuns(root).nodes){
+    const t = n.nodeValue, e = a + t.length;
+    if (!ranges.some(r => r.a < e && r.b > a)) continue;
+    const cuts = new Set([0, t.length]);
+    for (const r of ranges){ if (r.a > a && r.a < e) cuts.add(r.a - a); if (r.b > a && r.b < e) cuts.add(r.b - a); }
+    const pts = [...cuts].sort((x, y) => x - y), frag = document.createDocumentFragment();
+    for (let i = 0; i < pts.length - 1; i++){
+      let node = document.createTextNode(t.slice(pts[i], pts[i + 1]));
+      for (const r of [...ranges].reverse()) if (r.a <= a + pts[i] && r.b >= a + pts[i + 1]){ const el = r.make(); el.appendChild(node); node = el; }
+      frag.appendChild(node);
+    }
+    n.replaceWith(frag);
+  }
+}
+const CITE_TOK = /\b(1[89]\d\d|20\d\d)\b|\bCFR\b/;
+function lpDecorate(el, D, color){
+  const s = textRuns(el).s, ranges = [];
+  const sents = [];
+  for (const it of D.items){
+    if (it.not_used) continue;
+    for (const sent of [it.sentence, ...(it.also_sentences || [])].filter(Boolean)){
+      const k = keyOf(sent); if (k.length < 20) continue;
+      const m = new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+")).exec(s); if (!m) continue;
+      const after = m.index + m[0].length, e = /\.(\s*\[[^\]]*\])?(?=\s|$)/.exec(s.slice(after));
+      const h = sents.find(z => z.a === m.index);
+      if (h){ if (!h.ids.includes(it.id)) h.ids.push(it.id); } else sents.push({a: m.index, b: e ? after + e.index + e[0].length : s.length, ids: [it.id]});
+    }
+  }
+  sents.sort((p, q) => p.a - q.a);
+  let end = -1;
+  for (const z of sents){
+    if (z.a < end) continue; end = z.b;
+    ranges.push({a: z.a, b: z.b, make: () => { const x = document.createElement("span"); x.className = "cite" + (z.ids.includes(cur.id) ? " on" : ""); x.dataset.ids = z.ids.join(","); return x; }});
+  }
+  for (const m of s.matchAll(/\[([^[\]]+)\]/g)){
+    let at = m.index + 1;
+    for (const part of m[1].split(/([,;])/)){
+      const tok = part.trim(), lead = part.indexOf(tok);
+      if (tok && /[A-Za-z]/.test(tok) && CITE_TOK.test(tok)){
+        const a = at + lead, b = a + tok.length, home = sents.find(z => z.a <= a && b <= z.b);
+        const t = tokenTarget(tok, home ? home.ids : []), r = lpRefs[tok];
+        ranges.push({a, b, make: () => { const x = document.createElement("a");
+          x.className = `ref ${t ? color(t.key) : r ? "nocard" : "noref"}${t && t.b === cur.b && t.id === cur.id ? " on" : ""}`;
+          x.dataset.tok = tok; if (home) x.dataset.pref = home.ids.join(",");
+          x.title = t ? t.title : r ? `No review card or saved copy. References: ${r.num ? r.num + ". " : ""}${r.text}` : "Not in the References list";
+          return x; }});
+      }
+      at += part.length;
+    }
+  }
+  wrapRanges(el, ranges);
+}
+function livePaper(keepScroll){
+  if (!lpOff){ lpOff = LP.on(() => { if (cur && paperView() === "live") livePaper(true); }); addEventListener("pagehide", () => lpOff && lpOff()); }
+  $("#papername").textContent = "";
+  if (lpEd){ lpDirty = true; return; }      // never redraw the paragraph being typed in; it redraws when the edit ends
+  lpDirty = false;
+  const col = $("#paper"), top = col.scrollTop, D = B[cur.b].D, pid = LP.pid(), V = LP.view(pid), mode = LP.mode;
+  if (!V.items.length){ $("#doc").innerHTML = `<div class="empty">Loading the paper…</div>`; lpScroll = true; return; }
+  lpRefs = V.refs;
+  const colors = new Map(), color = k => { if (!colors.has(k)) colors.set(k, "c" + (colors.size % 5)); return colors.get(k); };
+  const sugBar = s => {
+    const what = s.kind === "insert" ? (s.type === "ref" ? "suggests this reference" : "suggests a new paragraph") : s.kind === "delete" ? "suggests deleting this" : "suggests a change";
+    return `<div class="lpact" data-sid="${esc(s.id)}"><span><b>${esc(s.who)}</b> ${what} · ${esc(s.ago)}</span>
+      ${s.mine ? `<button class="btn sm" data-a="withdraw">Withdraw</button>` : `<button class="btn sm ok" data-a="accept">Accept</button><button class="btn sm no" data-a="reject">Reject</button>`}
+      <button class="btn sm" data-a="modify" title="Change the suggested text before accepting it">✎ Modify</button><button class="btn sm" data-a="comment" title="Comment on this suggestion">💬</button>
+      ${s.more ? `<span>+${s.more} more in the Manuscript tab</span>` : ""}
+      ${s.kind === "insert" && s.type === "ref" ? `<span class="hint">Goes in by itself when the text that cites it is accepted.</span>` : ""}
+      ${s.why ? `<details><summary>Why</summary><div class="why">${esc(s.why)}</div></details>` : ""}
+      ${s.comments.map(c => `<span class="c"><b>${esc(c.who)}</b> ${esc(c.text)} · ${esc(c.ago)}</span>`).join("")}</div>`;
+  };
+  const blk = x => {
+    if (x.type === "exhibit") return `<div class="lpb ex">▦ ${esc(x.label)}</div>`;
+    const acts = x.sug ? sugBar(x.sug) : x.edit ? `<div class="lpact"><span><b>${esc(x.edit.who)}</b> edited this ${esc(x.edit.ago)}${x.edit.viaSuggestion ? " (accepted suggestion)" : ""}</span><button class="btn sm" data-seen="${esc(x.id)}">Got it</button></div>` : "";
+    const src = x.cite ? `<button class="btn sm lpsrc" data-tok="${esc(x.cite)}" title="Open the source cited as [${esc(x.cite)}]">Source ›</button>` : "";
+    return `<div class="lpb t-${esc(x.type)}${x.editable ? " ed-ok" : ""}"${x.id ? ` data-id="${esc(x.id)}"` : ""}><div class="lpt">${x.html}</div>${src}${acts}</div>`;
+  };
+  const hint = mode === "direct" ? "Click a paragraph to edit it; it saves straight into the paper." : "Click a paragraph to suggest a change; it waits until the other person accepts it.";
+  $("#doc").innerHTML = `<div class="lpbar"><span class="pv"><button data-mode="direct" class="${mode === "direct" ? "on" : ""}" title="Your edits go straight into the paper">✎ Edit directly</button><button data-mode="suggest" class="${mode === "suggest" ? "on" : ""}" title="Your edits wait for the other person to accept or reject them">💡 Suggest</button></span>
+      <button class="btn sm" data-undo="0" title="Undo your last change to the paper (Ctrl+Z)">↶ Undo</button><button class="btn sm" data-undo="1" title="Redo (Ctrl+Y)">↷ Redo</button>
+      <span class="hint">${hint} Click a citation to open its source. References follow the citations by themselves.</span></div>
+    <div class="lp">${V.items.map(blk).join("")}</div>`;
+  const doc = $("#doc");
+  doc.querySelectorAll(".lpt").forEach(el => lpDecorate(el, D, color));
+  doc.querySelectorAll(".cite.on, .ref.on").forEach(el => el.closest(".lpb").classList.add("here"));
+  doc.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { LP.setMode(b.dataset.mode); livePaper(true); });
+  doc.querySelectorAll("[data-undo]").forEach(b => b.onclick = () => LP.undo(b.dataset.undo === "1"));
+  doc.querySelectorAll(".lpact[data-sid] [data-a]").forEach(b => b.onclick = async e => {
+    e.stopPropagation(); if (b.dataset.a === "accept" || b.dataset.a === "reject" || b.dataset.a === "withdraw") b.disabled = true;
+    await LP.act(pid, b.closest("[data-sid]").dataset.sid, b.dataset.a);
+  });
+  doc.querySelectorAll("[data-seen]").forEach(b => b.onclick = e => { e.stopPropagation(); LP.seen(pid, b.dataset.seen); });
+  doc.querySelector(".lp").onclick = e => {
+    if (e.target.closest(".lpact, a[href]")) return;
+    const tk = e.target.closest("[data-tok]");
+    if (tk){ e.stopPropagation(); return openTok(tk.dataset.tok, tk.dataset.pref ? tk.dataset.pref.split(",") : []); }
+    const el = e.target.closest(".lpb"); if (!el || el.classList.contains("editing")) return;
+    if (!getSelection().isCollapsed) return;
+    const c = e.target.closest(".cite");
+    if (c && !c.classList.contains("on")){ const ids = c.dataset.ids.split(","); return show(cur.b, ids.includes(cur.id) ? ids[(ids.indexOf(cur.id) + 1) % ids.length] : ids[0], true); }
+    if (el.classList.contains("ed-ok")) lpStart(el, {x: e.clientX, y: e.clientY});
+  };
+  if (keepScroll && !lpScroll) col.scrollTop = top;
+  else { lpScroll = false; const on = doc.querySelector(".cite.on") || doc.querySelector(".ref.on"); if (on) on.scrollIntoView({block: "center"}); }
+}
+// a citation's source: its card or other source; with neither, its entry in our References
+function openTok(tok, prefer){
+  const t = tokenTarget(tok, prefer);
+  if (t){ B[t.b].open = true; return show(t.b, t.id, true); }
+  const r = lpRefs[tok];
+  $("#mcard").innerHTML = `<div style="display:flex;gap:10px;align-items:flex-start"><h2 style="flex:1">[${esc(tok)}]</h2><button class="btn" id="mclose">Close</button></div>` +
+    (r ? `<p class="sub">No review card and no saved copy for this source. Its entry in our References${r.pending ? " (suggested; it goes in when the text citing it is accepted)" : ""}:</p><div class="quoteof">${r.num ? r.num + ". " : ""}${esc(r.text)}</div>`
+       : `<p class="sub">This citation has no entry in our References and no review card. Check the spelling of the name and year, or add the reference.</p>`);
+  $("#mcard").classList.remove("wide"); $("#modal").style.display = "flex"; $("#mclose").onclick = closeModal;
+}
+function lpStart(el, pt){
+  if (lpEd) return;
+  const pid = LP.pid(), st = LP.start(pid, el.dataset.id); if (!st) return;
+  if (st.busy && !confirm(`${st.busy} is editing this paragraph right now. Edit anyway?`)){ LP.done(); return; }
+  const t = el.querySelector(".lpt"), mode = LP.mode;
+  el.classList.add("editing"); el.querySelectorAll(".lpact, .lpsrc").forEach(n => n.remove());
+  t.innerHTML = st.html; t.contentEditable = "true"; t.spellcheck = true;
+  lpEd = {pid, id: el.dataset.id, st, el, init: t.innerHTML};
+  const bar = document.createElement("div"); bar.className = "lpact";
+  bar.innerHTML = `<span><b>${mode === "direct" ? "✎ Editing directly" : "💡 Suggesting"}</b>${st.mySug ? " (your pending suggestion)" : ""}</span><span style="flex:1"></span>
+    <button class="btn sm" data-x="cancel">Cancel (Esc)</button><button class="btn sm go" data-x="save">${mode === "direct" ? "Save" : "Suggest"} (Enter)</button>`;
+  el.appendChild(bar);
+  bar.querySelector("[data-x=cancel]").onclick = e => { e.stopPropagation(); lpCancel(); };
+  bar.querySelector("[data-x=save]").onclick = e => { e.stopPropagation(); lpSave(); };
+  t.focus();
+  let r = pt && document.caretRangeFromPoint ? document.caretRangeFromPoint(pt.x, pt.y) : null;
+  if (!r || !t.contains(r.startContainer)){ r = document.createRange(); r.selectNodeContents(t); r.collapse(false); }
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  t.onkeydown = e => {
+    if (e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); lpCancel(); }
+    else if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); lpSave(); }
+    else if ((e.metaKey || e.ctrlKey) && ["i", "b"].includes(e.key.toLowerCase())){ e.preventDefault(); document.execCommand(e.key.toLowerCase() === "i" ? "italic" : "bold"); }
+  };
+  t.onpaste = e => { e.preventDefault(); document.execCommand("insertText", false, (e.clipboardData.getData("text/plain") || "").replace(/\s*\n\s*/g, " ")); };
+}
+async function lpSave(){
+  const e = lpEd; if (!e) return;
+  const t = e.el.querySelector(".lpt"), btn = e.el.querySelector("[data-x=save]");
+  if (t.innerHTML === e.init) return lpCancel();
+  if (btn){ btn.disabled = true; btn.textContent = "Saving…"; }
+  const ok = await LP.commit(e.pid, e.id, e.st, t.innerHTML);
+  if (!ok){ if (btn){ btn.disabled = false; btn.textContent = "Try again (Enter)"; } t.focus(); return; }
+  lpEd = null; livePaper(true);
+}
+function lpCancel(){ const e = lpEd; lpEd = null; if (e) LP.done(); livePaper(true); }
+// clicking off the paragraph being edited ends the edit, as in the Manuscript tab
+document.addEventListener("click", e => {
+  if (!lpEd || e.target.closest(".lpb.editing")) return;
+  const t = lpEd.el.querySelector(".lpt");
+  if (t.innerHTML !== lpEd.init && !confirm("Discard your changes to this paragraph?")){ e.preventDefault(); e.stopPropagation(); t.focus(); return; }
+  lpCancel();
+}, true);
+// Ctrl+Z / Ctrl+Y undo and redo your changes to the paper, as in the Manuscript tab (a text box keeps its own)
+document.addEventListener("keydown", e => {
+  if (!LP || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const k = e.key.toLowerCase(); if (k !== "z" && k !== "y") return;
+  if (e.target.closest && e.target.closest("input, textarea, select, [contenteditable]")) return;
+  e.preventDefault(); LP.undo(k === "y" || e.shiftKey);
+});
 
 /* ---------- column 3: notes for the source ---------- */
 function show(b, id, keepScroll){

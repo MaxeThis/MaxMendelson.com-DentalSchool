@@ -93,5 +93,7 @@ window.LS = (function () {
     get order() { return bridge.order ? bridge.order() : null; },
     name: (by) => bridge.name(by || 'max'),
     pdf: async (url) => ({ data: await bytesFor(url) }),
+    // the live paper (Leesearch's own text, suggestions and saving) for the "Our paper" column
+    get live() { return (bridge && bridge.live) || null; },
   };
 })();

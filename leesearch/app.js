@@ -295,8 +295,10 @@
         subs.push(DB.listen(`${P(p.id)}/${col}`, (docs) => {
           const changed = JSON.stringify(D_(p.id)[col]) !== JSON.stringify(docs);
           D_(p.id)[col] = docs;
-          if (!changed) return;
+          const first = !(D_(p.id)._got ||= new Set()).has(col); D_(p.id)._got.add(col);
+          if (!changed && !first) return;
           scheduleRender(p.id, col);
+          notifyLive();
           if (col === 'activity') renderLeeBubble();
           if (['blocks', 'suggestions', 'notes', 'done'].includes(col)) localSnapshot();
         }));
@@ -307,6 +309,9 @@
   }
   let renderTimer = null;
   function scheduleRender() { clearTimeout(renderTimer); renderTimer = setTimeout(render, 30); }
+  // the Sources tab's paper redraws when the paper changes
+  const liveListeners = new Set(); let liveTimer = null;
+  function notifyLive() { clearTimeout(liveTimer); liveTimer = setTimeout(() => liveListeners.forEach((cb) => { try { cb(); } catch (e) { liveListeners.delete(cb); } }), 60); }
   function permError(e) {
     if (String(e && e.code).includes('permission')) { $('#app').innerHTML = `<div class="boot">This account is not allowed in. <button class="btn" id="so">Sign out</button></div>`; $('#so').onclick = signOut; }
   }
@@ -398,6 +403,7 @@
       bindShell();
     }
     renderPresence();
+    if (r.pid && (r.view === 'doc' || r.view === 'sources')) catchUpRefs(r.pid);
     if (r.view === 'home') renderHome();
     else if (r.view === 'doc') renderDoc();
     else if (r.view === 'files') renderFiles();
@@ -729,7 +735,8 @@
     const el = h(`<span class="sug-act">${chip(s.author)} ${swapOf ? 'suggests replacing the table above with this one' : s.kind === 'insert' ? (s.type === 'table' ? 'suggests a new table' : 'suggests a new paragraph') : s.kind === 'delete' ? 'suggests deleting this' : 'suggests'} · ${ago(s.createdAt)}
       ${!mine ? '<button class="mini ok" data-a="accept">Accept</button><button class="mini no" data-a="reject">Reject</button>' : '<button class="mini" data-a="withdraw">Withdraw</button>'}
       <button class="mini" data-a="modify" title="Change the suggested text before accepting it">✎ Modify</button><button class="mini" data-a="comment" title="Comment on this suggestion">💬 Comment</button>
-      ${mine && s.author !== 'claude' ? '' : ''}${s.why ? `<span class="sug-why" title="Where this change comes from">${esc(s.why)}</span>` : ''}</span>`);
+      ${mine && s.author !== 'claude' ? '' : ''}${s.why ? `<span class="sug-why" title="Where this change comes from">${esc(s.why)}</span>` : ''}
+      ${s.kind === 'insert' && s.type === 'ref' ? '<span class="muted small">Goes in by itself when the text that cites it is accepted.</span>' : ''}</span>`);
     el.querySelectorAll('button').forEach((b) => b.onclick = (e) => {
       e.stopPropagation();
       if (b.dataset.a === 'modify') return modifySuggestion(pid, s);
@@ -1027,9 +1034,11 @@
         await DB.add(`${P(pid)}/suggestions`, { kind: 'delete', blockId: id, baseHtml: b.html, newHtml: '', author: S.me, createdAt: now(), status: 'pending' });
         log(pid, 'suggest', id, `suggested deleting ${blockLabel(pid, id)}`);
       } else if (confirm('Delete this paragraph? (It can be restored from Activity.)')) {
+        const before = citeState(pid);
         await DB.batch([{ op: 'update', path: `${P(pid)}/blocks/${id}`, data: { deleted: true, updatedBy: S.me, updatedAt: now() } }]);
         await DB.add(`${P(pid)}/edits`, { blockId: id, beforeHtml: b.html, afterHtml: '', deleted: true, author: S.me, at: now(), seenBy: { [S.me]: now() } });
         log(pid, 'delete', id, `deleted a paragraph: “${plain(b.html).slice(0, 60)}…”`, { restorable: id });
+        await syncRefs(pid, before, { blocks: { [id]: null } });
       }
     }
   }
@@ -1120,21 +1129,7 @@
     const pid = e.pid; const b = blockById(pid, e.blockId);
     S.editing = null;
     try {
-      if (e.isNew && S.mode === 'direct') { await saveDirect(pid, b, e.startHtml, html, e.startVersion, 'added'); }
-      else if (e.isNew) { /* new paragraph in suggest mode was created as ghost by addParagraph */ }
-      else if (html === (e.mySug ? D_(pid).suggestions.find((s) => s.id === e.mySug).newHtml : e.startHtml)) { /* unchanged */ }
-      else if (S.mode === 'direct') await saveDirect(pid, b, e.startHtml, html, e.startVersion, 'edited');
-      else {
-        if (e.mySug) {
-          if (html === b.html) { await DB.update(`${P(pid)}/suggestions/${e.mySug}`, { status: 'withdrawn', resolvedAt: now(), resolvedBy: S.me }); }
-          else await DB.update(`${P(pid)}/suggestions/${e.mySug}`, { newHtml: html, baseHtml: b.html, updatedAt: now() });
-          log(pid, 'suggest', b.id, `updated a suggestion in ${blockLabel(pid, b.id)}`);
-        } else {
-          await DB.add(`${P(pid)}/suggestions`, { kind: 'edit', blockId: b.id, baseHtml: e.startHtml, newHtml: html, author: S.me, createdAt: now(), status: 'pending' });
-          log(pid, 'suggest', b.id, `suggested an edit in ${blockLabel(pid, b.id)}`);
-          toast(`Suggestion sent. ${USERS[other()].short} can accept or reject it.`);
-        }
-      }
+      await saveEdit(pid, e, html);
     } catch (er) {
       console.error(er);
       renderBlocks(pid);
@@ -1144,6 +1139,30 @@
       return heartbeat();
     }
     renderBlocks(pid); heartbeat();
+  }
+  // Saves one edited paragraph, in the Manuscript tab or the Sources tab's paper: straight into the paper, or as a
+  // suggestion. e = {blockId, startHtml, startVersion, mySug, isNew}. A direct edit that adds or drops a
+  // citation brings the References in line (syncRefs).
+  async function saveEdit(pid, e, html) {
+    const b = blockById(pid, e.blockId);
+    const before = S.mode === 'direct' ? citeState(pid) : null;
+    let saved = null;
+    if (e.isNew && S.mode === 'direct') { saved = await saveDirect(pid, b, e.startHtml, html, e.startVersion, 'added'); }
+    else if (e.isNew) { /* new paragraph in suggest mode was created as ghost by addParagraph */ }
+    else if (html === (e.mySug ? D_(pid).suggestions.find((s) => s.id === e.mySug).newHtml : e.startHtml)) { /* unchanged */ }
+    else if (S.mode === 'direct') saved = await saveDirect(pid, b, e.startHtml, html, e.startVersion, 'edited');
+    else {
+      if (e.mySug) {
+        if (html === b.html) { await DB.update(`${P(pid)}/suggestions/${e.mySug}`, { status: 'withdrawn', resolvedAt: now(), resolvedBy: S.me }); }
+        else await DB.update(`${P(pid)}/suggestions/${e.mySug}`, { newHtml: html, baseHtml: b.html, updatedAt: now() });
+        log(pid, 'suggest', b.id, `updated a suggestion in ${blockLabel(pid, b.id)}`);
+      } else {
+        await DB.add(`${P(pid)}/suggestions`, { kind: 'edit', blockId: b.id, baseHtml: e.startHtml, newHtml: html, author: S.me, createdAt: now(), status: 'pending' });
+        log(pid, 'suggest', b.id, `suggested an edit in ${blockLabel(pid, b.id)}`);
+        toast(`Suggestion sent. ${USERS[other()].short} can accept or reject it.`);
+      }
+    }
+    if (saved) await syncRefs(pid, before, { blocks: { [b.id]: { html: saved.html } } });
   }
   async function saveDirect(pid, b, baseHtml, html, baseVersion, verb, extra = {}) {
     const path = `${P(pid)}/blocks/${b.id}`;
@@ -1167,7 +1186,7 @@
     }
     await DB.add(`${P(pid)}/edits`, { blockId: b.id, beforeHtml: result.before, afterHtml: result.after, author: extra.author || S.me, at: now(), seenBy: { [S.me]: now() }, viaSuggestion: extra.viaSuggestion || null });
     log(pid, 'edit', b.id, `${verb} ${blockLabel(pid, b.id)}`);
-    return true;
+    return { html: result.after };
   }
   async function addParagraph(pid, after) {
     const bl = blocksOf(pid); const i = bl.findIndex((x) => x.id === after.id);
@@ -1194,12 +1213,19 @@
       .map((e) => ({ op: 'update', path: `${P(pid)}/edits/${e.id}`, data: { [`seenBy.${S.me}`]: now() } }));
     if (ops.length) await DB.batch(ops);
   }
+  // Accept, reject or withdraw a suggestion; then the References follow what the paper now cites (syncRefs)
   async function resolveSuggestion(pid, s, action) {
+    const before = citeState(pid);
+    const ov = await resolveOne(pid, s, action);
+    if (ov) await syncRefs(pid, before, ov);
+  }
+  // returns what changed, for syncRefs: {closed: [suggestion ids], blocks: {id: new state | null if deleted}}
+  async function resolveOne(pid, s, action) {
     const mate = tableSwaps(pid).get(s.id);
-    if (mate) return s.kind === 'delete' ? resolveSwap(pid, s, mate, action) : resolveSwap(pid, mate, s, action);
+    if (mate) { await (s.kind === 'delete' ? resolveSwap(pid, s, mate, action) : resolveSwap(pid, mate, s, action)); return null; }
     const path = `${P(pid)}/suggestions/${s.id}`;
-    if (action === 'withdraw') { await DB.update(path, { status: 'withdrawn', resolvedBy: S.me, resolvedAt: now() }); return log(pid, 'suggest', s.blockId || s.afterId, `withdrew a suggestion`); }
-    if (action === 'reject') { await DB.update(path, { status: 'rejected', resolvedBy: S.me, resolvedAt: now() }); return log(pid, 'reject', s.blockId || s.afterId, `rejected ${USERS[s.author]?.short}'s suggestion in ${blockLabel(pid, s.blockId || s.afterId)}`); }
+    if (action === 'withdraw') { await DB.update(path, { status: 'withdrawn', resolvedBy: S.me, resolvedAt: now() }); log(pid, 'suggest', s.blockId || s.afterId, `withdrew a suggestion`); return { closed: [s.id] }; }
+    if (action === 'reject') { await DB.update(path, { status: 'rejected', resolvedBy: S.me, resolvedAt: now() }); log(pid, 'reject', s.blockId || s.afterId, `rejected ${USERS[s.author]?.short}'s suggestion in ${blockLabel(pid, s.blockId || s.afterId)}`); return { closed: [s.id] }; }
     // accept
     if (s.kind === 'insert') {
       const id = 'n' + s.id.slice(0, 10);
@@ -1208,15 +1234,19 @@
         { op: 'update', path, data: { status: 'accepted', resolvedBy: S.me, resolvedAt: now() } },
       ]);
       await DB.add(`${P(pid)}/edits`, { blockId: id, beforeHtml: '', afterHtml: s.newHtml, author: s.author, at: now(), seenBy: { [S.me]: now() }, viaSuggestion: s.id });
-      return log(pid, 'accept', id, `accepted ${USERS[s.author]?.short}'s new paragraph`);
+      log(pid, 'accept', id, `accepted ${USERS[s.author]?.short}'s new paragraph`);
+      return { closed: [s.id], blocks: { [id]: { type: s.type || 'p', html: s.newHtml, order: s.order } } };
     }
     const b = blockById(pid, s.blockId);
     if (s.kind === 'delete') {
       await DB.batch([{ op: 'update', path: `${P(pid)}/blocks/${b.id}`, data: { deleted: true, updatedAt: now(), updatedBy: S.me } }, { op: 'update', path, data: { status: 'accepted', resolvedBy: S.me, resolvedAt: now() } }]);
-      return log(pid, 'accept', b.id, `accepted deleting a paragraph: “${plain(b.html).slice(0, 50)}…”`, { restorable: b.id });
+      log(pid, 'accept', b.id, `accepted deleting a paragraph: “${plain(b.html).slice(0, 50)}…”`, { restorable: b.id });
+      return { closed: [s.id], blocks: { [b.id]: null } };
     }
     const ok = await saveDirect(pid, b, s.baseHtml, s.newHtml, s.baseHtml === b.html ? (b.version || 0) : -1, `accepted ${USERS[s.author]?.short}'s suggestion in`, { author: s.author, viaSuggestion: s.id });
-    if (ok) await DB.update(path, { status: 'accepted', resolvedBy: S.me, resolvedAt: now() });
+    if (!ok) return null;
+    await DB.update(path, { status: 'accepted', resolvedBy: S.me, resolvedAt: now() });
+    return { closed: [s.id], blocks: { [b.id]: { html: ok.html } } };
   }
   // both halves of a table swap in one write, so the paper never shows both tables or neither
   async function resolveSwap(pid, del, ins, action) {
@@ -1236,6 +1266,160 @@
     // Undo on the new table puts the old one's contents back
     await DB.add(`${P(pid)}/edits`, { blockId: id, beforeHtml: old ? old.html : '', afterHtml: ins.newHtml, author: ins.author, at: now(), seenBy: { [S.me]: now() }, viaSuggestion: ins.id });
     return log(pid, 'accept', id, `accepted ${USERS[ins.author]?.short}'s new version of ${name}`, old ? { restorable: old.id } : {});
+  }
+
+  // ---- the References follow the citations (Max, 1 Nov) ----
+  // The text cites sources as [Author Year] keys; the References list has one numbered entry per source. When text
+  // that cites a source goes into the paper, that source's suggested entry goes in with it. When a change takes
+  // away a source's last citation, its entry comes out, and a suggested entry nothing cites any more is turned
+  // down. The list is then renumbered in order. Nobody has to go down and accept reference edits by hand.
+  const fold = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const CITE_ALIAS = { aaoms: 'american association of oral and maxillofacial surgeons', cms: 'centers for medicare',
+    accme: 'accreditation council for continuing medical education', hhs: 'u.s. department of health and human services' };
+  const citeMemo = new Map(), refMemo = new Map();
+  // "[Wang 2026, Liang 2026]" -> Wang 2026, Liang 2026 (bracketed words without a year, like [CI], are not citations)
+  function citeKeys(html) {
+    let out = citeMemo.get(html); if (out) return out;
+    out = [];
+    for (const m of plain(html).matchAll(/\[([^[\]]+)\]/g)) {
+      for (const t of m[1].split(/[,;]/)) {
+        const k = t.replace(/\s+/g, ' ').trim();
+        if (/[A-Za-z]/.test(k) && /\b(1[89]\d\d|20\d\d)\b|\bCFR\b/.test(k)) out.push(k);
+      }
+    }
+    citeMemo.set(html, out); return out;
+  }
+  function refParts(html) {
+    let r = refMemo.get(html); if (r) return r;
+    const t = plain(html).replace(/\s+/g, ' ').trim(); const m = t.match(/^(\d+)\.\s*/);
+    const body = m ? t.slice(m[0].length) : t; const head = body.split(':')[0];
+    const years = body.match(/\b(1[89]\d\d|20\d\d)\b/g) || [];
+    r = { num: m ? +m[1] : null, body, f: fold(body), head: fold(head), first: fold(head.split(',')[0]), last: years[years.length - 1] || '' };
+    refMemo.set(html, r); return r;
+  }
+  // How well a citation key fits a reference entry: 2 = its name and year (the entry's last year), 1 = its name and
+  // the year somewhere in the entry ("updated October 2024"), 0 = no. A one-word name is the first author's surname;
+  // AAOMS, CMS, ACCME and HHS stand for the organisation that wrote it; other names match as a phrase ("Open Payments").
+  function refFit(key, r) {
+    const k = fold(key);
+    const cfr = k.match(/cfr\s*§*\s*([\d.]+)/);
+    if (cfr) return r.f.includes(cfr[1]) ? 2 : 0;
+    const y = (k.match(/(1[89]\d\d|20\d\d)[a-z]?$/) || [])[1];
+    if (!y) return 0;
+    const words = k.slice(0, k.lastIndexOf(y)).replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter(Boolean);
+    if (!words.length) return 0;
+    const stem = (w) => '\\b' + (w.length > 5 ? w.slice(0, -1) : w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\w*';   // "Meetings" ~ "Meeting"
+    let name;
+    if (words.length === 1 && !CITE_ALIAS[words[0]]) name = r.first.split(/[\s-]+/).includes(words[0]);
+    else if (CITE_ALIAS[words[0]]) name = r.head.startsWith(CITE_ALIAS[words[0]]) && words.slice(1).every((w) => new RegExp(stem(w)).test(r.f));
+    else name = new RegExp(words.map(stem).join('\\s+')).test(r.f);
+    return !name ? 0 : r.last === y ? 2 : new RegExp(`\\b${y}\\b`).test(r.f) ? 1 : 0;
+  }
+  // the entries a key fits best; it points at one only if that one fits better than the rest.
+  // An entry may also name its key outright: cite: "Wang 2026".
+  function refBest(key, entries) {
+    let best = [], score = 0;
+    for (const e of entries) {
+      const own = (e.b || e.s).cite;
+      if (own && [].concat(own).some((c) => fold(c) === fold(key))) return [e];
+      const s = refFit(key, refParts(e.html));
+      if (s > score) { best = [e]; score = s; } else if (s && s === score) best.push(e);
+    }
+    return best;
+  }
+  const refFor = (key, entries) => { const b = refBest(key, entries); return b.length === 1 ? b[0] : null; };
+  // The References entries (paper entries and suggested new ones, in order) and which of them the paper's text (A)
+  // and the pending suggestions (P) cite, as the paper would be with `ov` applied: ov.blocks {id: changes, or null
+  // for deleted}, ov.closed [ids of suggestions no longer pending].
+  function citeState(pid, ov = {}) {
+    const closed = new Set(ov.closed || []); const over = ov.blocks || {};
+    const blocks = blocksOf(pid).filter((b) => over[b.id] !== null).map((b) => (over[b.id] ? { ...b, ...over[b.id] } : b));
+    for (const [id, x] of Object.entries(over)) if (x && !blocks.some((b) => b.id === id)) blocks.push({ id, ...x });
+    const pend = D_(pid).suggestions.filter((s) => s.status === 'pending' && !closed.has(s.id));
+    const refIds = new Set(blocks.filter((b) => b.type === 'ref').map((b) => b.id));
+    const entries = [
+      ...blocks.filter((b) => b.type === 'ref' && plain(b.html).trim()).map((b) => ({ id: 'b:' + b.id, b, o: b.order, html: b.html })),
+      ...pend.filter((s) => s.kind === 'insert' && s.type === 'ref').map((s) => ({ id: 's:' + s.id, s, o: insertPos(pid, s), html: s.newHtml })),
+    ].sort((a, c) => a.o - c.o);
+    const keyOf = new Map(); const keys = new Set();
+    const cited = (texts) => {
+      const set = new Set();
+      for (const t of texts) for (const k of citeKeys(t)) { keys.add(k); const e = refFor(k, entries); if (e) { set.add(e.id); if (!keyOf.has(e.id)) keyOf.set(e.id, k); } }
+      return set;
+    };
+    const A = cited(blocks.filter((b) => b.type !== 'ref').map((b) => b.html));
+    const Pn = cited(pend.filter((s) => s.kind !== 'delete' && s.type !== 'ref' && !refIds.has(s.blockId)).map((s) => s.newHtml));
+    return { entries, A, P: Pn, pend, keyOf, keys };
+  }
+  const NUM = /^(\s*(?:<[^>]+>\s*)*)(\d+)\.(?=\s)/;       // "21. Wang TT, …"
+  const unnum = (h) => String(h || '').replace(NUM, '$1');
+  // Brings the References in line after a change (before = citeState from just before it, ov = what it changed).
+  // With no `before` (opening the paper) it only catches up: suggested entries whose citing text is already in the
+  // paper go in, and the numbers are put right; nothing is taken out.
+  async function syncRefs(pid, before, ov = {}) {
+    const st = citeState(pid, ov);
+    const was = before ? new Set([...before.A, ...before.P]) : new Set();
+    const still = new Set([...st.A, ...st.P]);
+    // a citation that can't tell two entries apart keeps both
+    const unsure = (e) => [...st.keys].some((k) => { const b = refBest(k, st.entries); return b.length > 1 && b.includes(e); });
+    const gone = (e) => was.has(e.id) && !still.has(e.id) && !unsure(e);
+    const ops = [], added = [], removed = [], dropped = [], list = [];
+    const closed = new Set(ov.closed || []);
+    const close = (s, status) => {
+      if (closed.has(s.id)) return; closed.add(s.id);
+      ops.push({ op: 'update', path: `${P(pid)}/suggestions/${s.id}`, data: { status, resolvedBy: S.me, resolvedAt: now(), auto: true } });
+    };
+    for (const e of st.entries) {
+      if (e.s) {
+        if (st.A.has(e.id)) {          // the text that cites it is in the paper, so its entry goes in too
+          const id = 'n' + e.s.id.slice(0, 10);
+          const set = { op: 'set', path: `${P(pid)}/blocks/${id}`, data: { type: 'ref', html: e.s.newHtml, order: e.o, version: 1, createdBy: e.s.author, updatedAt: now(), deleted: false } };
+          ops.push(set); close(e.s, 'accepted'); added.push(e);
+          list.push({ id, html: e.s.newHtml, set, s: e.s });
+        } else if (gone(e)) { close(e.s, 'rejected'); dropped.push(e); }
+      } else if (gone(e)) {            // its last citation just went
+        ops.push({ op: 'update', path: `${P(pid)}/blocks/${e.b.id}`, data: { deleted: true, updatedAt: now(), updatedBy: S.me } });
+        for (const s of st.pend) if (s.blockId === e.b.id) close(s, s.kind === 'delete' ? 'accepted' : 'withdrawn');
+        removed.push(e);
+      } else list.push({ id: e.b.id, html: e.html, b: e.b });
+    }
+    // numbers in order; a renumbering suggestion is then done (or no longer needed)
+    let renum = 0;
+    if (list.length && list.filter((x) => NUM.test(x.html)).length * 2 >= list.length) {
+      list.forEach((x, i) => {
+        const html = NUM.test(x.html) ? x.html.replace(NUM, `$1${i + 1}.`) : `${i + 1}. ${x.html}`;
+        if (html === x.html) return;
+        if (x.set) x.set.data.html = html;
+        else ops.push({ op: 'update', path: `${P(pid)}/blocks/${x.id}`, data: { html, version: (x.b.version || 0) + 1, updatedBy: S.me, updatedAt: now() } });
+        x.html = html; renum++;
+      });
+      const final = new Map(list.map((x) => [x.id, x.html]));
+      for (const s of st.pend) {
+        if (closed.has(s.id) || s.kind !== 'edit' || !final.has(s.blockId) || s.newHtml === s.baseHtml || unnum(s.newHtml) !== unnum(s.baseHtml)) continue;
+        close(s, s.newHtml === final.get(s.blockId) ? 'accepted' : 'withdrawn');
+      }
+    }
+    if (!ops.length) return null;
+    await DB.batch(ops);
+    for (const x of list) if (x.set) await DB.add(`${P(pid)}/edits`, { blockId: x.id, beforeHtml: '', afterHtml: x.html, author: x.s.author, at: now(), seenBy: { [S.me]: now() }, viaSuggestion: x.s.id, auto: true });
+    const names = (es) => es.map((e) => st.keyOf.get(e.id) || (before && before.keyOf.get(e.id)) || refParts(e.html).body.split(',')[0]).join(', ');
+    const bits = [];
+    if (added.length) bits.push(`added ${names(added)}, now cited in the paper`);
+    if (removed.length) bits.push(`removed ${names(removed)}, no longer cited`);
+    if (dropped.length) bits.push(`turned down the suggested ${names(dropped)}, which nothing cites now`);
+    if (renum) bits.push('renumbered');
+    const msg = `References: ${bits.join('; ') || 'renumbering suggestions closed (numbers are automatic)'}`;
+    log(pid, 'refs', null, msg);
+    toast(msg + '.');
+    return { added, removed, dropped, renum };
+  }
+  // Opening the paper: suggested entries whose citing text is already in, and the numbers, are put right once
+  const refsCaughtUp = new Set();
+  function catchUpRefs(pid) {
+    const got = D_(pid)._got;
+    if (refsCaughtUp.has(pid) || !got || !got.has('blocks') || !got.has('suggestions') || HIST.busy) return;
+    refsCaughtUp.add(pid);
+    syncRefs(pid, null).catch((e) => console.warn('References not brought in line', e));
   }
 
   // ---- side panel ----
@@ -1581,7 +1765,7 @@
   function renderSources() {
     if ($('#main .sources-frame')) return;
     document.documentElement.style.setProperty('--top-h', ($('.top').offsetHeight || 58) + 'px');
-    $('#main').innerHTML = `<iframe class="sources-frame" src="sources/index.html?v=3" title="Source review"></iframe>`;
+    $('#main').innerHTML = `<iframe class="sources-frame" src="sources/index.html?v=4" title="Source review"></iframe>`;
   }
   // Each person keeps their own review of each source packet, one field per review card:
   //   Max:     leesearch_private/max/source_verdicts/<packet>   (only Max's account can read it)
@@ -1610,6 +1794,38 @@
       }
     }
     return JSON.parse(JSON.stringify(S.sources));
+  }
+  // The paper as the Sources tab's "Our paper" column draws it (Max, 1 Nov): every paragraph with its pending change
+  // marked as in the Manuscript tab; tables and figures as one line each (they are reviewed in the Manuscript tab).
+  // refs: each citation key in it -> its References entry, so the column can say which keys have none.
+  function liveItems(pid) {
+    const d = D_(pid); const { seq, secs } = paperSeq(pid);
+    const st = citeState(pid); const keysOf = new Map();
+    for (const [id, k] of st.keyOf) keysOf.set(id, k);
+    const info = (s, more = 0) => ({ id: s.id, author: s.author, who: USERS[s.author]?.short || s.author, mine: s.author === S.me, kind: s.kind, type: s.type || null,
+      ago: ago(s.createdAt), why: s.why || '', more, comments: (s.comments || []).map((c) => ({ who: USERS[c.author]?.short || c.author, text: c.text, ago: ago(c.at) })) });
+    const items = seq.map((it) => {
+      const sec = (secs.find((x) => x.key === it.sec) || {}).label || '';
+      if (it.s) {
+        const s = it.s;
+        if (s.type === 'table' || s.type === 'figure') return { key: 's:' + s.id, type: 'exhibit', sec, label: `${it.cap || 'Table'}: new version suggested (accept it in the Manuscript tab)` };
+        return { key: 's:' + s.id, type: s.type || 'p', sec, html: `<ins class="sug">${s.newHtml}</ins>`, sug: info(s), cite: s.type === 'ref' ? keysOf.get('s:' + s.id) || '' : '' };
+      }
+      const b = it.b;
+      if (b.type === 'table' || b.type === 'figure') return { key: 'b:' + b.id, type: 'exhibit', sec, label: it.cap || (b.type === 'table' ? 'Table' : 'Figure') };
+      const pend = d.suggestions.filter((s) => s.status === 'pending' && s.blockId === b.id && s.kind !== 'insert').sort((a, c) => a.createdAt - c.createdAt);
+      const unseen = d.edits.filter((e) => e.blockId === b.id && e.author !== S.me && !(e.seenBy || {})[S.me]).sort((a, c) => a.at - c.at);
+      let html = b.html, sug = null, edit = null;
+      if (pend.length) { const s = pend[0]; html = s.kind === 'delete' ? `<del>${b.html}</del>` : renderDiff(b.html, mergeOrBase(b, s), 'sug', ''); sug = info(s, pend.length - 1); }
+      else if (unseen.length) {
+        html = renderDiff(unseen[0].beforeHtml, b.html, 'edit', '');
+        edit = { who: [...new Set(unseen.map((e) => USERS[e.author]?.short || e.author))].join(' and '), ago: ago(unseen[unseen.length - 1].at), viaSuggestion: unseen.some((e) => e.viaSuggestion) };
+      }
+      return { key: 'b:' + b.id, id: b.id, type: b.type, sec, html, sug, edit, editable: EDITABLE.has(b.type), cite: b.type === 'ref' ? keysOf.get('b:' + b.id) || '' : '' };
+    });
+    const refs = {};
+    for (const k of st.keys) { const e = refFor(k, st.entries); refs[k] = e ? { text: refParts(e.html).body, num: refParts(e.html).num, pending: !!e.s } : null; }
+    return { items, refs };
   }
   window.LeesearchBridge = {
     get me() { return S.me; },
@@ -1687,6 +1903,43 @@
         S.unsubs.push(DB.listen(`${PRIV}/source_verdicts`, own));
         for (const pid of pids) S.unsubs.push(DB.listen(`${P(pid)}/lee_verdicts`, lee));
       } else for (const pid of pids) S.unsubs.push(DB.listen(`${P(pid)}/lee_verdicts`, own));
+    },
+    // The live paper for the Sources tab: the same text, suggestions and saving as the Manuscript tab. Each action
+    // from the frame is its own undo step (clicks inside the frame don't reach this page's gesture counter).
+    live: {
+      pid: () => S.route.pid,
+      on(cb) { liveListeners.add(cb); return () => liveListeners.delete(cb); },
+      get mode() { return S.mode; },
+      setMode(m) { S.mode = m === 'direct' ? 'direct' : 'suggest'; localStorage.setItem('ls-mode', S.mode); },
+      view: (pid) => liveItems(pid),
+      act(pid, sid, action) {
+        HIST.gesture++;
+        const s = D_(pid).suggestions.find((x) => x.id === sid);
+        if (!s || s.status !== 'pending') return Promise.resolve();
+        if (action === 'modify') return modifySuggestion(pid, s);
+        if (action === 'comment') return commentSuggestion(pid, s);
+        return resolveSuggestion(pid, s, action);
+      },
+      seen(pid, blockId) { HIST.gesture++; return markEditsSeen(pid, blockId); },
+      // what to put in the editor: your own pending suggestion's text, else the paper's; null if it can't be edited
+      start(pid, blockId) {
+        const b = blockById(pid, blockId); if (!b || b.deleted || !EDITABLE.has(b.type)) return null;
+        const mine = D_(pid).suggestions.find((s) => s.status === 'pending' && s.blockId === b.id && s.author === S.me && s.kind === 'edit');
+        const p = online(other());
+        heartbeat({ editing: b.id });
+        return { html: mine ? mine.newHtml : b.html, startHtml: b.html, version: b.version || 0, mySug: mine ? mine.id : null,
+          busy: p && p.editing === b.id ? USERS[other()].short : null };
+      },
+      async commit(pid, blockId, st, html) {
+        HIST.gesture++;
+        try {
+          await saveEdit(pid, { pid, blockId, startHtml: st.startHtml, startVersion: st.version, mySug: st.mySug, isNew: false }, sanitize(html));
+          return true;
+        } catch (er) { console.error(er); toast('Could not save: ' + why(er) + '. Your text is still in the box; press Enter to try again.', 'bad'); return false; }
+        finally { heartbeat({ editing: null }); }
+      },
+      done() { heartbeat({ editing: null }); },
+      undo: (redo) => undoStep(!!redo),
     },
   };
 
