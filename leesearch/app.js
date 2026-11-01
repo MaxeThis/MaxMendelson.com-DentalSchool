@@ -1468,7 +1468,11 @@
   function openSettings() {
     const pid = S.route.pid;
     const secs = pid && blocksOf(pid).length ? paperSeq(pid).secs : DEFAULT_SECS;
-    const refresh = () => { if (S.route.view === 'doc' && pid) renderSide(pid); };
+    const refresh = () => {
+      if (S.route.view === 'doc' && pid) renderSide(pid);
+      const f = $('#main .sources-frame');       // the source list follows the same order
+      try { f && f.contentWindow.LS_reorder && f.contentWindow.LS_reorder(); } catch (e) { /* still loading */ }
+    };
     const draw = (m) => {
       const st = settings(); const order = sectionOrder(secs, st);
       m.querySelectorAll('input[name=ord]').forEach((r) => { r.checked = r.value === st.order; });
@@ -1482,7 +1486,7 @@
     };
     modal(`<h3>Settings</h3>
       <div class="set-sec"><h4>Review order</h4>
-        <p class="muted small">The order of the Review list beside the manuscript, and of its Next button. The paper itself stays in paper order.</p>
+        <p class="muted small">The order of the Review list beside the manuscript and its Next button, and of the sections on Sources. The paper itself stays in paper order.</p>
         <div class="ord-pick">
           <label><input type="radio" name="ord" value="paper"><span><b>${ORDER_NAMES.paper}</b><small>Title page, Abstract, Introduction, Methods, Results, Discussion, References, then the tables and figures</small></span></label>
           <label><input type="radio" name="ord" value="written"><span><b>${ORDER_NAMES.written}</b><small>Methods, Discussion, Introduction, Abstract, then Results with its tables and figures</small></span></label>
@@ -1577,7 +1581,7 @@
   function renderSources() {
     if ($('#main .sources-frame')) return;
     document.documentElement.style.setProperty('--top-h', ($('.top').offsetHeight || 58) + 'px');
-    $('#main').innerHTML = `<iframe class="sources-frame" src="sources/index.html?v=2" title="Source review"></iframe>`;
+    $('#main').innerHTML = `<iframe class="sources-frame" src="sources/index.html?v=3" title="Source review"></iframe>`;
   }
   // Each person keeps their own review of each source packet, one field per review card:
   //   Max:     leesearch_private/max/source_verdicts/<packet>   (only Max's account can read it)
@@ -1610,6 +1614,7 @@
   window.LeesearchBridge = {
     get me() { return S.me; },
     name: (u) => (USERS[u] ? USERS[u].short : u),
+    order: () => { const st = settings(); return { order: st.order, sections: sectionOrder(DEFAULT_SECS, st) }; },
     decrypt: (fid) => fetchFile(fid),
     sourcesBundle,
     onUpdate(cb) { bundleListeners.add(cb); },

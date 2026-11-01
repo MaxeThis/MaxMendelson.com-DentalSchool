@@ -89,6 +89,8 @@ window.LS = (function () {
   return {
     ready,
     get me() { return bridge.me; },
+    // the review order picked in Leesearch's Settings, which the source list follows
+    get order() { return bridge.order ? bridge.order() : null; },
     name: (by) => bridge.name(by || 'max'),
     pdf: async (url) => ({ data: await bytesFor(url) }),
   };

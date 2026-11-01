@@ -261,7 +261,7 @@ a{color:var(--blue)}
   </section>
 </main>
 <div id="modal"><div class="box" id="mcard"></div></div>
-<script src="shim.js?v=2"></script>
+<script src="shim.js?v=3"></script>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const $ = s => document.querySelector(s);
@@ -388,9 +388,24 @@ const elsewhere = (b, it) => (USES[it.key]||[]).filter(u => !(u.batch === b && u
 function avg(r){ const s = Object.values(r||{}).map(z=>z.score).filter(n=>n); return s.length ? (s.reduce((a,c)=>a+c,0)/s.length).toFixed(1) : "–"; }
 
 /* ---------- column 1: source selection ---------- */
+// On Leesearch the batches follow the review order picked in its Settings: paper order, the order we wrote
+// them (#1 written first), or Max's own section order. Standalone they stay in paper order, as the server sends them.
+const SEC_OF = [["abstract","abstract"], ["intro","introduction"], ["methods","method"], ["results","result"], ["discussion","discussion"]];
+function batchOrder(){
+  const o = window.LS && LS.order;
+  if (!o || o.order === "paper") return BATCHES;
+  if (o.order === "written") return [...BATCHES].sort((p, q) => (p.written || 1e6) - (q.written || 1e6));
+  const rank = bt => {
+    const s = String(B[bt.key].D.section || bt.title).toLowerCase(), k = SEC_OF.find(([, w]) => s.startsWith(w));
+    const i = k ? o.sections.indexOf(k[0]) : -1;
+    return i < 0 ? 1e6 : i;
+  };
+  return [...BATCHES].sort((p, q) => rank(p) - rank(q));    // stable: within a section, oldest first
+}
+window.LS_reorder = () => { if (cur) nav(); };   // Settings changed in Leesearch (once the page has loaded)
 function nav(){
   let all = 0, done = 0;
-  $("#list").innerHTML = BATCHES.map(bt => {
+  $("#list").innerHTML = batchOrder().map(bt => {
     const S = B[bt.key], L = S.D.items.filter(i => !i.not_used), n = L.length, d = L.filter(i => callOf(S.V[i.id])).length; all += n; done += d;
     return `<div class="batch"><div class="bt" data-b="${bt.key}"><span>${S.open?"▾":"▸"}</span><b>${esc(bt.title)}</b>${bt.written?`<span class="wr" title="We wrote and reviewed the sections in this order">#${bt.written} written</span>`:""}<span class="bar"><i style="width:${100*d/n}%"></i></span><span class="n">${d}/${n}</span></div>` +
       (S.open ? navItems(bt, S) : "") + `</div>`;
