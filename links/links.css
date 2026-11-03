@@ -1,0 +1,112 @@
+/* Shared styles for /links and its sub-pages. */
+:root {
+  --bg: #fff7ef;
+  --blob-a: #ffb38a;
+  --blob-b: #8fd3ff;
+  --blob-c: #c7a6ff;
+  --ink: #1e1b2e;
+  --muted: #5d5872;
+  --card: rgba(255, 255, 255, 0.72);
+  --card-hover: rgba(255, 255, 255, 0.95);
+  --line: rgba(30, 27, 46, 0.08);
+  --accent: #ff6b3d;
+  --tag-bg: #e6f7ec;
+  --tag-ink: #1b7a43;
+  --shadow: 0 6px 24px rgba(30, 27, 46, 0.08);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14121d;
+    --blob-a: #8a3b1f;
+    --blob-b: #1f4f75;
+    --blob-c: #4b2f80;
+    --ink: #f4f1fb;
+    --muted: #aaa4bf;
+    --card: rgba(36, 33, 50, 0.72);
+    --card-hover: rgba(48, 44, 66, 0.95);
+    --line: rgba(255, 255, 255, 0.08);
+    --accent: #ff8a5c;
+    --tag-bg: #183a27;
+    --tag-ink: #7fe0a6;
+    --shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.45 ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
+  overflow-x: hidden;
+}
+
+/* Slow drifting colour blobs behind everything. */
+.blobs { position: fixed; inset: 0; z-index: -1; overflow: hidden; filter: blur(70px); opacity: 0.7; }
+.blobs span { position: absolute; width: 55vmax; height: 55vmax; border-radius: 50%; animation: drift 24s ease-in-out infinite alternate; }
+.blobs span:nth-child(1) { background: var(--blob-a); top: -20vmax; left: -15vmax; }
+.blobs span:nth-child(2) { background: var(--blob-b); bottom: -25vmax; right: -20vmax; animation-delay: -8s; }
+.blobs span:nth-child(3) { background: var(--blob-c); top: 30vh; left: 40vw; width: 35vmax; height: 35vmax; animation-delay: -16s; }
+@keyframes drift { to { transform: translate(6vmax, 4vmax) scale(1.1); } }
+@media (prefers-reduced-motion: reduce) { .blobs span { animation: none; } }
+
+main { max-width: 560px; margin: 0 auto; padding: 48px 16px 40px; }
+
+.back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; font-weight: 600; margin-bottom: 20px; }
+.back:hover { color: var(--ink); }
+
+header.profile { text-align: center; margin-bottom: 28px; }
+.avatar {
+  width: 96px; height: 96px; margin: 0 auto 14px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 44px;
+  background: var(--card); box-shadow: var(--shadow); border: 1px solid var(--line);
+}
+h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+.lede { margin: 6px auto 0; color: var(--muted); max-width: 420px; }
+
+.links { display: grid; gap: 12px; }
+.link {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; border-radius: 18px;
+  background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow);
+  color: inherit; text-decoration: none;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.link:hover, .link:focus-visible { background: var(--card-hover); transform: translateY(-2px); }
+.link:active { transform: scale(0.98); }
+.link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.icon {
+  flex: none; width: 48px; height: 48px; border-radius: 12px;
+  display: grid; place-items: center; font-size: 26px;
+  background: var(--bg); overflow: hidden;
+}
+.icon img { width: 100%; height: 100%; object-fit: cover; }
+.text { flex: 1; min-width: 0; }
+.title, .sub { display: block; }
+.title { font-weight: 700; }
+.sub { color: var(--muted); font-size: 14px; }
+.go { flex: none; color: var(--muted); font-size: 20px; }
+
+/* The one link that opens a sub-page gets a little extra colour. */
+.link.folder { border: 1.5px solid var(--accent); }
+.link.folder .go { color: var(--accent); }
+
+h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 32px 4px 10px; }
+.intro { color: var(--muted); font-size: 14px; margin: -4px 4px 10px; }
+.intro a, .note a { color: inherit; }
+.tag { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; background: var(--tag-bg); color: var(--tag-ink); vertical-align: 2px; }
+
+.note {
+  margin: 0 0 8px; padding: 12px 14px; border-radius: 14px; font-size: 14px; color: var(--muted);
+  background: var(--card); border: 1px solid var(--line);
+}
+
+footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 36px; }
+footer a { color: inherit; }
+.socials { display: flex; justify-content: center; gap: 18px; margin-bottom: 10px; }
+.socials a { font-weight: 600; text-decoration: none; }
+.socials a:hover { color: var(--ink); }
