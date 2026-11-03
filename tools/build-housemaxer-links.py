@@ -29,7 +29,7 @@ MINE = {
     "hue_a19_color": "older", "hue_a21": "older", "hue_ambiance": "older",
     "lg_oled": "older",
 }
-TAGS = {"mine": "I use this", "older": "I use an older model"}
+TAGS = {"mine": "Max uses this", "older": "Max uses an older model"}
 
 # This page never suggests buying used: skip those listings and reword.
 SKIP = {"roborock_qrevo_plus_renewed"}
