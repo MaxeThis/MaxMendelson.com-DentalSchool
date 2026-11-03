@@ -55,6 +55,23 @@ GROUPS = {
     },
 }
 
+# parts.json says "we"; this page is Max's own, so it says "I".
+FIRST_PERSON = {"we": "I", "We": "I", "our": "my", "Our": "My", "ours": "mine", "Ours": "Mine", "us": "me"}
+PLURAL = re.compile(r"\b(" + "|".join(FIRST_PERSON) + r")\b")
+
+
+def singular(data):
+    """Rewrite every text field in parts.json from "we" to "I"."""
+    def fix(text):
+        return PLURAL.sub(lambda m: FIRST_PERSON[m.group(1)], text)
+    for s in data["sections"]:
+        s["title"] = fix(s["title"])
+        if s.get("intro"):
+            s["intro"] = fix(s["intro"])
+        for i in s["items"]:
+            i["name"], i["why"] = fix(i["name"]), fix(i["why"])
+    return data
+
 
 def amazon(item, tag):
     if not item.get("asin"):
@@ -124,7 +141,7 @@ def page(data, tag):
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HouseMaxer · Links</title>
-  <meta name="description" content="A smart apartment on a Raspberry Pi: the parts we bought, the guides and the code." />
+  <meta name="description" content="A smart apartment on a Raspberry Pi: the parts I bought, the guides and the code." />
   <link rel="stylesheet" href="/links/links.css?v=20261103b" />
 </head>
 <body>
@@ -166,7 +183,7 @@ def main():
     ap.add_argument("parts", type=pathlib.Path, help="HouseMaxer parts/parts.json")
     ap.add_argument("--tag", help="Amazon tracking ID (default: the one in parts.json)")
     args = ap.parse_args()
-    data = json.loads(args.parts.read_text())
+    data = singular(json.loads(args.parts.read_text()))
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(page(data, args.tag or data["tag"]))
     print(f"wrote {OUT.relative_to(ROOT)}")
