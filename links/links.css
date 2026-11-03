@@ -98,7 +98,15 @@ h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
 h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 32px 4px 10px; }
 .intro { color: var(--muted); font-size: 14px; margin: -4px 4px 10px; }
 .intro a, .note a { color: inherit; }
-.tag { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; background: var(--tag-bg); color: var(--tag-ink); vertical-align: 2px; }
+.tag { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; background: var(--tag-bg); color: var(--tag-ink); vertical-align: 2px; white-space: nowrap; }
+.tag.older { background: var(--line); color: var(--muted); }
+
+/* A set of parts that belong together, e.g. one way to build the Pi. */
+.group { margin-bottom: 14px; padding: 12px; border-radius: 22px; border: 1.5px dashed var(--line); }
+.group-head { margin: 0 4px 10px; }
+.group-head .title { color: var(--accent); }
+.group-head .sub { font-size: 13px; }
+h3 { font-size: 14px; color: var(--muted); margin: 18px 4px 10px; }
 
 .note {
   margin: 0 0 8px; padding: 12px 14px; border-radius: 14px; font-size: 14px; color: var(--muted);

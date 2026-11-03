@@ -20,6 +20,41 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "links" / "housemaxer" / "index.html"
 REPO = "https://github.com/MaxeThis/HouseMaxer"
 
+# Parts in the apartment, checked against Home Assistant's device list.
+# "older" means I own an earlier model of the listed one.
+MINE = {
+    "pi5_8gb": "mine", "asus_xt8": "mine", "august_lock": "mine",
+    "hue_bridge": "mine", "switchbot_hub2": "mine", "fluval_flex": "mine",
+    "roborock_qrevo_plus": "mine", "oralb_io": "mine", "q990d": "mine",
+    "hue_a19_color": "older", "hue_a21": "older", "hue_ambiance": "older",
+    "lg_oled": "older",
+}
+TAGS = {"mine": "I use this", "older": "I use an older model"}
+
+# This page never suggests buying used: skip those listings and reword.
+SKIP = {"roborock_qrevo_plus_renewed"}
+WHY = {
+    "asus_xt8": "I use the ZenWiFi AX (XT8). Any current ZenWiFi works the same with Home Assistant.",
+    "august_lock": "Fits over your deadbolt; your key still works. Comes with DoorSense.",
+    "hue_bridge": "Links the bulbs to Home Assistant; works without the internet.",
+    "roborock_qrevo_plus": "Vacuums, mops, empties itself, washes its pads.",
+}
+NO_USED = re.compile(r"\bused\b|ebay|refurb|renewed", re.I)
+
+# The Pi parts read better as three ways to get Home Assistant running.
+GROUPS = {
+    "The brain": {
+        "intro": "Pick one of three ways to run Home Assistant. [Guide 1](docs/01-raspberry-pi-and-home-assistant.md) explains the difference.",
+        "options": [
+            ("Option 1 · Easiest", "Home Assistant comes installed.", ["ha_green"]),
+            ("Option 2 · One box", "Every Pi part in one kit.", ["pi5_kit"]),
+            ("Option 3 · Part by part", "Pick the cooler or the case, not both.",
+             ["pi5_8gb", "pi5_psu", "pi5_cooler", "pi5_case", "microsd"]),
+        ],
+        "after": ("For any option", ["zigbee_alt"]),
+    },
+}
+
 
 def amazon(item, tag):
     if not item.get("asin"):
@@ -40,19 +75,48 @@ def inline(md):
 
 
 def card(item, tag):
-    used = '<span class="tag">Buy used</span>' if item.get("used") else ""
+    why = WHY.get(item["key"], item["why"])
+    if NO_USED.search(item["name"] + " " + why):
+        raise SystemExit(f"{item['key']}: mentions buying used; add a WHY or SKIP entry")
+    mine = MINE.get(item["key"])
+    badge = f'<span class="tag {mine}">{TAGS[mine]}</span>' if mine else ""
     return f"""      <a class="link" href="{html.escape(amazon(item, tag))}" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">{html.escape(item['name'])}{used}</span><span class="sub">{inline(item['why'])}</span></span>
+        <span class="text"><span class="title">{html.escape(item['name'])}{badge}</span><span class="sub">{inline(why)}</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>"""
+
+
+def cards(items, tag):
+    return "\n".join(card(i, tag) for i in items if i["key"] not in SKIP)
+
+
+def grouped(s, g, tag):
+    by_key = {i["key"]: i for i in s["items"]}
+    placed = {k for _, _, keys in g["options"] for k in keys} | set(g["after"][1])
+    if placed != set(by_key):
+        raise SystemExit(f"{s['title']}: GROUPS does not match parts.json ({sorted(placed ^ set(by_key))})")
+    out = [f'    <p class="intro">{inline(g["intro"])}</p>']
+    for label, sub, keys in g["options"]:
+        out.append(f"""    <div class="group">
+      <div class="group-head"><span class="title">{html.escape(label)}</span><span class="sub">{html.escape(sub)}</span></div>
+      <div class="links">
+{cards([by_key[k] for k in keys], tag)}
+      </div>
+    </div>""")
+    label, keys = g["after"]
+    out.append(f'    <h3>{html.escape(label)}</h3>\n    <div class="links">\n{cards([by_key[k] for k in keys], tag)}\n    </div>')
+    return "\n".join(out)
 
 
 def page(data, tag):
     sections = []
     for s in data["sections"]:
+        head = f'    <h2>{html.escape(s["title"])}</h2>'
+        if s["title"] in GROUPS:
+            sections.append(f"{head}\n{grouped(s, GROUPS[s['title']], tag)}")
+            continue
         intro = f'\n    <p class="intro">{inline(s["intro"])}</p>' if s.get("intro") else ""
-        cards = "\n".join(card(i, tag) for i in s["items"])
-        sections.append(f'    <h2>{html.escape(s["title"])}</h2>{intro}\n    <div class="links">\n{cards}\n    </div>')
+        sections.append(f'{head}{intro}\n    <div class="links">\n{cards(s["items"], tag)}\n    </div>')
     body = "\n\n".join(sections)
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -61,7 +125,7 @@ def page(data, tag):
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HouseMaxer · Links</title>
   <meta name="description" content="A smart apartment on a Raspberry Pi: the parts we bought, the guides and the code." />
-  <link rel="stylesheet" href="/links/links.css?v=20261103" />
+  <link rel="stylesheet" href="/links/links.css?v=20261103b" />
 </head>
 <body>
   <!-- Built by tools/build-housemaxer-links.py from HouseMaxer parts/parts.json. Edit that, not this. -->
@@ -82,7 +146,7 @@ def page(data, tag):
       </a>
     </div>
 
-    <h2>The parts we used</h2>
+    <h2>The parts list</h2>
     <p class="note">As an Amazon Associate I earn from qualifying purchases. These are affiliate links: they cost you nothing extra and help fund the project. Prices change daily, so check the listing.</p>
 
 {body}

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HouseMaxer · Links</title>
   <meta name="description" content="A smart apartment on a Raspberry Pi: the parts we bought, the guides and the code." />
-  <link rel="stylesheet" href="/links/links.css?v=20261103" />
+  <link rel="stylesheet" href="/links/links.css?v=20261103b" />
 </head>
 <body>
   <!-- Built by tools/build-housemaxer-links.py from HouseMaxer parts/parts.json. Edit that, not this. -->
@@ -26,22 +26,34 @@
       </a>
     </div>
 
-    <h2>The parts we used</h2>
+    <h2>The parts list</h2>
     <p class="note">As an Amazon Associate I earn from qualifying purchases. These are affiliate links: they cost you nothing extra and help fund the project. Prices change daily, so check the listing.</p>
 
     <h2>The brain</h2>
-    <p class="intro">Pick one of the three: the Green box, a kit, or the parts one by one. <a href="https://github.com/MaxeThis/HouseMaxer/blob/main/docs/01-raspberry-pi-and-home-assistant.md" target="_blank" rel="noopener">Guide 1</a> explains the difference.</p>
-    <div class="links">
+    <p class="intro">Pick one of three ways to run Home Assistant. <a href="https://github.com/MaxeThis/HouseMaxer/blob/main/docs/01-raspberry-pi-and-home-assistant.md" target="_blank" rel="noopener">Guide 1</a> explains the difference.</p>
+    <div class="group">
+      <div class="group-head"><span class="title">Option 1 · Easiest</span><span class="sub">Home Assistant comes installed.</span></div>
+      <div class="links">
       <a class="link" href="https://www.amazon.com/ha_green/dp/B0CXVKSG19?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
         <span class="text"><span class="title">Home Assistant Green</span><span class="sub">Plug-and-play: Home Assistant already installed. Easiest way in.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
+      </div>
+    </div>
+    <div class="group">
+      <div class="group-head"><span class="title">Option 2 · One box</span><span class="sub">Every Pi part in one kit.</span></div>
+      <div class="links">
       <a class="link" href="https://www.amazon.com/pi5_kit/dp/B0CRSNCJ6Y?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
         <span class="text"><span class="title">CanaKit Raspberry Pi 5 Starter Kit PRO (8 GB, 128 GB card)</span><span class="sub">Every Pi part in one box: board, case, fan, power supply, microSD.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
+      </div>
+    </div>
+    <div class="group">
+      <div class="group-head"><span class="title">Option 3 · Part by part</span><span class="sub">Pick the cooler or the case, not both.</span></div>
+      <div class="links">
       <a class="link" href="https://www.amazon.com/pi5_8gb/dp/B0CK2FCG1K?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">Raspberry Pi 5, 8 GB</span><span class="sub">The board we use. 4 GB is enough for Home Assistant alone.</span></span>
+        <span class="text"><span class="title">Raspberry Pi 5, 8 GB<span class="tag mine">I use this</span></span><span class="sub">The board we use. 4 GB is enough for Home Assistant alone.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
       <a class="link" href="https://www.amazon.com/pi5_psu/dp/B0D3MFLNC1?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
@@ -60,6 +72,10 @@
         <span class="text"><span class="title">SanDisk Extreme 128 GB microSD (A2)</span><span class="sub">Home Assistant writes to disk all day: buy a good card.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
+      </div>
+    </div>
+    <h3>For any option</h3>
+    <div class="links">
       <a class="link" href="https://www.amazon.com/zigbee_alt/dp/B0B6P22YJC?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
         <span class="text"><span class="title">SONOFF Zigbee USB Dongle Plus (ZBDongle-E)</span><span class="sub">Zigbee radio for plugs and sensors. We use a Nortek HUSBZB-1, which is no longer sold.</span></span>
         <span class="go" aria-hidden="true">↗</span>
@@ -69,7 +85,7 @@
     <h2>Network</h2>
     <div class="links">
       <a class="link" href="https://www.amazon.com/s?k=ASUS+ZenWiFi+mesh+WiFi+system&amp;tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">ASUS ZenWiFi mesh<span class="tag">Buy used</span></span><span class="sub">We use the ZenWiFi AX (XT8) 2-pack, which Amazon no longer stocks new. Any current ZenWiFi works the same with Home Assistant. Good one to buy used.</span></span>
+        <span class="text"><span class="title">ASUS ZenWiFi mesh<span class="tag mine">I use this</span></span><span class="sub">I use the ZenWiFi AX (XT8). Any current ZenWiFi works the same with Home Assistant.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
     </div>
@@ -93,7 +109,7 @@
     <h2>Front door</h2>
     <div class="links">
       <a class="link" href="https://www.amazon.com/august_lock/dp/B082VXK9CK?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">August Wi-Fi Smart Lock (4th gen)<span class="tag">Buy used</span></span><span class="sub">Fits over your deadbolt; your key still works. Comes with DoorSense. We bought ours used on eBay.</span></span>
+        <span class="text"><span class="title">August Wi-Fi Smart Lock (4th gen)<span class="tag mine">I use this</span></span><span class="sub">Fits over your deadbolt; your key still works. Comes with DoorSense.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
     </div>
@@ -102,19 +118,19 @@
     <p class="intro">Hue replaced the bulb models we own (LCA005, LCA009, LTA008) in 2025. These are the current versions of the same bulbs.</p>
     <div class="links">
       <a class="link" href="https://www.amazon.com/hue_bridge/dp/B016H0QZ7I?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">Philips Hue Bridge<span class="tag">Buy used</span></span><span class="sub">Links the bulbs to Home Assistant; works without the internet. Cheap used.</span></span>
+        <span class="text"><span class="title">Philips Hue Bridge<span class="tag mine">I use this</span></span><span class="sub">Links the bulbs to Home Assistant; works without the internet.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
       <a class="link" href="https://www.amazon.com/hue_a19_color/dp/B0FNX74DZK?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">Hue White and Color A19, 1100 lm, 2-pack</span><span class="sub">Most of our lamps and ceiling fixtures.</span></span>
+        <span class="text"><span class="title">Hue White and Color A19, 1100 lm, 2-pack<span class="tag older">I use an older model</span></span><span class="sub">Most of our lamps and ceiling fixtures.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
       <a class="link" href="https://www.amazon.com/hue_a21/dp/B0FNPK429K?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">Hue White and Color A21, 1600 lm, 2-pack</span><span class="sub">For tall floor lamps that need more light.</span></span>
+        <span class="text"><span class="title">Hue White and Color A21, 1600 lm, 2-pack<span class="tag older">I use an older model</span></span><span class="sub">For tall floor lamps that need more light.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
       <a class="link" href="https://www.amazon.com/hue_ambiance/dp/B0FMGNGKWR?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">Hue White Ambiance A19, 2-pack</span><span class="sub">Warm-to-cool white only, cheaper than color.</span></span>
+        <span class="text"><span class="title">Hue White Ambiance A19, 2-pack<span class="tag older">I use an older model</span></span><span class="sub">Warm-to-cool white only, cheaper than color.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
     </div>
@@ -126,7 +142,7 @@
         <span class="go" aria-hidden="true">↗</span>
       </a>
       <a class="link" href="https://www.amazon.com/switchbot_hub2/dp/B0BM8VS13P?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">SwitchBot Hub 2</span><span class="sub">Optional: puts SwitchBot on Wi-Fi for the app and voice assistants; adds a temperature sensor and IR remote.</span></span>
+        <span class="text"><span class="title">SwitchBot Hub 2<span class="tag mine">I use this</span></span><span class="sub">Optional: puts SwitchBot on Wi-Fi for the app and voice assistants; adds a temperature sensor and IR remote.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
     </div>
@@ -134,7 +150,7 @@
     <h2>Aquarium</h2>
     <div class="links">
       <a class="link" href="https://www.amazon.com/fluval_flex/dp/B07JDTXTGR?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">Fluval Flex 32.5 gal aquarium kit</span><span class="sub">Our tank. The integration needs a light that works with the FluvalSmart (Bluetooth) app: check the box before you buy.</span></span>
+        <span class="text"><span class="title">Fluval Flex 32.5 gal aquarium kit<span class="tag mine">I use this</span></span><span class="sub">Our tank. The integration needs a light that works with the FluvalSmart (Bluetooth) app: check the box before you buy.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
       <a class="link" href="https://www.amazon.com/zigbee_plug/dp/B09LV53X62?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
@@ -145,12 +161,8 @@
 
     <h2>Robot vacuum</h2>
     <div class="links">
-      <a class="link" href="https://www.amazon.com/roborock_qrevo_plus_renewed/dp/B0FMKBBFLR?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">Roborock Qrevo Plus (Amazon Renewed)<span class="tag">Buy used</span></span><span class="sub">Ours is refurbished. Vacuums, mops, empties itself, washes its pads.</span></span>
-        <span class="go" aria-hidden="true">↗</span>
-      </a>
       <a class="link" href="https://www.amazon.com/roborock_qrevo_plus/dp/B0D2Y8MY5T?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">Roborock Qrevo Plus (new / like new)</span><span class="sub">Same robot, main listing.</span></span>
+        <span class="text"><span class="title">Roborock Qrevo Plus (new / like new)<span class="tag mine">I use this</span></span><span class="sub">Vacuums, mops, empties itself, washes its pads.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
     </div>
@@ -158,7 +170,7 @@
     <h2>Bathroom</h2>
     <div class="links">
       <a class="link" href="https://www.amazon.com/oralb_io/dp/B0B5HSNPNH?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">Oral-B iO Series 9</span><span class="sub">Its Bluetooth state starts the bedtime routine. The iO Series 8 works too.</span></span>
+        <span class="text"><span class="title">Oral-B iO Series 9<span class="tag mine">I use this</span></span><span class="sub">Its Bluetooth state starts the bedtime routine. The iO Series 8 works too.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
     </div>
@@ -167,11 +179,11 @@
     <p class="intro">Not needed for any guide, but they plug into Home Assistant with built-in integrations.</p>
     <div class="links">
       <a class="link" href="https://www.amazon.com/lg_oled/dp/B0GRK5D3RW?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">LG OLED evo C6, 65&quot;</span><span class="sub">We have the older C2. LG webOS integration: on/off, volume, inputs, and the screen glows on the 3D dashboard.</span></span>
+        <span class="text"><span class="title">LG OLED evo C6, 65&quot;<span class="tag older">I use an older model</span></span><span class="sub">We have the older C2. LG webOS integration: on/off, volume, inputs, and the screen glows on the 3D dashboard.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
       <a class="link" href="https://www.amazon.com/q990d/dp/B0CTKV9DRP?tag=maxestmax-20" target="_blank" rel="sponsored noopener">
-        <span class="text"><span class="title">Samsung HW-Q990D soundbar</span><span class="sub">Volume and sound modes from Home Assistant.</span></span>
+        <span class="text"><span class="title">Samsung HW-Q990D soundbar<span class="tag mine">I use this</span></span><span class="sub">Volume and sound modes from Home Assistant.</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>
     </div>
