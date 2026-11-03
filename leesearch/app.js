@@ -3,6 +3,7 @@
   'use strict';
   const DB = window.LDB;
   const D = DB.DELETE;
+  const LOCALDB = DB.kind !== 'firebase';     // data on this PC (local file or ?mock): no sign-in, local file key
 
   const USERS = {
     max: { short: 'Max', name: 'Max Mendelson', email: 'max@leesearch.maxmendelson.com', initials: 'MM', color: 'var(--max)' },
@@ -423,17 +424,17 @@
         <a class="brand small" href="#" id="home-link"><span class="brand-mark">L</span><b>Leesearch</b></a>
         ${p ? `<span class="crumb">/</span><span class="crumb-title">${esc(p.short || p.title)}</span>` : ''}
         ${tabs}
-        <div class="top-right"><span id="presence"></span>${LOCAL && DB.kind !== 'mock' ? '<span id="websync" class="websync"></span>' : ''}
+        <div class="top-right"><span id="presence"></span>${LOCAL && DB.kind === 'firebase' ? '<span id="websync" class="websync"></span>' : DB.kind === 'local' ? '<span class="websync" title="Saved in Lee/leesearch/local/db.json on this PC. Nothing goes to the website or Firebase until we sync.">On this PC only</span>' : ''}
           ${S.me === 'max' ? '<button class="lee-review" id="leerev" title="What Dr. Lee changed, commented and noted">Lee Review<span class="bubble" id="leebubble"></span></button>' : ''}
           <button class="gear" id="settings-btn" title="Settings: review order, panel width">⚙ Settings</button>
-          <span class="me">${avatar(S.me)}<button class="link" id="signout">${DB.kind === 'mock' ? `Local preview · view as ${USERS[other()].short}` : 'Sign out'}</button></span></div>
+          <span class="me">${avatar(S.me)}${DB.kind === 'local' ? '' : `<button class="link" id="signout">${DB.kind === 'mock' ? `Local preview · view as ${USERS[other()].short}` : 'Sign out'}</button>`}</span></div>
       </header>
       <main id="main"></main>
     </div>`;
   }
   function bindShell() {
     $('#home-link').onclick = (e) => { e.preventDefault(); go({ view: 'home' }); };
-    $('#signout').onclick = signOut;
+    if ($('#signout')) $('#signout').onclick = signOut;
     if ($('#leerev')) $('#leerev').onclick = openLeeReview;
     $('#settings-btn').onclick = openSettings;
     document.querySelectorAll('.tabs a').forEach((a) => a.onclick = (e) => { e.preventDefault(); go({ view: a.dataset.v, pid: S.route.pid }); });
@@ -2047,8 +2048,9 @@
     if (!u) {
       S.unsubs.forEach((x) => x()); S.unsubs = []; S.me = null; clearInterval(presTimer);
       // Local preview skips sign-in until launch: open as Max (or ?as=lee), using the local key.
-      if (DB.kind === 'mock') {
-        const want = sessionStorage.getItem('leesearch-mock-next') || (new URLSearchParams(location.search).get('as') === 'lee' ? 'lee' : 'max');
+      if (LOCALDB) {
+        // The local file holds real work, so it always opens as Max (only ?mock can play Dr. Lee).
+        const want = DB.kind === 'local' ? 'max' : sessionStorage.getItem('leesearch-mock-next') || (new URLSearchParams(location.search).get('as') === 'lee' ? 'lee' : 'max');
         sessionStorage.removeItem('leesearch-mock-next');
         S.key = S.key || await localKey();
         if (S.key) return DB.signIn(USERS[want].email, '');
@@ -2058,14 +2060,14 @@
     const me = PEOPLE.find((k) => USERS[k].email === u.email);
     if (!me) { await DB.signOut(); return renderLogin('This account is not part of Leesearch.'); }
     S.me = me; S.uid = u.uid;
-    S.maxKey = me !== 'max' ? null : DB.kind === 'mock' ? await localKey('maxKey') : await remoteMaxKey();
+    S.maxKey = me !== 'max' ? null : LOCALDB ? await localKey('maxKey') : await remoteMaxKey();
     if (!S.key) S.key = await keyStore('get');
-    if (!S.key && DB.kind === 'mock') S.key = await localKey();
-    if (!S.key && DB.kind !== 'mock') S.key = await remoteKey();
+    if (!S.key && LOCALDB) S.key = await localKey();
+    if (!S.key && !LOCALDB) S.key = await remoteKey();
     if (!S.key) { await DB.signOut(); return renderLogin('Could not get the file key. Sign in again.'); }
     try { await loadManifest(); } catch (e) {
       // A key saved on this device before the key was changed: fetch the current one once.
-      const k = DB.kind === 'mock' ? null : await remoteKey();
+      const k = LOCALDB ? await localKey() : await remoteKey();
       try { if (!k) throw e; S.key = k; S.fileCache.clear(); await loadManifest(); } catch (e2) {
         console.error(e2); await keyStore('del'); S.key = null; await DB.signOut(); return renderLogin('Could not unlock the files. Sign in again.');
       }
