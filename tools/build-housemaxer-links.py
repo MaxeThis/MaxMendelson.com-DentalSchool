@@ -28,8 +28,11 @@ MINE = {
     "roborock_qrevo_plus": "mine", "oralb_io": "mine", "q990d": "mine",
     "hue_a19_color": "older", "hue_a21": "older", "hue_ambiance": "older",
     "lg_oled": "older",
+    "esp32": "mine", "usbc_cable": "mine", "usb_wall": "spare",
 }
-TAGS = {"mine": "Max uses this", "older": "Max uses an older model"}
+TAGS = {"mine": "Max uses this", "older": "Max uses an older model", "spare": "Max uses spare power banks"}
+# A second tag after the first. The ESP32 boards are "the bug" from the video.
+EXTRA = {"esp32": ("bug", "🐛 The bug")}
 
 # This page never suggests buying used: skip those listings and reword.
 SKIP = {"roborock_qrevo_plus_renewed"}
@@ -97,6 +100,9 @@ def card(item, tag):
         raise SystemExit(f"{item['key']}: mentions buying used; add a WHY or SKIP entry")
     mine = MINE.get(item["key"])
     badge = f'<span class="tag {mine}">{TAGS[mine]}</span>' if mine else ""
+    if item["key"] in EXTRA:
+        kind, label = EXTRA[item["key"]]
+        badge += f'<span class="tag {kind}">{html.escape(label)}</span>'
     return f"""      <a class="link" href="{html.escape(amazon(item, tag))}" target="_blank" rel="sponsored noopener">
         <span class="text"><span class="title">{html.escape(item['name'])}{badge}</span><span class="sub">{inline(why)}</span></span>
         <span class="go" aria-hidden="true">↗</span>
@@ -142,7 +148,7 @@ def page(data, tag):
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HouseMaxer · Links</title>
   <meta name="description" content="A smart apartment on a Raspberry Pi: the parts I bought, the guides and the code." />
-  <link rel="stylesheet" href="/links/links.css?v=20261103b" />
+  <link rel="stylesheet" href="/links/links.css?v=20261103c" />
 </head>
 <body>
   <!-- Built by tools/build-housemaxer-links.py from HouseMaxer parts/parts.json. Edit that, not this. -->
