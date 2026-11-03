@@ -103,7 +103,7 @@ def card(item, tag):
     if item["key"] in EXTRA:
         kind, label = EXTRA[item["key"]]
         badge += f'<span class="tag {kind}">{html.escape(label)}</span>'
-    return f"""      <a class="link" href="{html.escape(amazon(item, tag))}" target="_blank" rel="sponsored noopener">
+    return f"""      <a class="link" data-link="{item['key']}" href="{html.escape(amazon(item, tag))}" target="_blank" rel="sponsored noopener">
         <span class="text"><span class="title">{html.escape(item['name'])}{badge}</span><span class="sub">{inline(why)}</span></span>
         <span class="go" aria-hidden="true">↗</span>
       </a>"""
@@ -148,9 +148,9 @@ def page(data, tag):
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HouseMaxer · Links</title>
   <meta name="description" content="A smart apartment on a Raspberry Pi: the parts I bought, the guides and the code." />
-  <link rel="stylesheet" href="/links/links.css?v=20261103c" />
+  <link rel="stylesheet" href="/links/links.css?v=20261103d" />
 </head>
-<body>
+<body data-page="housemaxer">
   <!-- Built by tools/build-housemaxer-links.py from HouseMaxer parts/parts.json. Edit that, not this. -->
   <div class="blobs" aria-hidden="true"><span></span><span></span><span></span></div>
   <main>
@@ -162,7 +162,7 @@ def page(data, tag):
     </header>
 
     <div class="links">
-      <a class="link folder" href="{REPO}" target="_blank" rel="noopener">
+      <a class="link folder" data-link="github_repo" href="{REPO}" target="_blank" rel="noopener">
         <span class="icon" aria-hidden="true">💻</span>
         <span class="text"><span class="title">The code and guides</span><span class="sub">Build the same thing at home. Free on GitHub</span></span>
         <span class="go" aria-hidden="true">↗</span>
@@ -177,8 +177,10 @@ def page(data, tag):
     <footer>
       <p>Parts list checked {html.escape(data.get("checked", ""))}.</p>
       <a href="/links/">‹ All links</a>
+      <p class="recaptcha">Counts visits and clicks with an anonymous ID; no ad trackers. <a href="/privacy.html#link-clicks">Privacy</a>. Protected by reCAPTCHA: Google <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Privacy</a> and <a href="https://policies.google.com/terms" target="_blank" rel="noopener">Terms</a> apply.</p>
     </footer>
   </main>
+  <script src="/links/track.js?v=20261103" defer></script>
 </body>
 </html>
 """

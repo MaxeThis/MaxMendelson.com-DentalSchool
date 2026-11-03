@@ -504,6 +504,7 @@
         <button class="admin-tab active" data-admin-tab="users" type="button">Users</button>
         <button class="admin-tab" data-admin-tab="calendar" type="button">All blocks calendar</button>
         <button class="admin-tab" data-admin-tab="baser" type="button">Baser usage</button>
+        <button class="admin-tab" data-admin-tab="links" type="button">Link clicks</button>
         <div class="admin-tools">
           <button id="admin-refresh" class="text-btn" type="button">Refresh</button>
           <button id="admin-forget" class="text-btn danger" type="button">Forget admin</button>
@@ -616,6 +617,34 @@
         <p class="small muted usage-note">Users are estimated from anonymous browser IDs, not people or student accounts. A session starts on each page load or after 30 minutes idle. Active time counts foreground use with recent interaction. An export counts when a download is initiated; the browser cannot confirm the file was saved. Offline use, blockers, and opt-outs may reduce counts. <a href="privacy.html#baser-usage">What is collected</a></p>
       </div>
 
+      <div id="admin-pane-links" class="admin-pane hidden">
+        <div class="usage-heading">
+          <div><h3>Link clicks</h3><p class="muted">Opens and clicks on <a href="/links/" target="_blank" rel="noopener">/links</a> and its HouseMaxer page.</p></div>
+          <label>Period <select id="link-usage-days"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select></label>
+        </div>
+        <div class="usage-auth">
+          <p id="link-usage-status" class="small muted" role="status" aria-live="polite">Verify the owner’s email to view link clicks.</p>
+          <button id="link-usage-signin" class="btn" type="button">Email me a sign-in link</button>
+        </div>
+        <div class="admin-stats usage-stats">
+          <div class="admin-stat"><span data-link-metric="opens">—</span><small>page opens</small></div>
+          <div class="admin-stat"><span data-link-metric="visitors">—</span><small>unique browsers</small></div>
+          <div class="admin-stat"><span data-link-metric="clicks">—</span><small>link clicks</small></div>
+          <div class="admin-stat"><span data-link-metric="rate">—</span><small>clicks per open</small></div>
+        </div>
+        <p id="link-usage-empty" class="usage-empty" hidden>No visits recorded in this period yet. Counts begin with this release.</p>
+        <h4>Clicks by link</h4>
+        <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th scope="col">Link</th><th scope="col">Page</th><th scope="col">Clicks</th><th scope="col">Browsers</th></tr></thead><tbody id="link-usage-links"></tbody></table></div>
+        <h4>Page opens</h4>
+        <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th scope="col">Page</th><th scope="col">Opens</th><th scope="col">Browsers</th></tr></thead><tbody id="link-usage-pages"></tbody></table></div>
+        <h4>Where opens came from</h4>
+        <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th scope="col">Source</th><th scope="col">Opens</th></tr></thead><tbody id="link-usage-sources"></tbody></table></div>
+        <h4>Devices</h4>
+        <div class="usage-table-wrap"><table class="usage-table"><thead><tr><th scope="col">Device</th><th scope="col">Opens</th></tr></thead><tbody id="link-usage-devices"></tbody></table></div>
+        <details class="usage-details"><summary>Daily counts</summary><div class="usage-table-wrap"><table class="usage-table"><thead><tr><th scope="col">Date (UTC)</th><th scope="col">Opens</th><th scope="col">Clicks</th></tr></thead><tbody id="link-usage-daily"></tbody></table></div></details>
+        <p class="small muted usage-note">Browsers are estimated from anonymous IDs, not people. Source is the app the page was opened in (Instagram, TikTok…) or the site that linked to it. Visitors with Global Privacy Control or Do Not Track, blockers, or no JavaScript are not counted. Amazon still credits sales by tracking ID; this shows which link was tapped. <a href="privacy.html#link-clicks">What is collected</a></p>
+      </div>
+
       <div id="admin-banner" class="admin-banner">
         <div class="admin-banner-line">
           <a href="https://MaxMendelson.com" target="_blank" rel="noopener">MaxMendelson.com</a> Admin
@@ -644,6 +673,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="firebase-config.js?v=20260907"></script>
   <script type="module" src="admin-analytics.js?v=20260907"></script>
-  <script src="app.js?v=20260907"></script>
+  <script type="module" src="admin-links.js?v=20261103"></script>
+  <script src="app.js?v=20261103"></script>
 </body>
 </html>

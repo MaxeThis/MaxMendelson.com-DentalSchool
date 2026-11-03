@@ -120,3 +120,7 @@ footer a { color: inherit; }
 .socials { display: flex; justify-content: center; gap: 18px; margin-bottom: 10px; }
 .socials a { font-weight: 600; text-decoration: none; }
 .socials a:hover { color: var(--ink); }
+
+/* reCAPTCHA (App Check) runs quietly; its notice lives in the footer instead. */
+.grecaptcha-badge { visibility: hidden; }
+.recaptcha { font-size: 11px; max-width: 360px; margin: 14px auto 0; }

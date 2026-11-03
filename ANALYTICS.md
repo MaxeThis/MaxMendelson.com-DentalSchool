@@ -45,3 +45,11 @@ node tools/analytics-rules.mjs deploy
 The helper compiles the updated source, checks that the live release has not changed, publishes it, and verifies the release. It prints the previous ruleset name for rollback. It uses the existing Firebase CLI login without printing credentials. If Firebase Tools is not installed globally, set `FIREBASE_TOOLS_PATH` to its package directory.
 
 The admin dashboard queries the `startedAt` field, which uses Firestore's default single-field index; no composite index or Cloudflare Worker deployment is required. Historical Baser usage before this feature cannot be reconstructed.
+
+# Link clicks (/links)
+
+`links/track.js` writes one `linkEvents` document per page open (`kind: view`) and per tap on an `a[data-link]` (`kind: click`). Fields: schema version, anonymous Auth UID as `visitorId`, `page` (`links` or `housemaxer`), `link` id, `device` (phone/tablet/desktop), `source` (instagram/facebook/tiktok/linkedin/github/site/direct/other) and a server timestamp `at`. Firestore rules (`LINK ANALYTICS` section) enforce that exact shape, allow create only, and limit reads to the verified owner. The tracker uses Firebase REST (anonymous sign-up, reCAPTCHA v3 App Check exchange, one commit) instead of the SDK to keep the pages light, and skips visitors with Global Privacy Control or Do Not Track.
+
+To count a new link, give its `<a>` a `data-link="some_id"` (lowercase letters, digits, underscores). HouseMaxer part links use the part key from `parts.json`. View the counts in Admin → Link clicks, which shares the owner sign-in with Baser usage and reads link names from the live pages.
+
+Deploy the rules with the same helper as Baser (`node tools/analytics-rules.mjs check`, then `deploy`); it now also allows the link section to differ from live. Rules tests: `test/test-link-rules.mjs`, run the same way as `test/test-analytics-rules.mjs`.

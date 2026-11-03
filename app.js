@@ -3679,7 +3679,7 @@ async function loadAdminData() {
 
 function setAdminSubView(sub) {
   if (!state.isAdmin) return;
-  if (!['users', 'calendar', 'baser'].includes(sub)) sub = 'users';
+  if (!['users', 'calendar', 'baser', 'links'].includes(sub)) sub = 'users';
   state.admin.subView = sub;
   document.querySelectorAll('#view-admin .admin-tab').forEach((b) => {
     b.classList.toggle('active', b.dataset.adminTab === sub);
@@ -3688,6 +3688,8 @@ function setAdminSubView(sub) {
   $('admin-pane-calendar').classList.toggle('hidden', sub !== 'calendar');
   $('admin-pane-baser').classList.toggle('hidden', sub !== 'baser');
   if (sub === 'baser') window.BaserAdminAnalytics?.enter();
+  $('admin-pane-links').classList.toggle('hidden', sub !== 'links');
+  if (sub === 'links') window.LinkAdminAnalytics?.enter();
   if (sub === 'users') renderAdminUsers();
   else if (sub === 'calendar') {
     if (!state.admin.calMonth) {
@@ -4600,6 +4602,10 @@ function wireEvents() {
   if (refreshBtn) refreshBtn.addEventListener('click', async () => {
     if (state.admin.subView === 'baser') {
       await window.BaserAdminAnalytics?.refresh();
+      return;
+    }
+    if (state.admin.subView === 'links') {
+      await window.LinkAdminAnalytics?.refresh();
       return;
     }
     await loadAdminData();

@@ -24,6 +24,7 @@ jobs:
           node test/test-usage.mjs
           node test/test-usage-lifecycle.mjs
           node test/test-admin-analytics.mjs
+          node test/test-link-metrics.mjs
       - name: Geometry, engraving, and STL regressions
         run: |
           node test/test-baser.mjs

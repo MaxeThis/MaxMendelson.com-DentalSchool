@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Safely review/deploy the additive Baser analytics rules using firebase login.
+// Safely review/deploy the additive Baser and link analytics rules using firebase login.
 // Never reads Firestore documents. Refuses to replace unrelated live rules.
 // The only other permitted change adds three existing app block types.
 // node tools/analytics-rules.mjs check
@@ -13,15 +13,16 @@ import { spawnSync } from 'node:child_process';
 const project = 'maxmendelson-com-dental-school';
 const rulesPath = fileURLToPath(new URL('../firestore.rules', import.meta.url));
 const marker = /\n    \/\/ BEGIN BASER ANALYTICS[^\n]*\n[\s\S]*?    \/\/ END BASER ANALYTICS\n/g;
+const linkMarker = /\n    \/\/ BEGIN LINK ANALYTICS[^\n]*\n[\s\S]*?    \/\/ END LINK ANALYTICS\n/g;
 const local = fs.readFileSync(rulesPath, 'utf8');
 const command = process.argv[2] || 'check';
 if (!['check', 'deploy'].includes(command)) throw new Error('Usage: node tools/analytics-rules.mjs check|deploy');
 
 function withoutAnalytics(content) {
   const matches = [...content.matchAll(marker)];
-  if (matches.length > 1) throw new Error('Multiple analytics rule sections found; review manually.');
+  if (matches.length > 1 || [...content.matchAll(linkMarker)].length > 1) throw new Error('Multiple analytics rule sections found; review manually.');
   // Editors may add a final newline; it has no effect on rule semantics.
-  return content.replace(/\n$/, '').replace(marker, '').replace(/function validType\(t\) \{\s*return t in \[[^\]]+\];\s*\}/, (rule) =>
+  return content.replace(/\n$/, '').replace(linkMarker, '\n').replace(marker, '').replace(/function validType\(t\) \{\s*return t in \[[^\]]+\];\s*\}/, (rule) =>
     rule.replace(/,'(?:Perio|Clerkship|Shady Grove)'/g, ''));
 }
 function firebaseToolsRoot() {
@@ -31,7 +32,7 @@ function firebaseToolsRoot() {
   throw new Error('Install the Firebase CLI or set FIREBASE_TOOLS_PATH to its package directory.');
 }
 async function run() {
-  if (![...local.matchAll(marker)].length) throw new Error('Local analytics section missing.');
+  if (![...local.matchAll(marker)].length || ![...local.matchAll(linkMarker)].length) throw new Error('Local analytics section missing.');
   const localTypeRule = local.match(/function validType\(t\) \{\s*return t in \[[^\]]+\];\s*\}/)?.[0] || '';
   if (!['Perio', 'Clerkship', 'Shady Grove'].every(type => localTypeRule.includes(`'${type}'`))) {
     throw new Error('Local rules must retain all three existing app block-type additions.');

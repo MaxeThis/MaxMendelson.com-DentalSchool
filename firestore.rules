@@ -220,6 +220,36 @@ service cloud.firestore {
       allow delete: if false;
     }
     // END BASER ANALYTICS
+    // BEGIN LINK ANALYTICS — deploy with tools/analytics-rules.mjs.
+    // One record per page open or link click on /links. No URLs, referrers,
+    // user agents or names: the page, a link id and two coarse categories.
+    match /linkEvents/{eventId} {
+      function linkOwner() {
+        return request.auth != null
+          && request.auth.token.firebase.sign_in_provider in ['google.com', 'password']
+          && request.auth.token.email == 'maxethis@gmail.com'
+          && request.auth.token.email_verified == true;
+      }
+      function validLinkEvent() {
+        let d = request.resource.data;
+        return eventId.matches('^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$')
+          && d.keys().hasAll(['schemaVersion','visitorId','page','kind','link','device','source','at'])
+          && d.keys().hasOnly(['schemaVersion','visitorId','page','kind','link','device','source','at'])
+          && d.schemaVersion == 1
+          && d.visitorId == request.auth.uid
+          && d.page in ['links', 'housemaxer']
+          && ((d.kind == 'view' && d.link == '') || (d.kind == 'click' && d.link is string && d.link.matches('^[a-z0-9_]{1,40}$')))
+          && d.device in ['phone', 'tablet', 'desktop']
+          && d.source in ['instagram', 'facebook', 'tiktok', 'linkedin', 'github', 'site', 'direct', 'other']
+          && d.at == request.time;
+      }
+      allow read: if linkOwner();
+      allow create: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'anonymous'
+        && validLinkEvent();
+      allow update, delete: if false;
+    }
+    // END LINK ANALYTICS
     // BEGIN LEESEARCH — Max and Dr. Lee's private manuscript workspace (/leesearch).
     // Only their two accounts can read or write. Managed by Lee/leesearch/tools/leesearch.mjs.
     match /leesearch_papers/{doc=**} {
