@@ -424,7 +424,7 @@
         <a class="brand small" href="#" id="home-link"><span class="brand-mark">L</span><b>Leesearch</b></a>
         ${p ? `<span class="crumb">/</span><span class="crumb-title">${esc(p.short || p.title)}</span>` : ''}
         ${tabs}
-        <div class="top-right"><span id="presence"></span>${LOCAL && DB.kind === 'firebase' ? '<span id="websync" class="websync"></span>' : DB.kind === 'local' ? '<span class="websync" title="Saved in Lee/leesearch/local/db.json on this PC. Nothing goes to the website or Firebase until we sync.">On this PC only</span>' : ''}
+        <div class="top-right"><span id="presence"></span>${LOCAL && DB.kind !== 'mock' ? `<span id="websync" class="websync">${DB.kind === 'local' ? 'On this PC' : ''}</span>` : ''}
           ${S.me === 'max' ? '<button class="lee-review" id="leerev" title="What Dr. Lee changed, commented and noted">Lee Review<span class="bubble" id="leebubble"></span></button>' : ''}
           <button class="gear" id="settings-btn" title="Settings: review order, panel width">⚙ Settings</button>
           <span class="me">${avatar(S.me)}${DB.kind === 'local' ? '' : `<button class="link" id="signout">${DB.kind === 'mock' ? `Local preview · view as ${USERS[other()].short}` : 'Sign out'}</button>`}</span></div>
@@ -2010,6 +2010,17 @@
   let localStamp = null, snapTimer = null;
   function renderWebSync(st) {
     const el = $('#websync'); if (!el || !st) return;
+    if (DB.kind === 'local') {
+      // Saved on this PC; the local server sends it online after a break and brings Dr. Lee's changes down (4 Nov)
+      const s = st.sync || {}, hrs = s.break_hours || 6, busy = s.state === 'pushing' || s.state === 'waiting';
+      el.className = 'websync ' + (busy ? 'publishing' : s.state === 'error' ? 'error' : '');
+      el.textContent = !s.on ? 'On this PC only' : busy ? 'Sending online…' : s.state === 'error' ? 'On this PC · sending online failed'
+        : s.dirty ? `On this PC · goes online after a ${hrs}-hour break` : s.pushed_at ? `On this PC · online copy updated ${ago(s.pushed_at * 1000)}` : 'On this PC';
+      el.title = !s.on ? 'Saved in Lee/leesearch/local/db.json on this PC. Nothing goes to the website or Firebase.'
+        : (s.state === 'error' ? s.error + '\n\n' : '') + `Saved in Lee/leesearch/local/db.json on this PC. After ${hrs} hours with nothing done here it goes to the website for Dr. Lee, and anything new from him comes down every 10 minutes. Click to send it now.`;
+      el.onclick = s.on ? () => fetch('/__push', { method: 'POST', body: '{}' }).then(() => { el.textContent = 'Sending online…'; }).catch(() => {}) : null;
+      return;
+    }
     const w = st.web || {};
     el.className = 'websync ' + (w.state || '');
     el.textContent = w.state === 'publishing' ? 'Website: updating…' : w.state === 'waiting' ? 'Website: updates soon' : w.state === 'error' ? 'Website: update failed' : w.at ? `Website: up to date · ${ago(w.at * 1000)}` : 'Website';
